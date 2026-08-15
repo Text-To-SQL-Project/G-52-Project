@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Secrets (contains live DB credentials)
+.env
+
+# OS
+.DS_Store
+Thumbs.db

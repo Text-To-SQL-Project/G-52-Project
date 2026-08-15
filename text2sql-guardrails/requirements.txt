@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.13.4
+python-dotenv==1.0.1
+# Wired in later phases:
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.13
+sqlglot==25.34.0
+pandas==2.2.3
+pytest==9.1.1

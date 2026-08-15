@@ -1,0 +1,27 @@
+-- Master load script. Run with: psql -f 99_load_all.sql
+\i 00_schema.sql
+\i 01_departments.sql
+\i 02_programs.sql
+\i 03_academic_years.sql
+\i 04_semesters.sql
+\i 05_students.sql
+\i 06_faculty.sql
+\i 07_subjects.sql
+\i 08_subject_offerings.sql
+\i 09_faculty_subject_assignments.sql
+\i 10_sections.sql
+\i 11_student_section_mapping.sql
+\i 12_student_enrollments.sql
+\i 13_exam_types.sql
+\i 14_exams.sql
+\i 15_attendance.sql
+\i 16_marks.sql
+\i 17_fee_categories.sql
+\i 18_fee_structure.sql
+\i 19_fee_payments.sql
+\i 20_library_books.sql
+\i 21_library_transactions.sql
+\i 22_placement_companies.sql
+\i 23_placement_drives.sql
+\i 24_placement_applications.sql
+\i 25_placement_offers.sql

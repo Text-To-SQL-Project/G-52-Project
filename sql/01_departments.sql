@@ -1,0 +1,13 @@
+-- Data for table: college_erp.departments (8 rows)
+SET search_path TO college_erp;
+
+INSERT INTO departments (department_id, department_name, department_code, hod_name, established_year) VALUES
+(1, 'Computer Science & Engineering', 'CSE', 'Dr. Swati Mishra', 2008),
+(2, 'Electronics & Communication Engineering', 'ECE', 'Dr. Vihaan Chandra', 1996),
+(3, 'Mechanical Engineering', 'MECH', 'Dr. Deepak Chatterjee', 1995),
+(4, 'Civil Engineering', 'CIVIL', 'Dr. Yash Joshi', 1997),
+(5, 'Electrical Engineering', 'EE', 'Dr. Isha Yadav', 2001),
+(6, 'Information Technology', 'IT', 'Dr. Vidya Chandra', 2002),
+(7, 'Artificial Intelligence & Data Science', 'AIDS', 'Dr. Harshita Thakur', 2011),
+(8, 'Business Administration', 'MBA', 'Dr. Karthik Solanki', 2014);
+
