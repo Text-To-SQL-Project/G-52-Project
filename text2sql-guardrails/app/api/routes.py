@@ -34,6 +34,7 @@ from app.api.models import (
 )
 from app.db import get_readonly_engine
 from app.detection.back_translation import check_back_translation
+from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql
 from app.safety.guardrails import check_guardrails
@@ -54,9 +55,9 @@ def run_query(req: QueryRequest) -> QueryResponse:
       1. app.schema.retriever  -> pick relevant tables               [not yet -- full schema used]
       2. app.generation        -> LLM produces sql + metadata        [REAL]
       3. app.safety.guardrails -> static AST checks (may BLOCK here) [REAL]
-      4. app.detection (pre)   -> back-translation, schema alignment [schema alignment REAL]
+      4. app.detection (pre)   -> back-translation, schema alignment [REAL]
       5. app.safety.sandbox    -> read-only execution                [REAL, inline -- no sandbox module yet]
-      6. app.detection (post)  -> result sanity, multi-query         [TODO]
+      6. app.detection (post)  -> result sanity, multi-query         [result sanity REAL]
       7. app.detection.confidence -> fuse + calibrate                [TODO]
     """
     query_id = _new_id()
@@ -128,8 +129,9 @@ def run_query(req: QueryRequest) -> QueryResponse:
     )
 
     # 4. app.detection (pre) -- schema alignment + back-translation are
-    # real; the remaining 2 signals are placeholders until app.detection's
-    # result-sanity/multi-query checks exist.
+    # real. result_sanity starts as a placeholder here and gets replaced
+    # with the real signal after execution below (it needs the rows).
+    # multi_query_agreement remains a placeholder until that detector exists.
     alignment_signal = check_schema_alignment(safe_sql)
     back_translation_signal = check_back_translation(req.question, safe_sql)
     signals = [
@@ -178,8 +180,16 @@ def run_query(req: QueryRequest) -> QueryResponse:
         )
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
 
-    # 6-7 (post-detection, confidence fusion) still TODO -- overall score
-    # stays a placeholder until real fusion/calibration exists.
+    # 6. app.detection (post) -- result sanity, real; needs the rows so it
+    # can only run here, after execution.
+    result_sanity_signal = check_result_sanity(safe_sql, result_columns, result_rows, req.question)
+    signals = [
+        result_sanity_signal if s.key == "result_sanity" else s
+        for s in signals
+    ]
+
+    # 7. app.detection.confidence -- fuse + calibrate, still TODO. Overall
+    # score stays a placeholder until real fusion/calibration exists.
     return QueryResponse(
         query_id=query_id,
         status=QueryStatus.SUCCESS,
