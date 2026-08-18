@@ -28,6 +28,10 @@ class Settings:
     LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-5")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
     MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "1024"))
+    # Toggle off for the back-translation ablation study.
+    BACK_TRANSLATION_ENABLED: bool = os.getenv(
+        "BACK_TRANSLATION_ENABLED", "true"
+    ).strip().lower() in ("1", "true", "yes", "on")
 
     # Safety thresholds
     DEFAULT_ROW_LIMIT: int = int(os.getenv("DEFAULT_ROW_LIMIT", "1000"))

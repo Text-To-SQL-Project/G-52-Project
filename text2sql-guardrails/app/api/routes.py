@@ -33,6 +33,7 @@ from app.api.models import (
     WarningLevel,
 )
 from app.db import get_readonly_engine
+from app.detection.back_translation import check_back_translation
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql
 from app.safety.guardrails import check_guardrails
@@ -126,21 +127,18 @@ def run_query(req: QueryRequest) -> QueryResponse:
         checks_run=result.checks_run,
     )
 
-    # 4. app.detection (pre) -- schema alignment, real; the other 4 signals
-    # are placeholders until app.detection's back-translation/result-sanity/
-    # multi-query checks exist.
+    # 4. app.detection (pre) -- schema alignment + back-translation are
+    # real; the remaining 2 signals are placeholders until app.detection's
+    # result-sanity/multi-query checks exist.
     alignment_signal = check_schema_alignment(safe_sql)
+    back_translation_signal = check_back_translation(req.question, safe_sql)
     signals = [
         ConfidenceSignal(
             key="sql_validity", label="SQL Validity", score=1.0,
             status=SignalStatus.PASS, detail="Parses via sqlglot; passed guardrail AST checks.",
         ),
         alignment_signal,
-        ConfidenceSignal(
-            key="back_translation_match", label="Back-translation Match",
-            score=0.89, status=SignalStatus.PASS,
-            detail="Round-trip question matches intent (0.89 cos sim).",
-        ),
+        back_translation_signal,
         ConfidenceSignal(
             key="result_sanity", label="Result Sanity", score=0.90,
             status=SignalStatus.PASS, detail="5 rows, totals in plausible range.",
