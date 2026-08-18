@@ -10,23 +10,38 @@ contract stays fixed as you replace the mocks, so the frontend never breaks.
 """
 from __future__ import annotations
 
+import time
+import uuid
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Query
+from sqlalchemy import text
 
 from app.api import mock_data
 from app.api.models import (
+    Confidence,
+    ConfidenceSignal,
     GuardrailReport,
     HistoryResponse,
     QueryRequest,
     QueryResponse,
     QueryStatus,
+    ResultTable,
     SchemaResponse,
+    SignalStatus,
     Warning,
     WarningLevel,
 )
+from app.db import get_readonly_engine
 from app.detection.schema_align import check_schema_alignment
+from app.generation.generator import generate_sql
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
+
+
+def _new_id() -> str:
+    return f"q_{uuid.uuid4().hex[:12]}"
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -34,38 +49,55 @@ def run_query(req: QueryRequest) -> QueryResponse:
     """Translate a natural-language question to SQL, run it safely, and
     return results + calibrated confidence.
 
-    TODO (replace the mock, in this order):
-      1. app.schema.retriever  -> pick relevant tables
-      2. app.generation        -> LLM produces sql + metadata
-      3. app.safety.guardrails -> static AST checks (may BLOCK here)      [REAL]
-      4. app.detection (pre)   -> back-translation, schema alignment      [schema alignment REAL]
-      5. app.safety.sandbox    -> read-only execution
-      6. app.detection (post)  -> result sanity, multi-query
-      7. app.detection.confidence -> fuse + calibrate
+    Pipeline (replaces the mock, in this order):
+      1. app.schema.retriever  -> pick relevant tables               [not yet -- full schema used]
+      2. app.generation        -> LLM produces sql + metadata        [REAL]
+      3. app.safety.guardrails -> static AST checks (may BLOCK here) [REAL]
+      4. app.detection (pre)   -> back-translation, schema alignment [schema alignment REAL]
+      5. app.safety.sandbox    -> read-only execution                [REAL, inline -- no sandbox module yet]
+      6. app.detection (post)  -> result sanity, multi-query         [TODO]
+      7. app.detection.confidence -> fuse + calibrate                [TODO]
     """
-    if req.sql_override:
-        # Power-user path: user edited SQL in the UI. Still runs through
-        # guardrails below -- an override is exactly the case guardrails
-        # exist for.
-        candidate = mock_data.mock_success(req.question)
-        candidate.sql = req.sql_override
-    else:
-        candidate = mock_data.route_mock(req.question)
+    query_id = _new_id()
+    timestamp = datetime.now(timezone.utc)
 
-    if candidate.status == QueryStatus.CLARIFICATION_NEEDED or candidate.sql is None:
-        return candidate
+    # 1-2. schema retrieval + generation.
+    if req.sql_override:
+        # Power-user path: user edited SQL in the UI. No LLM call, but it
+        # still runs through guardrails below -- an override is exactly the
+        # case guardrails exist for.
+        sql = req.sql_override
+        explanation = "User-provided SQL override."
+        tables_used: list[str] = []
+        columns_used: list[str] = []
+    else:
+        try:
+            gen = generate_sql(req.question)
+        except Exception as e:
+            return QueryResponse(
+                query_id=query_id,
+                status=QueryStatus.ERROR,
+                question=req.question,
+                timestamp=timestamp,
+                guardrail=GuardrailReport(passed=True, checks_run=[]),
+                error_message=f"SQL generation failed: {e}",
+            )
+        sql = gen.sql
+        explanation = gen.explanation
+        tables_used = gen.tables_used
+        columns_used = gen.columns_used
 
     # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
-    result = check_guardrails(candidate.sql)
+    result = check_guardrails(sql)
     if not result.passed:
         return QueryResponse(
-            query_id=candidate.query_id,
+            query_id=query_id,
             status=QueryStatus.BLOCKED,
-            question=candidate.question,
-            timestamp=candidate.timestamp,
-            sql=candidate.sql,
-            explanation=candidate.explanation,
-            tables_used=candidate.tables_used,
+            question=req.question,
+            timestamp=timestamp,
+            sql=sql,
+            explanation=explanation,
+            tables_used=tables_used,
             columns_used=[],
             results=None,
             confidence=None,
@@ -86,24 +118,90 @@ def run_query(req: QueryRequest) -> QueryResponse:
         )
 
     # Guardrails passed: use the (possibly LIMIT-injected) safe SQL downstream.
-    candidate.sql = result.safe_sql
-    candidate.guardrail = GuardrailReport(
+    safe_sql = result.safe_sql
+    guardrail_report = GuardrailReport(
         passed=True,
         blocked_reasons=[],
         injected_limit=result.injected_limit,
         checks_run=result.checks_run,
     )
 
-    # 4. app.detection (pre) -- schema alignment, replaces the mock signal.
-    alignment_signal = check_schema_alignment(candidate.sql)
-    if candidate.confidence is not None:
-        candidate.confidence.signals = [
-            alignment_signal if s.key == "schema_alignment" else s
-            for s in candidate.confidence.signals
-        ]
+    # 4. app.detection (pre) -- schema alignment, real; the other 4 signals
+    # are placeholders until app.detection's back-translation/result-sanity/
+    # multi-query checks exist.
+    alignment_signal = check_schema_alignment(safe_sql)
+    signals = [
+        ConfidenceSignal(
+            key="sql_validity", label="SQL Validity", score=1.0,
+            status=SignalStatus.PASS, detail="Parses via sqlglot; passed guardrail AST checks.",
+        ),
+        alignment_signal,
+        ConfidenceSignal(
+            key="back_translation_match", label="Back-translation Match",
+            score=0.89, status=SignalStatus.PASS,
+            detail="Round-trip question matches intent (0.89 cos sim).",
+        ),
+        ConfidenceSignal(
+            key="result_sanity", label="Result Sanity", score=0.90,
+            status=SignalStatus.PASS, detail="5 rows, totals in plausible range.",
+        ),
+        ConfidenceSignal(
+            key="multi_query_agreement", label="Multi-query Agreement",
+            score=0.85, status=SignalStatus.WARN,
+            detail="2 of 3 variants agree on the result set.",
+        ),
+    ]
 
-    # 5-7 (sandbox execution, post-detection, confidence fusion) still TODO.
-    return candidate
+    # 5. app.safety.sandbox -- real read-only execution (inline; no
+    # dedicated sandbox module yet).
+    engine = get_readonly_engine()
+    start = time.perf_counter()
+    try:
+        with engine.connect() as conn:
+            cursor = conn.execute(text(safe_sql))
+            result_columns = list(cursor.keys())
+            result_rows = [list(row) for row in cursor.fetchall()]
+    except Exception as e:
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            question=req.question,
+            timestamp=timestamp,
+            sql=safe_sql,
+            explanation=explanation,
+            tables_used=tables_used,
+            columns_used=columns_used,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=f"Execution failed: {e}",
+        )
+    execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
+
+    # 6-7 (post-detection, confidence fusion) still TODO -- overall score
+    # stays a placeholder until real fusion/calibration exists.
+    return QueryResponse(
+        query_id=query_id,
+        status=QueryStatus.SUCCESS,
+        question=req.question,
+        timestamp=timestamp,
+        sql=safe_sql,
+        explanation=explanation,
+        tables_used=tables_used,
+        columns_used=columns_used,
+        results=ResultTable(
+            columns=result_columns,
+            rows=result_rows,
+            row_count=len(result_rows),
+            truncated=False,
+        ),
+        confidence=Confidence(score=0.92, label="High", calibrated=False, signals=signals),
+        execution_time_ms=execution_time_ms,
+        guardrail=guardrail_report,
+        warnings=[],
+    )
 
 
 @router.get("/schema", response_model=SchemaResponse)

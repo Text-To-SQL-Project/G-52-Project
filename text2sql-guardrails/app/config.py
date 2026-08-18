@@ -25,8 +25,9 @@ class Settings:
     READONLY_DATABASE_URL: str = os.getenv("READONLY_DATABASE_URL", "")
 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # or "openai"
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-5")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "1024"))
 
     # Safety thresholds
     DEFAULT_ROW_LIMIT: int = int(os.getenv("DEFAULT_ROW_LIMIT", "1000"))
