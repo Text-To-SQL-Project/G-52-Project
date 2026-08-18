@@ -25,7 +25,9 @@ def build_system_prompt(schema: SchemaResponse) -> str:
         "Rules:",
         "- Output a single SELECT statement only (no DDL, no DML, no "
         "multiple statements).",
-        "- Always include a LIMIT clause.",
+        "- Do NOT add a LIMIT clause unless the question explicitly asks "
+        "for a top-N or a specific number of rows. The system enforces "
+        "its own row cap.",
         "- Respond with ONLY a JSON object, no prose, no markdown fences, "
         f"matching exactly this shape: {_RESPONSE_SHAPE}",
         "",
