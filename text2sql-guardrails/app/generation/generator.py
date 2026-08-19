@@ -28,8 +28,30 @@ def generate_sql(question: str) -> GenerationResult:
     JSON shape -- callers (routes.py) are responsible for turning that into
     an ERROR QueryResponse.
     """
+    return _generate(question, extra_instructions=None)
+
+
+def generate_sql_variant(question: str) -> GenerationResult:
+    """Like generate_sql, but asks for a deliberately different query
+    strategy for the same question -- used by
+    app.detection.multi_query to get an independent second opinion whose
+    result set can be compared against the primary SQL's.
+
+    Raises under the same conditions as generate_sql.
+    """
+    return _generate(
+        question,
+        extra_instructions=(
+            "Solve this using a different JOIN structure, subquery, or "
+            "aggregation approach than the most obvious one, while still "
+            "correctly answering the same question."
+        ),
+    )
+
+
+def _generate(question: str, extra_instructions: str | None) -> GenerationResult:
     schema = introspect_schema(include_samples=False)
-    system = build_system_prompt(schema)
+    system = build_system_prompt(schema, extra_instructions=extra_instructions)
     user = build_user_prompt(question)
 
     raw = complete(system, user)

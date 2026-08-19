@@ -19,7 +19,6 @@ from sqlalchemy import text
 
 from app.api import mock_data
 from app.api.models import (
-    Confidence,
     ConfidenceSignal,
     GuardrailReport,
     HistoryResponse,
@@ -34,6 +33,8 @@ from app.api.models import (
 )
 from app.db import get_readonly_engine
 from app.detection.back_translation import check_back_translation
+from app.detection.confidence import fuse_confidence
+from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql
@@ -57,8 +58,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
       3. app.safety.guardrails -> static AST checks (may BLOCK here) [REAL]
       4. app.detection (pre)   -> back-translation, schema alignment [REAL]
       5. app.safety.sandbox    -> read-only execution                [REAL, inline -- no sandbox module yet]
-      6. app.detection (post)  -> result sanity, multi-query         [result sanity REAL]
-      7. app.detection.confidence -> fuse + calibrate                [TODO]
+      6. app.detection (post)  -> result sanity, multi-query         [REAL]
+      7. app.detection.confidence -> fuse + calibrate                [fusion REAL; calibration is Phase 5]
     """
     query_id = _new_id()
     timestamp = datetime.now(timezone.utc)
@@ -129,9 +130,9 @@ def run_query(req: QueryRequest) -> QueryResponse:
     )
 
     # 4. app.detection (pre) -- schema alignment + back-translation are
-    # real. result_sanity starts as a placeholder here and gets replaced
-    # with the real signal after execution below (it needs the rows).
-    # multi_query_agreement remains a placeholder until that detector exists.
+    # computed here. result_sanity and multi_query_agreement start as
+    # placeholders and get replaced with the real signals after execution
+    # below (both need the executed rows).
     alignment_signal = check_schema_alignment(safe_sql)
     back_translation_signal = check_back_translation(req.question, safe_sql)
     signals = [
@@ -142,13 +143,12 @@ def run_query(req: QueryRequest) -> QueryResponse:
         alignment_signal,
         back_translation_signal,
         ConfidenceSignal(
-            key="result_sanity", label="Result Sanity", score=0.90,
-            status=SignalStatus.PASS, detail="5 rows, totals in plausible range.",
+            key="result_sanity", label="Result Sanity", score=0.5,
+            status=SignalStatus.WARN, detail="pending execution",
         ),
         ConfidenceSignal(
             key="multi_query_agreement", label="Multi-query Agreement",
-            score=0.85, status=SignalStatus.WARN,
-            detail="2 of 3 variants agree on the result set.",
+            score=0.5, status=SignalStatus.WARN, detail="pending execution",
         ),
     ]
 
@@ -180,16 +180,22 @@ def run_query(req: QueryRequest) -> QueryResponse:
         )
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
 
-    # 6. app.detection (post) -- result sanity, real; needs the rows so it
-    # can only run here, after execution.
+    # 6. app.detection (post) -- result sanity + multi-query agreement,
+    # both real; both need the rows so they can only run here, after
+    # execution.
     result_sanity_signal = check_result_sanity(safe_sql, result_columns, result_rows, req.question)
+    multi_query_signal = check_multi_query_agreement(req.question, safe_sql, result_rows)
     signals = [
-        result_sanity_signal if s.key == "result_sanity" else s
+        result_sanity_signal if s.key == "result_sanity"
+        else multi_query_signal if s.key == "multi_query_agreement"
+        else s
         for s in signals
     ]
 
-    # 7. app.detection.confidence -- fuse + calibrate, still TODO. Overall
-    # score stays a placeholder until real fusion/calibration exists.
+    # 7. app.detection.confidence -- fuse the five real signals into one
+    # overall score (weighted mean + hard fail-override; see
+    # app/detection/confidence.py). Not a calibrated probability -- see
+    # Confidence.calibrated / fuse_confidence's own comment.
     return QueryResponse(
         query_id=query_id,
         status=QueryStatus.SUCCESS,
@@ -205,7 +211,7 @@ def run_query(req: QueryRequest) -> QueryResponse:
             row_count=len(result_rows),
             truncated=False,
         ),
-        confidence=Confidence(score=0.92, label="High", calibrated=False, signals=signals),
+        confidence=fuse_confidence(signals),
         execution_time_ms=execution_time_ms,
         guardrail=guardrail_report,
         warnings=[],

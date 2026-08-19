@@ -16,7 +16,7 @@ _RESPONSE_SHAPE = (
 )
 
 
-def build_system_prompt(schema: SchemaResponse) -> str:
+def build_system_prompt(schema: SchemaResponse, extra_instructions: str | None = None) -> str:
     lines = [
         "You are a PostgreSQL expert that translates a natural-language "
         "question into a single read-only SQL query, using ONLY the tables "
@@ -30,6 +30,10 @@ def build_system_prompt(schema: SchemaResponse) -> str:
         "its own row cap.",
         "- Respond with ONLY a JSON object, no prose, no markdown fences, "
         f"matching exactly this shape: {_RESPONSE_SHAPE}",
+    ]
+    if extra_instructions:
+        lines.append(f"- {extra_instructions}")
+    lines += [
         "",
         f"Database: {schema.database}",
         "Tables:",

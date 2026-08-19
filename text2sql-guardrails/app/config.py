@@ -32,6 +32,12 @@ class Settings:
     BACK_TRANSLATION_ENABLED: bool = os.getenv(
         "BACK_TRANSLATION_ENABLED", "true"
     ).strip().lower() in ("1", "true", "yes", "on")
+    # Off by default -- multiplies LLM API calls (N-1 extra generations +
+    # executions per request). Enable only for evaluation runs.
+    MULTI_QUERY_ENABLED: bool = os.getenv(
+        "MULTI_QUERY_ENABLED", "false"
+    ).strip().lower() in ("1", "true", "yes", "on")
+    MULTI_QUERY_N: int = int(os.getenv("MULTI_QUERY_N", "2"))
 
     # Safety thresholds
     DEFAULT_ROW_LIMIT: int = int(os.getenv("DEFAULT_ROW_LIMIT", "1000"))
