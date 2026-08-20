@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from app.api import mock_data
 from app.api.models import (
+    Clarification,
     ConfidenceSignal,
     GuardrailReport,
     HistoryResponse,
@@ -89,6 +90,25 @@ def run_query(req: QueryRequest) -> QueryResponse:
         explanation = gen.explanation
         tables_used = gen.tables_used
         columns_used = gen.columns_used
+
+        if not sql or not sql.strip():
+            # The LLM itself declined to produce SQL (e.g. the question is
+            # unanswerable from this schema) -- distinguish this from a
+            # guardrail block so refusals are separable from blocks in
+            # evaluation. check_guardrails() would otherwise also reject an
+            # empty string, but as BLOCKED, which conflates the two.
+            return QueryResponse(
+                query_id=query_id,
+                status=QueryStatus.CLARIFICATION_NEEDED,
+                question=req.question,
+                timestamp=timestamp,
+                explanation=explanation,
+                guardrail=GuardrailReport(passed=True, checks_run=[]),
+                clarification=Clarification(
+                    reason=explanation or "The question could not be translated into a SQL query.",
+                    options=[],
+                ),
+            )
 
     # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
     result = check_guardrails(sql)

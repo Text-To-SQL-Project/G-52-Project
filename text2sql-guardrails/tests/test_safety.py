@@ -1,8 +1,16 @@
 """Unit tests for app.safety.guardrails -- pure AST logic, no DB, no FastAPI
-TestClient needed."""
+TestClient needed.
+
+The two schema_align tests below are the exception: check_schema_alignment
+calls introspect_schema(), which opens a live connection to whatever DB
+DATABASE_URL points at (college_erp in this project) -- they need that DB
+reachable to pass, unlike the guardrails tests above.
+"""
 from __future__ import annotations
 
+from app.api.models import SignalStatus
 from app.config import settings
+from app.detection.schema_align import check_schema_alignment
 from app.safety.guardrails import check_guardrails
 
 
@@ -49,3 +57,29 @@ def test_unparseable_sql_is_blocked_gracefully():
     assert not result.passed
     assert result.blocked_reasons
     assert result.checks_run == []
+
+
+def test_schema_alignment_valid_cte_passes():
+    """A CTE alias (WITH x AS (...)) must not be flagged as a missing
+    physical table -- regression test for that false positive."""
+    sql = (
+        "WITH active_students AS ("
+        "SELECT student_id, first_name, department_id FROM students "
+        "WHERE status = 'ACTIVE'"
+        ") SELECT first_name FROM active_students LIMIT 10;"
+    )
+    signal = check_schema_alignment(sql)
+    assert signal.status == SignalStatus.PASS
+    assert signal.score == 1.0
+    assert "active_students" not in (signal.detail or "")
+
+
+def test_schema_alignment_invented_table_still_fails():
+    """A genuinely nonexistent table (no CTE involved) must still be
+    caught -- confirms the CTE fix didn't broaden into ignoring real
+    missing-table cases."""
+    sql = "SELECT * FROM totally_fake_table_xyz LIMIT 10;"
+    signal = check_schema_alignment(sql)
+    assert signal.status == SignalStatus.FAIL
+    assert signal.score == 0.0
+    assert "totally_fake_table_xyz" in signal.detail

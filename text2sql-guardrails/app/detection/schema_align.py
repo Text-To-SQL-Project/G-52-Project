@@ -28,8 +28,18 @@ def check_schema_alignment(sql: str) -> ConfidenceSignal:
         )
 
     # --- what the query references --------------------------------------
+    # CTE names (WITH x AS (...)) are indistinguishable from real table
+    # references in the AST -- both are exp.Table nodes -- so without this,
+    # every CTE alias gets checked against (and flagged missing from) the
+    # live physical schema. Collect them so they're treated as valid.
+    cte_names_lower = {
+        c.alias.lower() for c in stmt.find_all(exp.CTE) if getattr(c, "alias", None)
+    }
+
     tables = list(stmt.find_all(exp.Table))
-    referenced_tables = sorted({t.name for t in tables})
+    referenced_tables = sorted({
+        t.name for t in tables if t.name.lower() not in cte_names_lower
+    })
     alias_map = {(t.alias or t.name): t.name for t in tables}
 
     # Output aliases (e.g. COUNT(*) AS student_count) are valid to reference
@@ -47,6 +57,10 @@ def check_schema_alignment(sql: str) -> ConfidenceSignal:
         resolved_table = alias_map.get(c.table) if c.table else (
             referenced_tables[0] if len(referenced_tables) == 1 else None
         )
+        if resolved_table is not None and resolved_table.lower() in cte_names_lower:
+            # Can't validate a CTE's own output columns without analyzing
+            # the CTE body itself -- skip rather than false-positive.
+            continue
         referenced_columns.append((resolved_table, c.name))
 
     total = len(referenced_tables) + len(referenced_columns)

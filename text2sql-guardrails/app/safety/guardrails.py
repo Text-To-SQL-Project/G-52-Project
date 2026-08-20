@@ -49,7 +49,18 @@ def check_guardrails(sql: str) -> GuardrailResult:
             checks_run=[],
         )
 
-    if len(statements) != 1:
+    if len(statements) == 0:
+        # Distinct from the multi-statement case below: an empty/blank SQL
+        # string usually means generation itself produced nothing (e.g. the
+        # LLM judged the question unanswerable), not a malformed statement.
+        return GuardrailResult(
+            passed=False,
+            safe_sql=sql,
+            blocked_reasons=["no SQL statement was generated (question may be unanswerable)"],
+            checks_run=[],
+        )
+
+    if len(statements) > 1:
         # Stacked/multiple statements are a classic injection vector and we
         # can't reason about "the" query if there's more than one.
         return GuardrailResult(
