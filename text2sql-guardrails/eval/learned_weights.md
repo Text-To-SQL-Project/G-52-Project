@@ -5,7 +5,7 @@ Fits `fuse_confidence()`'s weights from `eval/results.jsonl` data via logistic r
 ## Dataset
 
 - **105 usable rows** (35 unique golden-set questions x up to 3 repeats), restricted to answerable, non-adversarial cases with a non-`None` `correct` label and all 5 signal scores present (no rows were dropped for missing signals in this run).
-- Class balance: **74 correct / 31 incorrect** (70.5% positive).
+- Class balance: **86 correct / 19 incorrect** (81.9% positive).
 - Feature order (fixed, used for every coefficient below): `back_translation_match, multi_query_agreement, result_sanity, schema_alignment, sql_validity`.
 - Grouping for cross-validation: golden case `id` -- the 3 repeats of the same question are always kept together in either train or test, never split across the boundary, since generation is non-deterministic but repeats of the same question still share question-specific characteristics that would leak across a naive random split.
 - `5`-fold `GroupKFold`, `random_state=42` where randomness is involved (the inner fit/calibration split for isotonic calibration).
@@ -14,9 +14,9 @@ Fits `fuse_confidence()`'s weights from `eval/results.jsonl` data via logistic r
 
 | Approach | AUROC | ECE (n) |
 |---|---|---|
-| 1. Hand-tuned (current `fuse_confidence`) | 0.359 | 0.356 (n=105) |
-| 2. Learned (logistic regression, 5-fold CV) | 0.253 | 0.220 (n=105) |
-| 3. Learned + isotonic calibration | 0.473 | 0.197 (n=105) |
+| 1. Hand-tuned (current `fuse_confidence`) | 0.580 | 0.261 (n=105) |
+| 2. Learned (logistic regression, 5-fold CV) | 0.562 | 0.037 (n=105) |
+| 3. Learned + isotonic calibration | 0.477 | 0.108 (n=105) |
 
 AUROC: does the score rank correct answers above incorrect ones (label = 1 if `correct`, higher score = more confident it's correct)? 0.5 = chance, 1.0 = perfect separation.
 ECE (Expected Calibration Error, Guo et al. 2017, 10 equal-width bins over [0,1]): does the score's numeric VALUE match the observed accuracy at that value? 0.0 = perfectly calibrated.
@@ -29,12 +29,12 @@ From a **final logistic regression fit on all 105 usable rows** (unregularized d
 
 | Signal | Final-fit coefficient | Hand-tuned weight | Across-fold mean +/- std |
 |---|---|---|---|
-| `back_translation_match` | +0.679 | 0.25 | +0.559 +/- 0.555 |
-| `multi_query_agreement` | -0.621 | 0.15 | -0.582 +/- 0.390 |
-| `result_sanity` | +0.741 | 0.20 | +0.572 +/- 0.378 |
-| `schema_alignment` | +0.001 | 0.30 | -0.002 +/- 0.004 |
-| `sql_validity` | +0.001 | 0.10 | -0.002 +/- 0.004 |
-| *intercept* | -0.071 | -- | -- |
+| `back_translation_match` | +1.735 | 0.25 | +1.459 +/- 0.379 |
+| `multi_query_agreement` | +0.335 | 0.15 | +0.344 +/- 0.289 |
+| `result_sanity` | +0.973 | 0.20 | +0.775 +/- 0.336 |
+| `schema_alignment` | -0.001 | 0.30 | -0.000 +/- 0.001 |
+| `sql_validity` | -0.001 | 0.10 | -0.000 +/- 0.001 |
+| *intercept* | -0.781 | -- | -- |
 
 **Coefficient stability:** high variance across folds -- treat individual-fold coefficients with caution, this dataset (35 unique questions) is small for a 5-feature fit. See the across-fold mean +/- std column -- a std comparable to or larger than the mean for a given signal means its sign/magnitude is not reliably estimated from this sample size and any large deviation from the hand-tuned weight should be treated as a hypothesis to re-test with more data, not a settled result.
 
