@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import sqlglot
+from sqlglot import exp
+
 from app.generation.json_utils import parse_llm_json
 from app.generation.llm_client import complete
 from app.generation.prompt_builder import build_system_prompt, build_user_prompt
@@ -47,6 +50,64 @@ def generate_sql_variant(question: str) -> GenerationResult:
             "correctly answering the same question."
         ),
     )
+
+
+def _is_trivially_false(expr: exp.Expression) -> bool:
+    if isinstance(expr, exp.Boolean) and expr.this is False:
+        return True
+    if isinstance(expr, exp.EQ):
+        left, right = expr.left, expr.right
+        if (
+            isinstance(left, exp.Literal) and left.is_number
+            and isinstance(right, exp.Literal) and right.is_number
+        ):
+            try:
+                return float(left.this) != float(right.this)
+            except ValueError:
+                return False
+    return False
+
+
+def is_noop_sql(sql: str) -> bool:
+    """Detect SQL that's syntactically valid but is really a disguised
+    generation refusal -- the model declining to answer but still needing
+    to emit *some* SQL to satisfy its own response format (observed live:
+    "SELECT 1 WHERE FALSE LIMIT 1000;", "SELECT NULL WHERE FALSE;").
+
+    Two patterns:
+      1. A WHERE clause that's trivially always-false (the literal `FALSE`,
+         or a comparison between two differing numeric literals like
+         `1 = 0`) -- guarantees zero rows regardless of what's selected.
+      2. No FROM clause at all, where every projected expression is a bare
+         literal constant (NULL, a number, a string, a boolean) -- nothing
+         real is being queried, e.g. "SELECT NULL", "SELECT 1, 'x'".
+
+    Not exhaustive by design -- a model could still disguise a refusal in
+    a form this doesn't catch. Targets the concrete patterns actually
+    observed in eval runs; see eval/README.md.
+    """
+    try:
+        stmt = sqlglot.parse_one(sql, dialect="postgres")
+    except Exception:
+        return False
+    if not isinstance(stmt, exp.Select):
+        return False
+
+    where = stmt.args.get("where")
+    if where is not None and _is_trivially_false(where.this):
+        return True
+
+    if stmt.args.get("from") is None:
+        projections = [
+            p.this if isinstance(p, exp.Alias) else p
+            for p in stmt.expressions
+        ]
+        if projections and all(
+            isinstance(p, (exp.Literal, exp.Boolean, exp.Null)) for p in projections
+        ):
+            return True
+
+    return False
 
 
 def _generate(question: str, extra_instructions: str | None) -> GenerationResult:

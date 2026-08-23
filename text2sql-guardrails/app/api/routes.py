@@ -38,7 +38,7 @@ from app.detection.confidence import fuse_confidence
 from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
-from app.generation.generator import generate_sql
+from app.generation.generator import generate_sql, is_noop_sql
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
@@ -91,12 +91,18 @@ def run_query(req: QueryRequest) -> QueryResponse:
         tables_used = gen.tables_used
         columns_used = gen.columns_used
 
-        if not sql or not sql.strip():
+        if not sql or not sql.strip() or is_noop_sql(sql):
             # The LLM itself declined to produce SQL (e.g. the question is
             # unanswerable from this schema) -- distinguish this from a
             # guardrail block so refusals are separable from blocks in
             # evaluation. check_guardrails() would otherwise also reject an
-            # empty string, but as BLOCKED, which conflates the two.
+            # empty string, but as BLOCKED, which conflates the two. A
+            # disguised refusal (syntactically valid but no-op SQL, e.g.
+            # "SELECT 1 WHERE FALSE") is the same underlying behavior as an
+            # empty string -- the model declining to answer -- just dressed
+            # up to satisfy its own "always emit SQL" response format, so
+            # it's routed the same way rather than silently scoring as a
+            # hollow SUCCESS.
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.CLARIFICATION_NEEDED,
