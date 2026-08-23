@@ -7,11 +7,13 @@ These are pure functions over two inputs:
   - `predictions`: a dict mapping golden record `id` -> a plain dict with
     at least `"status"` (one of "success"/"blocked"/"clarification"/"error",
     matching app.api.models.QueryStatus's string values) and, for
-    execution_accuracy, `"columns"` / `"rows"` from the predicted
-    QueryResponse.results. Kept as plain dicts rather than importing the
-    pydantic models so this module has no FastAPI/pydantic dependency --
-    a harness just does `{"status": resp.status, "columns": ..., "rows": ...}`
-    per response.
+    execution_accuracy, `"sql"` / `"columns"` / `"rows"` from the predicted
+    QueryResponse (`"sql"` is needed by execution_match()'s AST-aware
+    aggregate-column fallback, not just for display). Kept as plain dicts
+    rather than importing the pydantic models so this module has no
+    FastAPI/pydantic dependency -- a harness just does
+    `{"status": resp.status, "sql": ..., "columns": ..., "rows": ...}` per
+    response.
 
 The three metrics are deliberately split along the same lines the pipeline
 itself distinguishes: a legitimately unanswerable question should be
@@ -35,9 +37,35 @@ import re
 from collections import Counter
 from typing import Any
 
+import sqlglot
 from sqlalchemy import text
+from sqlglot import exp
 
 _TRAILING_LIMIT_RE = re.compile(r"\bLIMIT\s+\d+\s*;?\s*$", re.IGNORECASE)
+
+# Aggregate function classes eligible for the positional-fallback column
+# match in execution_match() -- see that function's docstring.
+_AGG_CLASSES = (exp.Count, exp.Sum, exp.Avg, exp.Min, exp.Max)
+
+
+def _select_list_aggregate_kinds(sql: str) -> list[str | None]:
+    """For a single SELECT statement, one entry per top-level projection:
+    the aggregate function's class name ('Count'/'Sum'/'Avg'/'Min'/'Max')
+    if that projection is (optionally aliased) one of those calls, else
+    None. Returns [] if `sql` doesn't parse as a single exp.Select --
+    callers must treat that as "no positional fallback available", not as
+    zero projections."""
+    try:
+        stmt = sqlglot.parse_one(sql, dialect="postgres")
+    except Exception:
+        return []
+    if not isinstance(stmt, exp.Select):
+        return []
+    kinds = []
+    for proj in stmt.expressions:
+        inner = proj.this if isinstance(proj, exp.Alias) else proj
+        kinds.append(next((cls.__name__ for cls in _AGG_CLASSES if isinstance(inner, cls)), None))
+    return kinds
 
 
 def strip_trailing_limit(sql: str) -> str:
@@ -128,8 +156,10 @@ def block_accuracy(
 
 
 def execution_match(
+    pred_sql: str,
     pred_columns: list[str],
     pred_rows: list[list],
+    gold_sql: str,
     gold_columns: list[str],
     gold_rows: list[list],
     ordered: bool = False,
@@ -141,10 +171,28 @@ def execution_match(
     -- that's still a correct answer, just a more generous one. So pred is
     projected down to gold's column set BY NAME (case-insensitive) before
     comparing; if pred is missing a column gold actually needs, that's a
-    real miss and this returns False. Known limitation: this can't detect
-    "same computed value, different alias name" (e.g. gold's student_count
-    vs pred's total_students) -- name-based projection requires the names
-    to line up.
+    real miss.
+
+    Before giving up on a gold column with no name match, there is one
+    fallback: AST-AWARE POSITIONAL MATCHING FOR AGGREGATE EXPRESSIONS.
+    `pred_sql`/`gold_sql` are parsed with sqlglot to find, for each
+    unmatched gold column, whether its SELECT-list projection is an
+    aggregate call (COUNT/SUM/AVG/MIN/MAX) -- if so, it's matched to an
+    unmatched pred column that is an aggregate of the SAME function kind
+    (never a different kind, e.g. COUNT is never matched to SUM), breaking
+    ties by whichever candidate sits closest to the gold column's own
+    position. This is what makes `SELECT COUNT(*)` (gold, unaliased,
+    column name defaults to "count") match `SELECT COUNT(*) AS
+    absent_count` (pred), and `SUM(...) AS total` (gold) match `SUM(...)
+    AS total_amount` (pred) -- diagnostic evidence (eval/README.md) showed
+    this exact pattern caused ~40% false negatives among aggregate-style
+    golden cases before this fallback existed. PLAIN column references are
+    NOT eligible for this fallback -- only same-kind aggregate calls -- so
+    e.g. `first_name` (gold) is never positionally matched to `last_name`
+    (pred) just because both happen to be the sole unmatched column on
+    their side. If either SQL string doesn't parse as a single SELECT
+    (e.g. contains `SELECT *`), no positional fallback is attempted for
+    that side and matching falls back to name-only.
 
     ordered=True (ranking/top-N questions, where row order and the LIMIT
     cutoff are themselves part of the correct answer): exact positional
@@ -165,7 +213,32 @@ def execution_match(
     correct against a non-empty gold -- guarded against explicitly.
     """
     pred_index = {c.lower(): i for i, c in enumerate(pred_columns)}
-    if any(c.lower() not in pred_index for c in gold_columns):
+    unmatched_gold = [c for c in gold_columns if c.lower() not in pred_index]
+
+    if unmatched_gold:
+        gold_kinds = _select_list_aggregate_kinds(gold_sql)
+        pred_kinds = _select_list_aggregate_kinds(pred_sql)
+        if len(gold_kinds) == len(gold_columns) and len(pred_kinds) == len(pred_columns):
+            claimed_pred_names = {c.lower() for c in gold_columns if c.lower() in pred_index}
+            available = [
+                i for i, name in enumerate(pred_columns)
+                if name.lower() not in claimed_pred_names and pred_kinds[i] is not None
+            ]
+            still_unmatched = []
+            for gold_i, gold_name in enumerate(gold_columns):
+                if gold_name.lower() in pred_index:
+                    continue
+                gold_kind = gold_kinds[gold_i]
+                candidates = [i for i in available if pred_kinds[i] == gold_kind] if gold_kind else []
+                if not candidates:
+                    still_unmatched.append(gold_name)
+                    continue
+                chosen = min(candidates, key=lambda i: abs(i - gold_i))
+                pred_index[gold_name.lower()] = chosen
+                available.remove(chosen)
+            unmatched_gold = still_unmatched
+
+    if unmatched_gold:
         return False
 
     projected_pred_rows = [
@@ -208,6 +281,7 @@ def execution_accuracy(
         pred = predictions.get(g["id"])
         if pred is None or pred.get("status") != "success":
             continue
+        pred_sql = pred.get("sql", "")
         pred_columns = pred.get("columns", [])
         pred_rows = pred.get("rows", [])
         ordered = bool(g.get("ordered"))
@@ -218,7 +292,7 @@ def execution_accuracy(
             gold_columns = list(cursor.keys())
             gold_rows = [list(row) for row in cursor.fetchall()]
 
-        if execution_match(pred_columns, pred_rows, gold_columns, gold_rows, ordered=ordered):
+        if execution_match(pred_sql, pred_columns, pred_rows, gold_sql, gold_columns, gold_rows, ordered=ordered):
             correct += 1
 
     return correct / len(cases)

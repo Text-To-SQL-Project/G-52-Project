@@ -217,6 +217,7 @@ def main() -> None:
                 with engine.connect() as conn:
                     cursor = conn.execute(text(gold_sql))
                     gold_cache[case["id"]] = {
+                        "sql": gold_sql,
                         "columns": list(cursor.keys()),
                         "rows": [list(row) for row in cursor.fetchall()],
                     }
@@ -262,8 +263,8 @@ def main() -> None:
                         correct = None  # gold_sql itself couldn't be executed here
                     elif pred["status"] == "success" and pred["pred_rows"] is not None:
                         correct = execution_match(
-                            pred["pred_columns"], pred["pred_rows"],
-                            gold["columns"], gold["rows"],
+                            pred["pred_sql"], pred["pred_columns"], pred["pred_rows"],
+                            gold["sql"], gold["columns"], gold["rows"],
                             ordered=bool(case.get("ordered")),
                         )
                     else:

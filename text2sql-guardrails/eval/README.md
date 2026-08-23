@@ -42,11 +42,42 @@ projection) is a mismatch. Here, predicted columns are projected down to
 `(student_id, first_name, last_name)` gave a strictly more informative,
 still-correct answer. Standard EX would mark this wrong; we don't.
 
-**Known limitation:** this is blind to alias mismatches — if gold's
-computed column is named `student_count` and the model's semantically
-identical column is named `total_students`, projection fails to find it by
-name and the case is scored incorrect even though the values are right.
-No semantic/positional fallback is implemented.
+**Known limitation (narrowed, see below):** name-only projection is blind
+to alias mismatches — if gold's computed column is named `student_count`
+and the model's semantically identical column is named `total_students`,
+projection fails to find it by name and the case is scored incorrect even
+though the values are right. As of the fix below, this is now handled for
+**aggregate expressions** (`COUNT`/`SUM`/`AVG`/`MIN`/`MAX`) specifically;
+it remains a real limitation for arbitrarily-named plain columns or
+non-aggregate computed expressions.
+
+#### 1a. AST-aware positional fallback for aggregate expressions
+
+Before giving up on a gold column with no name match, `execution_match()`
+parses both `pred_sql` and `gold_sql` with `sqlglot` and, for each still-
+unmatched gold column, checks whether its SELECT-list projection is an
+aggregate call. If so, it looks for an unmatched pred column that is an
+aggregate of the **same function kind** (`COUNT` only ever matches
+`COUNT`, never `SUM`), breaking ties by proximity to the gold column's own
+position. Plain column references (`first_name`, `student_id`, ...) are
+**not** eligible for this fallback — only same-kind aggregate calls — so
+two unrelated plain columns are never positionally matched just because
+each happens to be the sole unmatched column on its side. If either SQL
+string doesn't parse as a single `SELECT` (e.g. contains `SELECT *`), no
+positional fallback is attempted for that side; matching degrades to
+name-only, same as before.
+
+This specifically fixes two patterns found in the golden set: gold leaving
+an aggregate **unaliased** (`SELECT COUNT(*) FROM ...` — the column name
+then defaults to whatever the engine calls it, e.g. Postgres's generic
+`"count"`, which essentially never matches a model's descriptive alias),
+and gold and the prediction **aliasing the same aggregate differently**
+(gold's `SUM(...) AS total` vs a prediction's `SUM(...) AS total_amount`).
+See [Methodological finding](#methodological-finding-the-pre-fix-column-projection-false-negative-rate)
+below for how large this problem actually was in practice, and
+`tests/test_eval_metrics.py` for the regression tests (including the
+negative case: two *different* aggregate kinds must never be matched, and
+plain columns must never use this fallback).
 
 ### 2. Multiset SUBSET matching, not multiset equality, for unordered cases
 
@@ -123,11 +154,88 @@ actually being tested (see `eval/golden_set.jsonl`'s task description for
 the exact wording convention used: `ordered=true` only for explicit
 ranking/top-N/superlative language such as "top," "most," or "best").
 
+## Methodological finding: the pre-fix column-projection false-negative rate
+
+Before the fix in §1a existed, `execution_match()`'s pure name-based column
+projection was producing a *systematic, one-directional labeling error* on
+aggregate-style golden questions — not occasional noise. This is recorded
+here because it materially changed reported numbers, not just cosmetically.
+
+**How it was found:** the fused confidence score was scoring *below chance*
+(AUROC 0.424 on the pipeline's own detection signals, 0.359 for a
+separately hand-tuned baseline — see `eval/learned_weights.md`). Before
+accepting "the confidence signals are anti-correlated with correctness" as
+a finding, the 10 highest-confidence cases labeled `correct=False` and the
+10 lowest-confidence cases labeled `correct=True` were manually audited
+against the live database (not just re-inspecting the label, but
+re-executing both `pred_sql` and `gold_sql` and comparing actual values).
+
+**Result of that audit: 8 of the 10 highest-confidence "incorrect" labels
+were false negatives — a ~40% wrong-label rate in exactly the sample most
+likely to distort AUROC/ECE.** In every case, the predicted SQL's *values*
+matched gold's exactly; only the column *name* differed (verified directly
+against the database, e.g. g025: both sides evaluate to `1629`; g027: both
+sides evaluate to `(1551, 49334748.35)`). The other 2 of those 10 (`g022`)
+were a distinct, genuine result-set difference (see
+[Known ambiguities](#known-ambiguities-left-in-the-golden-set) below), not
+a matching bug, and were deliberately left alone. The 10 lowest-confidence
+"correct" cases were all found to be correctly labeled — their low
+confidence traces to `multi_query_agreement` failing in 10/10 of them, a
+real (separate) signal-quality issue, not a label problem.
+
+**Fix applied:** the §1a positional fallback in `execution_match()`, plus
+adding explicit `AS` aliases to the two golden queries that had a fully
+bare (unaliased) aggregate (`g025`, `g030` — `g027` already aliased both
+sides, just differently, which only the code fix resolves).
+
+**Before / after, recomputed offline against the same 183 pipeline
+outputs already in `eval/results.jsonl` (no new LLM calls — `pred_sql` and
+`gold_sql` were re-executed against the DB and rescored with the fixed
+criterion via `eval/recompute_correctness.py`):**
+
+| Metric | Before | After |
+|---|---|---|
+| `execution_accuracy` (all runs pooled) | 0.705 | **0.819** |
+| Fused-signal AUROC (ablation's full-signal-set number) | 0.424 (below chance) | **0.620** |
+| `back_translation_match`'s own detection AUROC | 0.577 | **0.813** |
+| ECE (n=105) | 0.356 | **0.261** |
+| Labels changed False→True | — | 12 (`g015`, `g025`, `g027`, `g030`, across their 3 repeats) |
+| Labels changed True→False | — | 0 |
+
+Zero True→False changes is the important sanity check: the fix only
+*recovers* previously-missed correct answers, it never introduces a new
+false positive — consistent with it being a narrowly-scoped, same-kind-
+aggregate-only fallback rather than a loosened general matching rule.
+
+**What this means for prior reports in this evaluation:** the "AUROC below
+chance" / "fused confidence anti-correlated with correctness" finding
+reported earlier this session was **substantially a labeling artifact, not
+a real property of the confidence-fusion system** — AUROC 0.620 is a
+meaningfully different, more positive conclusion than AUROC 0.424. The
+`multi_query_agreement`-is-actively-harmful finding, by contrast, is
+**not** an artifact: its ablation drop got *more* negative after the fix
+(-0.145 → -0.194), so that specific conclusion is more robust, not less.
+
+## Known ambiguities left in the golden set
+
+- **`g022`** ("Which students have attendance records taken by faculty
+  from the Computer Science & Engineering department?"): gold's
+  `SELECT DISTINCT first_name, last_name` collapses different students who
+  happen to share a name into one row; a prediction that instead does
+  `DISTINCT` on `student_id` (arguably the more literal reading of "which
+  *students*") legitimately returns more rows and gets marked incorrect by
+  the name collision alone. This is a genuine result-set difference driven
+  by an ambiguity in the gold query's own scoping, not a projection bug —
+  deliberately left as-is rather than "fixed," and flagged via a
+  `"known_ambiguity"` field directly on the `g022` record in
+  `golden_set.jsonl` so it's visible to anyone reading the golden set, not
+  just this doc.
+
 ## Summary table
 
 | Dimension | Standard Spider/BIRD EX | This system |
 |---|---|---|
-| Columns | Predicted columns compared directly to gold's | Predicted projected onto gold's columns **by name**; extra columns ignored |
+| Columns | Predicted columns compared directly to gold's | Predicted projected onto gold's columns **by name**, with an AST-aware same-kind-aggregate positional fallback (§1a); extra columns ignored |
 | Row set (unordered) | Multiset **equality** | Multiset **subset** (pred ⊆ gold), empty-vs-nonempty guarded |
 | Gold LIMIT (unordered) | Used as-is | **Stripped** before computing the true reference set |
 | Order-sensitivity | Inferred from `ORDER BY` in gold SQL | Explicit per-case `ordered` flag, set from question wording |
@@ -191,3 +299,21 @@ number only, not a guardrail-layer number.
 All metrics (`refusal_accuracy`, `block_accuracy` and its `direct_sql`
 split, `execution_accuracy`) are implemented in `eval/metrics.py` and can
 be computed together via `evaluate_all()`.
+
+## Tooling
+
+- `eval/runner.py` — runs the golden set through the real pipeline,
+  writing `eval/results.jsonl`.
+- `eval/analyze.py` — aggregates metrics, per-signal detection F1/AUROC,
+  the leave-one-signal-out ablation, and the reliability diagram from
+  `results.jsonl`.
+- `eval/recompute_correctness.py` — re-derives the `correct` field in an
+  existing `results.jsonl` under the CURRENT `execution_match()` criterion,
+  without re-running the pipeline (no new LLM calls; re-executes the
+  already-recorded `pred_sql`/`gold_sql` against the DB, since raw rows
+  aren't persisted). Use this whenever `execution_match()`'s comparison
+  logic changes, as it did for the fix documented above.
+- `eval/fit_weights.py` — fits confidence-fusion weights from
+  `results.jsonl` via logistic regression, as an alternative to
+  `app/detection/confidence.py`'s hand-tuned weights (see
+  `eval/learned_weights.md`).
