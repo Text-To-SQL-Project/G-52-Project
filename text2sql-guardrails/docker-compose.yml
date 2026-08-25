@@ -4,30 +4,42 @@ services:
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
-      POSTGRES_DB: sample_shop
+      POSTGRES_DB: college_erp
     ports:
-      - "5432:5432"
+      - "5433:5432"   # host 5433 -> container 5432: avoids clashing with a native Postgres already on 5432
     volumes:
-      - ./seed:/docker-entrypoint-initdb.d   # seed SQL runs on first boot
+      - ./seed:/docker-entrypoint-initdb.d   # schema + all 25 tables' data + readonly role, run in order on first boot
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d sample_shop"]
+      test: ["CMD-SHELL", "pg_isready -U app -d college_erp"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 20   # the attendance/marks inserts (190k rows total) take longer than the old sample_shop seed
 
   api:
     build: .
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env   # LLM_API_KEY and any local overrides; see .env.example
     environment:
-      DATABASE_URL: postgresql+psycopg://app:app@db:5432/sample_shop
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/college_erp
+      READONLY_DATABASE_URL: postgresql+psycopg://readonly_app:readonly_app@db:5432/college_erp
+      DB_SCHEMA: college_erp
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
     ports:
       - "8000:8000"
     volumes:
       - ./app:/code/app        # live reload during dev
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
 
 volumes:
   pgdata:
