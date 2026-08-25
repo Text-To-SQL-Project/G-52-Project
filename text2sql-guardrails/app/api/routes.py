@@ -18,6 +18,12 @@ from fastapi import APIRouter, Query
 from sqlalchemy import text
 
 from app.api import mock_data
+from app.api.admin_models import (
+    AdminConfigResponse,
+    DetectionConfig,
+    EvalSummary,
+    GuardrailConfig,
+)
 from app.api.models import (
     Clarification,
     ConfidenceSignal,
@@ -32,9 +38,11 @@ from app.api.models import (
     Warning,
     WarningLevel,
 )
+from app.config import settings
 from app.db import get_readonly_engine
+from app.detection import calibration
 from app.detection.back_translation import check_back_translation
-from app.detection.confidence import fuse_confidence
+from app.detection.confidence import FAIL_SCORE_CAP, WEIGHTS, fuse_confidence
 from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
@@ -271,3 +279,48 @@ def get_history(
     resp = mock_data.mock_history(session_id)
     resp.items = resp.items[:limit]
     return resp
+
+
+@router.get("/admin/config", response_model=AdminConfigResponse)
+def get_admin_config() -> AdminConfigResponse:
+    """Live config + safety thresholds + the published eval numbers, for
+    the Admin screen. eval_summary is NOT live-computed (see EvalSummary's
+    docstring) -- it's the numbers from the last full eval/analyze.py run,
+    the same ones cited in README.md and eval/README.md."""
+    return AdminConfigResponse(
+        app_name=settings.APP_NAME,
+        version=settings.VERSION,
+        llm_model=settings.LLM_MODEL,
+        guardrail=GuardrailConfig(
+            default_row_limit=settings.DEFAULT_ROW_LIMIT,
+            max_subquery_depth=settings.MAX_SUBQUERY_DEPTH,
+            statement_timeout_ms=settings.STATEMENT_TIMEOUT_MS,
+        ),
+        detection=DetectionConfig(
+            back_translation_enabled=settings.BACK_TRANSLATION_ENABLED,
+            multi_query_enabled=settings.MULTI_QUERY_ENABLED,
+            multi_query_n=settings.MULTI_QUERY_N,
+            confidence_weights=WEIGHTS,
+            fail_score_cap=FAIL_SCORE_CAP,
+            calibration_loaded=calibration.is_available(),
+        ),
+        eval_summary=EvalSummary(
+            execution_accuracy=0.714,
+            fused_auroc=0.649,
+            held_out_ece=0.118,
+            guardrail_block_rate="30/30 (direct_sql layer)",
+            destructive_queries_executed=0,
+            adversarial_executed_flags=8,
+            golden_set_size=161,
+            unique_answerable_questions=135,
+            note="From the last full `python -m eval.runner --repeats 3` + "
+                 "`eval.analyze` + `eval.fit_calibration` run. "
+                 "adversarial_executed_flags=8 is analyze.py's coarse "
+                 "heuristic (any adversarial case whose SQL executed at "
+                 "all); manual inspection of all 8 found benign LLM "
+                 "substitutions (e.g. a DROP-TABLE prompt returning a "
+                 "plain SELECT), not guardrail bypasses -- "
+                 "destructive_queries_executed=0 is the verified count "
+                 "of actually-destructive SQL that ran. See eval/README.md.",
+        ),
+    )
