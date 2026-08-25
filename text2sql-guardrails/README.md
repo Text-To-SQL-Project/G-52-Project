@@ -1,53 +1,151 @@
-# Text-to-SQL Guardrails — Backend Skeleton
+# Text-to-SQL Guardrails
 
-Runnable FastAPI skeleton with the API contract locked and the three endpoints
-stubbed with mock data. Build the frontend and the real pipeline against this
-without either side breaking the other.
+A Text-to-SQL system over a real 25-table PostgreSQL database
+(`college_erp`) that treats safety and confidence as first-class,
+*measured* properties — not a demo that just returns SQL. Every claim below
+is backed by a hand-verified, hand-audited golden-set evaluation; see
+[`eval/README.md`](eval/README.md) for the full methodology, including two
+documented cases where a suspicious metric was diagnosed down to a labeling
+bug rather than taken at face value.
+
+## Results
+
+Evaluated on 161 hand-authored, hand-verified golden-set questions (135
+unique answerable + 8 unanswerable + 18 adversarial), 3 repeats each:
+
+| Metric | Value | What it measures |
+|---|---|---|
+| **Execution accuracy (EX)** | **0.714** | Fraction of answerable questions where the generated SQL's *results* match gold, via [a documented execution-match criterion](eval/README.md#the-execution-match-criterion) |
+| **Fused confidence AUROC** | **0.649** | Does the confidence score rank correct answers above incorrect ones? (4-signal fusion, `multi_query_agreement` dropped — [why](eval/README.md#confidence-fusion-changes-2026-08)) |
+| **Held-out calibration ECE** | **0.118** | Isotonic-calibrated, evaluated on a **question-level 60/40 held-out split** (not in-sample) — [fit procedure](eval/README.md#isotonic-calibration-fit-and-evaluated-on-a-question-level-held-out-split) |
+| **Guardrail block rate (direct_sql)** | **30/30** | Every `DROP`/`DELETE`/`UPDATE`/`TRUNCATE`/stacked-injection SQL submitted directly to the guardrail layer was blocked |
+| **Destructive queries executed** | **0** | Verified count of actually-destructive SQL that ran, across all adversarial cases (a coarser heuristic flags 8 adversarial-question executions; all 8 were manually confirmed as benign LLM substitutions — e.g. a `DROP TABLE` prompt returning a plain `SELECT` — not guardrail bypasses) |
+
+These are the same numbers served live at `GET /v1/admin/config` and shown
+on the Admin screen — not a separate marketing claim.
+
+## Architecture
+
+```
+question ──▶ generation (LLM, cached schema prompt)
+               │
+               ▼
+         guardrails (sqlglot AST — may BLOCK here, before execution)
+               │
+               ▼
+   pre-exec detectors: schema_alignment, back_translation_match
+               │
+               ▼
+      read-only execution (separate DB role, defense in depth)
+               │
+               ▼
+     post-exec detectors: result_sanity, (multi_query_agreement, off by default)
+               │
+               ▼
+    confidence fusion (hand-tuned weighted mean) ──▶ isotonic calibration
+```
+
+- **Generation** (`app/generation/`) — Claude, with the ~2.6K-token schema
+  block marked as an Anthropic prompt-cache breakpoint (byte-identical
+  across every call), plus a JSON-structured response parser.
+- **Guardrails** (`app/safety/guardrails.py`) — static `sqlglot` AST
+  analysis: blocks DDL/DML/multi-statement SQL, injects a row `LIMIT`,
+  checks subquery nesting depth. This runs whether the SQL came from the
+  LLM or a power-user's `sql_override` — nothing reaches the database
+  unchecked.
+- **Detection** (`app/detection/`) — four signals (`sql_validity`,
+  `schema_alignment`, `back_translation_match`, `result_sanity`) feed a
+  hand-tuned weighted-mean fusion, then an isotonic regression calibrates
+  that score against measured accuracy on held-out data.
+  `multi_query_agreement` exists but is off by default — an ablation study
+  found it was the only signal whose removal *increased* AUROC (see
+  results table above).
+- **Read-only execution** — `app/db.py`'s execution engine is meant to map
+  to a SELECT-only Postgres role (`READONLY_DATABASE_URL`), so even a
+  guardrail miss can't write. The Docker stack provisions this role for
+  real (`seed/27_readonly_role.sql`).
 
 ## Run it
 
-    cp .env.example .env          # add your LLM key later; not needed for the stub
+### Docker (Postgres + API + frontend)
+
+    cp .env.example .env          # add your Anthropic key
     docker compose up --build
 
-- API:  http://localhost:8000
-- Docs: http://localhost:8000/docs   (interactive, try the endpoints here)
-- DB:   Postgres on localhost:5432 (user app / pass app / db sample_shop)
+- Frontend: http://localhost:5173
+- API:      http://localhost:8000
+- API docs: http://localhost:8000/docs
+- DB:       Postgres on localhost:5432 (`app`/`app`, db `college_erp`) — schema + all 25 tables' data (~190K rows) load automatically on first boot from `seed/`
 
-Or without Docker:
+### Without Docker
 
-    pip install -r requirements.txt
+    # backend
+    python -m venv venv && venv\Scripts\pip install -r requirements.txt
+    # ... point DATABASE_URL at your own college_erp Postgres instance (see .env.example)
     uvicorn app.main:app --reload
 
-## Endpoints
+    # frontend, in a second terminal
+    cd frontend && npm install && npm run dev
 
-| Method | Path         | Returns          | Screen it powers        |
-|--------|--------------|------------------|-------------------------|
-| POST   | /v1/query    | QueryResponse    | Main query workspace    |
-| GET    | /v1/schema   | SchemaResponse   | Schema Explorer         |
-| GET    | /v1/history  | HistoryResponse  | History panel           |
-| GET    | /health      | status           | —                       |
+## Screens
 
-The stub routes on keywords so the UI feels alive:
-- question with `drop`/`delete`/`alter` -> **BLOCKED** response
-- question with `revenue` -> **CLARIFICATION** response
-- anything else -> **SUCCESS** response (top-customers example)
+| Screen | Talks to | What it shows |
+|---|---|---|
+| **Workspace** | `POST /v1/query` | NL input, syntax-highlighted SQL (editable + re-runnable via `sql_override`), results table, confidence card with per-signal bars, guardrail/clarification/error states |
+| **History** | `GET /v1/history` | Past queries for the current browser session (session id persisted in `localStorage`) |
+| **Schema Explorer** | `GET /v1/schema` | All 25 live tables, searchable, with PK/FK/sample values |
+| **Admin** | `GET /v1/admin/config` | The results table above, live guardrail/detection config, and the confidence-fusion weights |
 
-## The contract
+## API
 
-`app/api/models.py` is the single source of truth. The frontend reads
-`QueryResponse` — its `confidence.signals` array maps 1:1 to the five bars on
-your confidence card, and `status` drives which view the UI shows.
+| Method | Path | Returns | Contract |
+|---|---|---|---|
+| POST | `/v1/query` | `QueryResponse` | `app/api/models.py` (fixed — frontend and backend both build against this) |
+| GET | `/v1/schema` | `SchemaResponse` | `app/api/models.py` |
+| GET | `/v1/history` | `HistoryResponse` | `app/api/models.py` — currently backed by mock data server-side (`app/api/mock_data.py`); a real query-log table is a documented TODO in `routes.py` |
+| GET | `/v1/admin/config` | `AdminConfigResponse` | `app/api/admin_models.py` — deliberately **not** in `models.py`, since it's operational introspection, not part of the core query contract |
+| GET | `/health` | `{status, version}` | — |
 
-## Replacing the mocks (order matters)
+`app/api/models.py` is the single source of truth for the four contracted
+endpoints; the frontend's `frontend/src/types/api.ts` mirrors it by hand
+and is kept in sync manually (see that file's own header comment).
 
-Each handler in `app/api/routes.py` has a numbered TODO. Fill them in as:
-schema retriever -> generation -> guardrails -> pre-exec detectors ->
-sandbox -> post-exec detectors -> confidence fusion. The contract stays fixed
-throughout, so the frontend keeps working the whole time.
+## Evaluation
 
-## Next build targets
+161-question golden set, real pipeline execution (no shortcuts — the eval
+runner calls the same `app.generation`/`app.safety`/`app.detection` code
+the API does), full methodology in [`eval/README.md`](eval/README.md):
 
-1. `app/schema/introspect.py` — SQLAlchemy `inspect()` -> real /v1/schema
-2. `app/safety/guardrails.py` — sqlglot AST checks (code is in your plan doc)
-3. `app/generation/` — LLM client + prompt builder
-4. `app/detection/` — the four detectors + confidence fusion
+    python -m eval.runner --repeats 3               # writes eval/results.jsonl
+    python -m eval.analyze eval/results.jsonl --plot eval/reliability.png
+    python -m eval.fit_calibration eval/results.jsonl # isotonic calibration, held-out
+
+`eval/README.md` also documents the two departures worth knowing before
+citing this system's numbers elsewhere: the execution-match criterion's
+four deliberate departures from the Spider/BIRD `EX` definition, and a
+methodological finding where a below-chance AUROC turned out to be
+~40% false negatives in the *labeling* criterion, not the system — found
+by manually auditing disagreement cases before accepting the metric, not
+after.
+
+## Testing
+
+    pytest -q     # 31 tests: guardrails, generation (noop detection),
+                  # execution-match criterion, confidence fusion + calibration
+
+## Known limitations
+
+- **History is mock data server-side.** The screen and endpoint contract
+  are real; the persistence behind `GET /v1/history` is not (see the API
+  table above).
+- **Calibration held-out set is small.** 54 questions in the test split —
+  materially better than the pre-calibration ECE, but not enough data to
+  treat the calibration curve as final; re-fit as the golden set grows
+  (`eval/fit_calibration.py`).
+- **`back_translation_match` needs two extra LLM calls per query**
+  (back-translate, then compare) — disabling it
+  (`BACK_TRANSLATION_ENABLED=false`) degrades confidence fusion to the
+  remaining three signals rather than failing; see
+  `app/detection/confidence.py`'s disabled-signal handling.
+  `schema_alignment` and `result_sanity` are pure heuristics (AST/DB
+  introspection and row-count checks) and never call the LLM.
