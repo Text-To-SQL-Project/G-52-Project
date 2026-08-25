@@ -43,14 +43,19 @@ def check_back_translation(question: str, sql: str) -> ConfidenceSignal:
         )
 
     try:
-        back_translated = complete(_BACK_TRANSLATE_SYSTEM, sql).strip()
+        # cache_system=True for consistency (these two system prompts are
+        # also byte-identical on every call) -- but note neither is anywhere
+        # near the ~1024 token minimum Anthropic requires to actually cache
+        # a prefix, so no cache_read/cache_creation tokens are expected here
+        # in practice. The real savings are in generate_sql's schema block.
+        back_translated = complete(_BACK_TRANSLATE_SYSTEM, sql, cache_system=True).strip()
 
         compare_user = (
             f"Question A: {question}\n"
             f"Question B: {back_translated}\n\n"
             "How semantically equivalent are these two questions?"
         )
-        raw = complete(_COMPARE_SYSTEM, compare_user)
+        raw = complete(_COMPARE_SYSTEM, compare_user, cache_system=True)
         data = parse_llm_json(raw)
         score = max(0.0, min(1.0, float(data["score"])))
         reason = str(data.get("reason", "")).strip()

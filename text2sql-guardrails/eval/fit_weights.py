@@ -158,6 +158,32 @@ def fold_coefficients(X, y, groups, n_splits: int) -> dict[str, list[float]]:
     return per_key
 
 
+def fold_test_auroc(X, y, groups, n_splits: int) -> list[dict]:
+    """Per-fold held-out AUROC for the plain learned model (approach 2),
+    plus each fold's test-set size and class balance -- the aggregate
+    out-of-fold AUROC in cv_learned() can look fine while masking a fold
+    whose test split has too few (or zero) negatives to estimate AUROC at
+    all; this surfaces that per fold instead of hiding it in an average."""
+    gkf = GroupKFold(n_splits=n_splits)
+    results = []
+    for fold_idx, (train_idx, test_idx) in enumerate(gkf.split(X, y, groups), start=1):
+        model = LogisticRegression()
+        model.fit(X[train_idx], y[train_idx])
+        y_test = y[test_idx]
+        n_pos_test = int(y_test.sum())
+        n_neg_test = len(y_test) - n_pos_test
+        if n_pos_test == 0 or n_neg_test == 0:
+            auroc = None  # undefined -- single-class test fold
+        else:
+            preds = model.predict_proba(X[test_idx])[:, 1]
+            auroc = float(roc_auc_score(y_test, preds))
+        results.append({
+            "fold": fold_idx, "n_test": len(test_idx),
+            "n_pos_test": n_pos_test, "n_neg_test": n_neg_test, "auroc": auroc,
+        })
+    return results
+
+
 def _mean_std(xs: list[float]) -> tuple[float, float]:
     m = sum(xs) / len(xs)
     var = sum((x - m) ** 2 for x in xs) / len(xs)
@@ -168,7 +194,7 @@ def write_report(out_path: Path, *, n, n_groups, n_pos, folds, seed,
                   hand_auroc, hand_ece, hand_ece_n,
                   learned_auroc, learned_ece, learned_ece_n,
                   iso_auroc, iso_ece, iso_ece_n,
-                  final_coefs, final_intercept, fold_coefs) -> None:
+                  final_coefs, final_intercept, fold_coefs, fold_auroc) -> None:
     lines = []
     lines.append("# Learned confidence-fusion weights\n")
     lines.append(
@@ -247,8 +273,8 @@ def write_report(out_path: Path, *, n, n_groups, n_pos, folds, seed,
 
     coef_variance_note = (
         "high variance across folds -- treat individual-fold coefficients with "
-        "caution, this dataset (35 unique questions) is small for a 5-feature "
-        "fit" if any(_mean_std(fold_coefs[k])[1] > abs(_mean_std(fold_coefs[k])[0]) for k in SIGNAL_KEYS)
+        f"caution, this dataset ({n_groups} unique questions) is small for a "
+        "5-feature fit" if any(_mean_std(fold_coefs[k])[1] > abs(_mean_std(fold_coefs[k])[0]) for k in SIGNAL_KEYS)
         else "reasonably stable across folds"
     )
     lines.append(
@@ -260,13 +286,28 @@ def write_report(out_path: Path, *, n, n_groups, n_pos, folds, seed,
         "re-test with more data, not a settled result.\n"
     )
 
+    lines.append("## Per-fold test AUROC\n")
+    lines.append(
+        "The aggregate out-of-fold AUROC above (approach 2) is computed by "
+        "pooling all folds' held-out predictions into one `roc_auc_score` "
+        "call. That can look fine while masking a fold whose test split "
+        "happens to have too few (or zero) negatives to estimate AUROC at "
+        "all. This breaks the same cross-validation down per fold.\n"
+    )
+    lines.append("| Fold | Test rows | Positives | Negatives | AUROC |")
+    lines.append("|---|---|---|---|---|")
+    for f in fold_auroc:
+        auroc_str = f"{f['auroc']:.3f}" if f["auroc"] is not None else "undefined (single-class test fold)"
+        lines.append(f"| {f['fold']} | {f['n_test']} | {f['n_pos_test']} | {f['n_neg_test']} | {auroc_str} |")
+    lines.append("")
+
     lines.append("## Limitations\n")
     lines.append(
-        "- **Small sample**: 35 unique questions is a small training set for "
-        "a 5-parameter logistic regression; coefficient estimates (and "
-        "especially the isotonic calibration map, fit on an even smaller "
-        "inner split) carry substantial variance -- see the stability note "
-        "above.\n"
+        f"- **Small sample**: {n_groups} unique questions is a small training "
+        "set for a 5-parameter logistic regression; coefficient estimates "
+        "(and especially the isotonic calibration map, fit on an even "
+        "smaller inner split) carry substantial variance -- see the "
+        "stability note above.\n"
         "- **Repeats are not fully independent**: the 3 repeats per question "
         "share the same underlying question and schema context even though "
         "generation is non-deterministic; GroupKFold prevents them from "
@@ -327,6 +368,15 @@ def main() -> None:
 
     fold_coefs = fold_coefficients(X, y, groups, n_splits=args.folds)
 
+    fold_auroc = fold_test_auroc(X, y, groups, n_splits=args.folds)
+    print("\nPer-fold test AUROC (learned model, approach 2):")
+    for f in fold_auroc:
+        auroc_str = f"{f['auroc']:.3f}" if f["auroc"] is not None else "undefined (single-class test fold)"
+        print(
+            f"  fold {f['fold']}: n_test={f['n_test']:3d}  "
+            f"pos={f['n_pos_test']:3d}  neg={f['n_neg_test']:3d}  AUROC={auroc_str}"
+        )
+
     write_report(
         args.out,
         n=n, n_groups=n_groups, n_pos=n_pos, folds=args.folds, seed=args.seed,
@@ -334,6 +384,7 @@ def main() -> None:
         learned_auroc=learned_auroc, learned_ece=learned_ece, learned_ece_n=learned_ece_n,
         iso_auroc=iso_auroc, iso_ece=iso_ece, iso_ece_n=iso_ece_n,
         final_coefs=final_coefs, final_intercept=final_intercept, fold_coefs=fold_coefs,
+        fold_auroc=fold_auroc,
     )
     print(f"\nReport written to {args.out}")
 

@@ -115,7 +115,13 @@ def _generate(question: str, extra_instructions: str | None) -> GenerationResult
     system = build_system_prompt(schema, extra_instructions=extra_instructions)
     user = build_user_prompt(question)
 
-    raw = complete(system, user)
+    # `system` (intro + rules + the full serialized schema) is byte-identical
+    # across every call of a given kind (primary vs. variant) -- the schema
+    # doesn't change between questions or repeats, and the only thing that
+    # varies per call is `question`, which lives in `user`, not `system`.
+    # That makes it a real prompt-cache breakpoint (well over the ~1024
+    # token minimum for 25 tables' worth of columns).
+    raw = complete(system, user, cache_system=True)
     data = parse_llm_json(raw)
 
     return GenerationResult(

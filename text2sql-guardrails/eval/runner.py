@@ -54,10 +54,10 @@ _llm_call_count = 0
 _original_complete = llm_client.complete
 
 
-def _counting_complete(system: str, user: str) -> str:
+def _counting_complete(system: str, user: str, **kwargs) -> str:
     global _llm_call_count
     _llm_call_count += 1
-    return _original_complete(system, user)
+    return _original_complete(system, user, **kwargs)
 
 
 llm_client.complete = _counting_complete
@@ -305,6 +305,12 @@ def main() -> None:
 
     print(f"\nDone. {run_index} runs processed this invocation (some may have been skipped).")
     print(f"Total LLM calls made this invocation: {_llm_call_count}")
+    cache_stats = llm_client.get_cache_stats()
+    print(
+        f"Prompt cache: {cache_stats['cache_read_input_tokens']} tokens read from cache, "
+        f"{cache_stats['cache_creation_input_tokens']} tokens written to cache "
+        "(cache_system=True calls only)."
+    )
 
 
 if __name__ == "__main__":

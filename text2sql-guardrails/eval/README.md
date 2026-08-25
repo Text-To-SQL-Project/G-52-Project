@@ -9,13 +9,27 @@ specific, documented ways.
 
 ## Golden set
 
-51 hand-authored, hand-verified natural-language questions over the real
-`college_erp` schema, one JSON object per line in `golden_set.jsonl`, with
-fields `id, question, gold_sql, answerable, adversarial, ordered, category`.
+161 hand-authored, hand-verified natural-language questions over the real
+`college_erp` schema (135 unique answerable questions + 8 unanswerable + 18
+adversarial), one JSON object per line in `golden_set.jsonl`, with fields
+`id, question, gold_sql, answerable, adversarial, ordered, category`.
 `answerable=false` cases (`unanswerable`, `adversarial` categories) have
 `gold_sql=""` by construction — there is no result set to execute-match
 against for those; see [Non-execution metrics](#non-execution-metrics)
 below for how they're scored instead.
+
+The set started at 35 unique answerable questions and was expanded to 135,
+weighted toward `multi_join` (complex, 4+ table joins), `aggregation`
+(nested aggregates, `HAVING`, correlated subqueries), and `date_filter`
+(edge cases: day-of-week, quarter boundaries, relative-date windows)
+specifically because those categories were more likely to expose real
+generation failures — the original 35-question set skewed 86/19
+correct/incorrect (18.1% negative), too imbalanced for the logistic-
+regression weight-fitting in `eval/fit_weights.py` to generalize reliably
+(see `eval/learned_weights.md`'s per-fold AUROC). The expansion moved the
+class balance to 289/116 (28.6% negative) — see
+[Confidence-fusion changes](#confidence-fusion-changes-2026-08) below for
+what that revealed.
 
 ## The execution-match criterion
 
@@ -231,6 +245,84 @@ meaningfully different, more positive conclusion than AUROC 0.424. The
   `golden_set.jsonl` so it's visible to anyone reading the golden set, not
   just this doc.
 
+## Confidence-fusion changes (2026-08)
+
+Two changes to `app/detection/confidence.py`, made after the golden-set
+expansion above gave the ablation study enough negative examples to trust:
+
+### `multi_query_agreement` dropped from the weighted fusion
+
+The leave-one-signal-out ablation (`eval/analyze.py`) on the expanded
+135-question set found `multi_query_agreement` was the only signal whose
+*removal* **increased** fused AUROC (drop = −0.074, i.e. removing it helped)
+— every other signal's removal *decreased* AUROC, as expected of a useful
+signal. Standalone, `multi_query_agreement` was barely above chance
+(AUROC 0.532, essentially a coin flip) despite costing ~23% of total LLM
+calls (it triggers a full extra generation + guardrail check + execution
+per request when enabled). It was dropped from `WEIGHTS` entirely (not just
+disabled), and the remaining four weights renormalized so they still sum to
+1.0: `schema_alignment` 0.30→0.35, `back_translation_match` 0.25→0.29,
+`result_sanity` 0.20→0.24, `sql_validity` 0.10→0.12.
+`MULTI_QUERY_ENABLED` now also defaults to `false` in `app/config.py`
+(matching what `.env` already had) — the detector still runs and reports a
+signal if explicitly re-enabled, but it's never weighted into the fused
+score regardless, since it's simply not a `WEIGHTS` key anymore.
+
+Effect on the *existing* `eval/results.jsonl` (no new LLM calls — offline
+recomputation only), full-signal-set (5) vs. dropped (4), both in-sample
+(n=405):
+
+| | AUROC | ECE |
+|---|---|---|
+| 5-signal (with multi_query_agreement) | 0.575 | 0.267 |
+| 4-signal (dropped) | 0.649 | 0.227 |
+
+`execution_accuracy` (EX) is unaffected by construction (0.714 either way)
+— it measures whether the generated SQL's results match gold, which has
+nothing to do with how confidence is fused.
+
+### Isotonic calibration, fit and evaluated on a question-level held-out split
+
+`eval/fit_calibration.py` fits an isotonic regression mapping the raw
+hand-tuned fused score → P(correct), then evaluates it on a **disjoint**
+held-out split — disjoint by *question*, not by row: the 135 unique
+questions are shuffled (`seed=42`) and split 60/40 (81 train / 54 test), and
+every one of a question's up-to-3 repeats stays on whichever side its
+question landed on. Splitting by row instead would let repeats of the same
+question span the train/test boundary, leaking question-specific difficulty
+into the "held-out" estimate — the same leakage `eval/fit_weights.py`'s
+`GroupKFold` grouping exists to avoid, here avoided by grouping the split
+itself rather than a cross-validation fold.
+
+Held-out results (`eval/reliability_holdout.png`; n=162 rows / 54 questions
+in the test split):
+
+| | AUROC | ECE |
+|---|---|---|
+| Raw hand-tuned score, same held-out split, uncalibrated | 0.557 | 0.172 |
+| Isotonic-calibrated | 0.574 | **0.118** |
+
+0.118 is materially better than both the pre-expansion 5-signal ECE (0.267)
+and the current in-sample 4-signal ECE (0.227), and calibration still helps
+over the *same-split* raw baseline (0.172 → 0.118), so the improvement
+isn't just an easier test split. On that basis the calibrator was wired
+into production: `app/detection/calibration.py` loads the fitted
+`app/detection/calibrator.joblib` artifact at first use (`lru_cache`d) and
+`app/detection/confidence.py::fuse_confidence()` applies it to the raw
+hand-tuned score before returning, setting `Confidence.calibrated=True`
+only when a fitted calibrator actually loaded (a missing/corrupt artifact
+degrades to the raw score with `calibrated=False`, never a hard failure).
+The hard `FAIL_SCORE_CAP` (0.40) is re-applied *after* calibration, since
+it's a safety invariant ("a definite hallucination must never be reported
+as high confidence"), not a statistical property the fitted curve should be
+trusted to preserve on its own in a region it may have seen little data
+for.
+
+Re-running `eval/fit_calibration.py` (e.g. after a `eval/results.jsonl`
+refresh) overwrites `app/detection/calibrator.joblib` in place — restart
+the API process afterward, since the loader caches the artifact in memory
+for the process lifetime.
+
 ## Summary table
 
 | Dimension | Standard Spider/BIRD EX | This system |
@@ -317,3 +409,9 @@ be computed together via `evaluate_all()`.
   `results.jsonl` via logistic regression, as an alternative to
   `app/detection/confidence.py`'s hand-tuned weights (see
   `eval/learned_weights.md`).
+- `eval/fit_calibration.py` — fits an isotonic calibrator on top of the
+  hand-tuned fused score, evaluated on a question-level held-out split (see
+  [Confidence-fusion changes](#confidence-fusion-changes-2026-08) above).
+  Writes `app/detection/calibrator.joblib` (loaded by
+  `app/detection/calibration.py` at runtime) and
+  `eval/reliability_holdout.png`.
