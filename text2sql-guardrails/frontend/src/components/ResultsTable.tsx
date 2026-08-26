@@ -6,18 +6,27 @@ function formatCell(value: unknown): string {
   return String(value);
 }
 
-export function ResultsTable({ results }: { results: ResultTable }) {
+interface Props {
+  results: ResultTable | null | undefined;
+  executed: boolean;
+}
+
+export function ResultsTable({ results, executed }: Props) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-medium text-white/70">Results</h3>
-        <span className="text-xs text-white/40">
-          {results.row_count} row{results.row_count === 1 ? "" : "s"}
-          {results.truncated && " (truncated)"}
-        </span>
+        {executed && results && (
+          <span className="text-xs text-white/40">
+            {results.row_count} row{results.row_count === 1 ? "" : "s"}
+            {results.truncated && " (truncated)"}
+          </span>
+        )}
       </div>
 
-      {results.rows.length === 0 ? (
+      {!executed || !results ? (
+        <p className="py-6 text-center text-sm text-white/30">Query not executed.</p>
+      ) : results.rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-white/30">No rows returned.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-white/10">
@@ -46,7 +55,7 @@ export function ResultsTable({ results }: { results: ResultTable }) {
         </div>
       )}
 
-      {results.truncated && (
+      {executed && results?.truncated && (
         <p className="mt-2 text-xs text-amber-400/80">
           More rows were available than the row cap allows. Refine the question or raise max_rows.
         </p>

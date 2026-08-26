@@ -12,7 +12,16 @@ const LABEL_COLOR: Record<string, string> = {
   Low: "text-red-400",
 };
 
-export function ConfidenceCard({ confidence }: { confidence: Confidence }) {
+export function ConfidenceCard({ confidence }: { confidence: Confidence | null | undefined }) {
+  if (!confidence) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h3 className="mb-1 text-sm font-medium text-white/70">Confidence</h3>
+        <p className="py-2 text-sm text-white/30">Not scored — query was not executed.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="mb-3 flex items-center justify-between">

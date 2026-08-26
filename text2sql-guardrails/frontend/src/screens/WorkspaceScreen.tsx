@@ -52,7 +52,7 @@ export function WorkspaceScreen() {
       {response && !loading && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <StatusBanner status={response.status} />
+            <StatusBanner status={response.status} reason={response.status_reason} />
             {response.execution_time_ms != null && (
               <span className="text-xs text-white/30">{response.execution_time_ms.toFixed(0)} ms</span>
             )}
@@ -68,22 +68,20 @@ export function WorkspaceScreen() {
 
           {response.status === "blocked" && <GuardrailBanner guardrail={response.guardrail} />}
 
-          <SqlPanel
-            sql={response.sql}
-            explanation={response.explanation}
-            tablesUsed={response.tables_used}
-            columnsUsed={response.columns_used}
-            onRerun={(editedSql) => run(response.question, editedSql)}
-            rerunning={loading}
-          />
-
-          {response.status === "success" && response.results && (
-            <ResultsTable results={response.results} />
+          {response.status === "success" && (
+            <SqlPanel
+              sql={response.sql}
+              explanation={response.explanation}
+              tablesUsed={response.tables_used}
+              columnsUsed={response.columns_used}
+              onRerun={(editedSql) => run(response.question, editedSql)}
+              rerunning={loading}
+            />
           )}
 
-          {response.status === "success" && response.confidence && (
-            <ConfidenceCard confidence={response.confidence} />
-          )}
+          <ResultsTable results={response.results} executed={response.status === "success"} />
+
+          <ConfidenceCard confidence={response.confidence} />
         </div>
       )}
     </div>

@@ -3,7 +3,7 @@
  * in sync manually; this file must never drift from the Pydantic models.
  */
 
-export type QueryStatus = "success" | "blocked" | "clarification" | "error";
+export type QueryStatus = "success" | "refused" | "clarification" | "blocked" | "error";
 
 export type SignalStatus = "pass" | "warn" | "fail";
 
@@ -59,6 +59,7 @@ export interface Clarification {
 export interface QueryResponse {
   query_id: string;
   status: QueryStatus;
+  status_reason?: string | null;
   question: string;
   timestamp: string;
 
