@@ -209,23 +209,45 @@ def mock_blocked(question: str) -> QueryResponse:
 
 
 # ---------------------------------------------------------------------------
-# CLARIFICATION example — ambiguous question, ask the user back
+# CLARIFICATION_NEEDED example — ambiguous question, model declines rather
+# than guess (refusal_kind "ambiguous", not "unsafe" -- see mock_refused()
+# below for the safety-refusal counterpart)
 # ---------------------------------------------------------------------------
 
 def mock_clarification(question: str) -> QueryResponse:
+    reason = "'revenue' could mean gross or net revenue -- ambiguous without clarification."
     return QueryResponse(
         query_id=_new_id(),
         status=QueryStatus.CLARIFICATION_NEEDED,
+        status_reason=reason,
         question=question,
         timestamp=_now(),
         guardrail=GuardrailReport(passed=True, checks_run=[]),
         clarification=Clarification(
-            reason="'revenue' could mean gross or net revenue.",
+            reason=reason,
             options=[
                 "Gross revenue (before returns and discounts)",
                 "Net revenue (after returns and discounts)",
             ],
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# REFUSED example — unsafe request, model declines flat (no clarification
+# to offer, unlike the ambiguous case above)
+# ---------------------------------------------------------------------------
+
+def mock_refused(question: str) -> QueryResponse:
+    reason = "This request asks for a destructive operation, which is not permitted."
+    return QueryResponse(
+        query_id=_new_id(),
+        status=QueryStatus.REFUSED,
+        status_reason=reason,
+        question=question,
+        timestamp=_now(),
+        explanation=reason,
+        guardrail=GuardrailReport(passed=True, checks_run=[]),
     )
 
 

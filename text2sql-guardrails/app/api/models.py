@@ -22,11 +22,27 @@ from pydantic import BaseModel, Field
 
 class QueryStatus(str, Enum):
     """Top-level outcome of a query request. The frontend switches its whole
-    view on this field."""
-    SUCCESS = "success"                    # SQL generated, passed safety, executed
-    BLOCKED = "blocked"                    # guardrails stopped it before execution
-    CLARIFICATION_NEEDED = "clarification" # question was ambiguous, we ask back
-    ERROR = "error"                        # generation / execution failure
+    view on this field.
+
+    REFUSED and CLARIFICATION_NEEDED are both generation-time declines --
+    no real query was ever attempted, which is exactly what BLOCKED
+    (guardrail rejected a real query) is not -- but they measure different
+    capabilities and must not be collapsed into one status: the model
+    reports its own refusal via a structured `refusal` field plus a
+    `refusal_kind` of "unsafe" or "ambiguous" in the generation response
+    (app.generation.prompt_builder), and the pipeline maps that kind
+    directly rather than inferring it by pattern-matching a placeholder
+    SQL string or the reason text.
+      - REFUSED: refusal_kind "unsafe" -- a destructive/DDL/permission
+        request the model declined to translate at all.
+      - CLARIFICATION_NEEDED: refusal_kind "ambiguous" -- underspecified,
+        subjective, or unanswerable from the schema.
+    """
+    SUCCESS = "success"                    # SQL generated, passed guardrails, executed
+    REFUSED = "refused"                    # LLM declined an unsafe request; no real query attempted
+    CLARIFICATION_NEEDED = "clarification" # LLM declined an ambiguous/unanswerable question
+    BLOCKED = "blocked"                    # guardrail (sqlglot AST) rejected generated SQL
+    ERROR = "error"                        # execution or internal failure
 
 
 class SignalStatus(str, Enum):
@@ -143,6 +159,17 @@ class QueryResponse(BaseModel):
     SQL panel, results table, and warning banner all read from."""
     query_id: str
     status: QueryStatus
+    status_reason: Optional[str] = Field(
+        None,
+        description=(
+            "Why `status` is what it is. REFUSED / CLARIFICATION_NEEDED: "
+            "the model's own reason for declining (also in "
+            "clarification.reason for CLARIFICATION_NEEDED). BLOCKED: the "
+            "specific guardrail rule that fired (also in "
+            "guardrail.blocked_reasons). ERROR: the failure detail (also "
+            "in error_message). None on SUCCESS."
+        ),
+    )
     question: str
     timestamp: datetime
 
@@ -163,7 +190,9 @@ class QueryResponse(BaseModel):
     guardrail: GuardrailReport
     warnings: list[Warning] = Field(default_factory=list)
 
-    # Present on CLARIFICATION_NEEDED
+    # Present on CLARIFICATION_NEEDED only -- REFUSED conveys its reason via
+    # status_reason alone, since there's nothing to clarify about a flat
+    # safety refusal. options is typically empty in practice.
     clarification: Optional[Clarification] = None
 
     # Present on ERROR

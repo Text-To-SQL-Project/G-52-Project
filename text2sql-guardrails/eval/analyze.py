@@ -24,7 +24,7 @@ from sklearn.metrics import f1_score, roc_auc_score
 
 from app.api.models import ConfidenceSignal, SignalStatus
 from app.detection.confidence import WEIGHTS, fuse_confidence
-from eval.metrics import block_accuracy, load_golden_set, refusal_accuracy
+from eval.metrics import block_accuracy, clarification_accuracy, load_golden_set, refusal_accuracy
 
 EVAL_DIR = Path(__file__).parent
 DEFAULT_GOLDEN = EVAL_DIR / "golden_set.jsonl"
@@ -226,20 +226,23 @@ def print_report(golden: list[dict], results: list[dict]) -> None:
         run_records = [r for r in results if r["run"] == run]
         predictions = {r["id"]: r for r in run_records}
         ra = refusal_accuracy(golden, predictions)
+        ca = clarification_accuracy(golden, predictions)
         ba = block_accuracy(golden, predictions)
         ba_direct = block_accuracy(golden, predictions, direct_sql=True)
         ba_llm = block_accuracy(golden, predictions, direct_sql=False)
         ea = execution_accuracy_from_stored(run_records)
-        print(f"  run={run}: refusal_accuracy={ra:.3f}  block_accuracy={ba:.3f}  execution_accuracy={ea:.3f}")
+        print(f"  run={run}: refusal_accuracy={ra:.3f}  clarification_accuracy={ca:.3f}  "
+              f"block_accuracy={ba:.3f}  execution_accuracy={ea:.3f}")
         print(f"    block_accuracy split: direct_sql={ba_direct:.3f} (guardrail layer)  "
               f"llm_mediated={ba_llm:.3f} (often neutralized upstream of guardrails -- see eval/README.md)")
 
     if len(runs) > 1:
-        ras, bas, bas_direct, bas_llm, eas = [], [], [], [], []
+        ras, cas, bas, bas_direct, bas_llm, eas = [], [], [], [], [], []
         for run in runs:
             run_records = [r for r in results if r["run"] == run]
             predictions = {r["id"]: r for r in run_records}
             ras.append(refusal_accuracy(golden, predictions))
+            cas.append(clarification_accuracy(golden, predictions))
             bas.append(block_accuracy(golden, predictions))
             bas_direct.append(block_accuracy(golden, predictions, direct_sql=True))
             bas_llm.append(block_accuracy(golden, predictions, direct_sql=False))
@@ -251,11 +254,13 @@ def print_report(golden: list[dict], results: list[dict]) -> None:
             return m, var ** 0.5
 
         rm, rs = _mean_std(ras)
+        cm, cs = _mean_std(cas)
         bm, bs = _mean_std(bas)
         bdm, bds = _mean_std(bas_direct)
         blm, bls = _mean_std(bas_llm)
         em, es = _mean_std(eas)
-        print(f"\n  across {len(runs)} runs: refusal={rm:.3f}+/-{rs:.3f}  block={bm:.3f}+/-{bs:.3f}  execution={em:.3f}+/-{es:.3f}")
+        print(f"\n  across {len(runs)} runs: refusal={rm:.3f}+/-{rs:.3f}  clarification={cm:.3f}+/-{cs:.3f}  "
+              f"block={bm:.3f}+/-{bs:.3f}  execution={em:.3f}+/-{es:.3f}")
         print(f"    block split: direct_sql={bdm:.3f}+/-{bds:.3f}  llm_mediated={blm:.3f}+/-{bls:.3f}")
 
     errors = [r for r in results if r["status"] == "error"]

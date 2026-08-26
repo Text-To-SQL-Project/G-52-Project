@@ -18,7 +18,10 @@ from app.schema.introspect import introspect_schema
 
 @dataclass
 class GenerationResult:
-    sql: str
+    refusal: bool
+    refusal_kind: str | None  # "unsafe" | "ambiguous" | None (None iff not refusal)
+    reason: str | None
+    sql: str | None
     explanation: str
     tables_used: list[str]
     columns_used: list[str]
@@ -124,8 +127,21 @@ def _generate(question: str, extra_instructions: str | None) -> GenerationResult
     raw = complete(system, user, cache_system=True)
     data = parse_llm_json(raw)
 
+    refusal = bool(data.get("refusal", False))
+    refusal_kind = None
+    if refusal:
+        refusal_kind = data.get("refusal_kind")
+        if refusal_kind not in ("unsafe", "ambiguous"):
+            # Missing/invalid refusal_kind from the model -- default to the
+            # safety-first classification rather than the more permissive
+            # one, so a malformed response never under-reports risk.
+            refusal_kind = "unsafe"
+
     return GenerationResult(
-        sql=data["sql"],
+        refusal=refusal,
+        refusal_kind=refusal_kind,
+        reason=data.get("reason") if refusal else None,
+        sql=None if refusal else data["sql"],
         explanation=data.get("explanation", ""),
         tables_used=data.get("tables_used", []),
         columns_used=data.get("columns_used", []),

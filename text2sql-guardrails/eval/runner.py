@@ -90,6 +90,7 @@ def run_pipeline(question: str, sql_override: str | None = None) -> dict:
     without depending on the LLM to (possibly) reproduce it faithfully."""
     out = {
         "status": None,
+        "status_reason": None,
         "blocked": False,
         "executed": False,
         "pred_sql": None,
@@ -108,7 +109,18 @@ def run_pipeline(question: str, sql_override: str | None = None) -> dict:
             gen = generate_sql(question)
         except Exception as e:
             out["status"] = "error"
+            out["status_reason"] = f"SQL generation failed: {e}"
             out["error"] = f"SQL generation failed: {e}"
+            out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+            return out
+
+        if gen.refusal:
+            # Mirrors app.api.routes.run_query(): the model's own
+            # structured refusal short-circuits here -- never reaches
+            # check_guardrails() or the executor. refusal_kind picks
+            # "refused" (unsafe) vs "clarification" (ambiguous).
+            out["status"] = "clarification" if gen.refusal_kind == "ambiguous" else "refused"
+            out["status_reason"] = gen.reason or "The model declined to generate SQL for this request."
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
             return out
 
@@ -116,16 +128,17 @@ def run_pipeline(question: str, sql_override: str | None = None) -> dict:
         out["pred_sql"] = sql
 
         if not sql or not sql.strip() or is_noop_sql(sql):
-            # Mirrors app.api.routes.run_query(): a disguised refusal
-            # (syntactically valid but no-op SQL) is routed the same as an
-            # empty string -- see that function's comment for why.
-            out["status"] = "clarification"
+            # Defensive backstop, not the primary refusal path -- see
+            # app.api.routes.run_query()'s matching comment.
+            out["status"] = "refused"
+            out["status_reason"] = "Detected a disguised refusal (empty or no-op SQL) despite refusal=false."
             out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
             return out
 
     guard = check_guardrails(sql)
     if not guard.passed:
         out["status"] = "blocked"
+        out["status_reason"] = "; ".join(guard.blocked_reasons) or "Blocked by guardrails."
         out["blocked"] = True
         out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
         return out
@@ -150,6 +163,7 @@ def run_pipeline(question: str, sql_override: str | None = None) -> dict:
             result_rows = [list(row) for row in cursor.fetchall()]
     except Exception as e:
         out["status"] = "error"
+        out["status_reason"] = f"Execution failed: {e}"
         out["error"] = f"Execution failed: {e}"
         out["latency_ms"] = round((time.perf_counter() - t0) * 1000, 2)
         return out
@@ -247,11 +261,12 @@ def main() -> None:
                     # Belt-and-suspenders: run_pipeline() already catches its
                     # own internal errors, but nothing must kill the whole run.
                     pred = {
-                        "status": "error", "blocked": False, "executed": False,
+                        "status": "error", "status_reason": None, "blocked": False, "executed": False,
                         "pred_sql": None, "pred_columns": None, "pred_rows": None,
                         "signals": {}, "latency_ms": None, "error": None,
                     }
                     error = str(e)
+                    pred["status_reason"] = f"runner-level exception: {error}"
 
                 if error and not pred.get("error"):
                     pred["error"] = f"runner-level exception: {error}"
@@ -280,6 +295,7 @@ def main() -> None:
                     "direct_sql": bool(case.get("direct_sql")),
                     "ordered": case["ordered"],
                     "status": pred["status"],
+                    "status_reason": pred.get("status_reason"),
                     "blocked": pred["blocked"],
                     "executed": pred["executed"],
                     "correct": correct,

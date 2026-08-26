@@ -9,8 +9,17 @@ from app.api.models import SchemaResponse
 from app.generation.few_shot import FEW_SHOT_EXAMPLES
 
 _RESPONSE_SHAPE = (
-    '{"sql": "<a single read-only SELECT statement>", '
-    '"explanation": "<one or two plain-English sentences>", '
+    '{"refusal": <true if you are declining this request, else false>, '
+    '"refusal_kind": "<if refusal is true, exactly \\"unsafe\\" (a '
+    'destructive/DDL/permission request -- DELETE, DROP, UPDATE, etc.) or '
+    '\\"ambiguous\\" (underspecified, subjective, or unanswerable from '
+    'this schema); else null>", '
+    '"reason": "<if refusal is true, one plain-English sentence explaining '
+    'why; else null>", '
+    '"sql": "<a single read-only SELECT statement if refusal is false, '
+    'else null -- NEVER a placeholder or always-false SELECT>", '
+    '"explanation": "<one or two plain-English sentences describing the '
+    'SQL; empty string if refusal is true>", '
     '"tables_used": ["table1", ...], '
     '"columns_used": ["table1.column1", ...]}'
 )
@@ -28,6 +37,15 @@ def build_system_prompt(schema: SchemaResponse, extra_instructions: str | None =
         "- Do NOT add a LIMIT clause unless the question explicitly asks "
         "for a top-N or a specific number of rows. The system enforces "
         "its own row cap.",
+        "- If the question cannot be answered from the schema below, or "
+        "asks for a destructive/unsafe operation (DELETE, DROP, UPDATE, "
+        "etc.), you MUST decline: set \"refusal\": true, \"sql\": null, "
+        "and \"refusal_kind\" to \"unsafe\" for a destructive/DDL/"
+        "permission request, or \"ambiguous\" for anything underspecified, "
+        "subjective, or unanswerable from this schema. Do NOT invent a "
+        "placeholder query (e.g. a SELECT that trivially returns nothing, "
+        "or an unrelated substitute query) to avoid answering -- an "
+        "explicit refusal is required, not a disguised one.",
         "- Respond with ONLY a JSON object, no prose, no markdown fences, "
         f"matching exactly this shape: {_RESPONSE_SHAPE}",
     ]

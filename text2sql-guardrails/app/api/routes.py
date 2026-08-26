@@ -89,39 +89,67 @@ def run_query(req: QueryRequest) -> QueryResponse:
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.ERROR,
+                status_reason=f"SQL generation failed: {e}",
                 question=req.question,
                 timestamp=timestamp,
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
                 error_message=f"SQL generation failed: {e}",
             )
+
+        if gen.refusal:
+            # The model reported its own refusal via the structured
+            # `refusal` field -- short-circuit here. Never call the
+            # guardrail or the executor for a refusal: there is no real
+            # query to check or run, and doing so risks accidentally
+            # executing whatever gen.sql happens to hold (which should be
+            # None, but a refusal is exactly the case not to trust that).
+            # refusal_kind picks the status: "unsafe" is a flat safety
+            # decline (REFUSED, no clarification to offer); "ambiguous" is
+            # a question the system could answer given more specificity
+            # (CLARIFICATION_NEEDED, with a reason to show the user).
+            reason = gen.reason or "The model declined to generate SQL for this request."
+            if gen.refusal_kind == "ambiguous":
+                return QueryResponse(
+                    query_id=query_id,
+                    status=QueryStatus.CLARIFICATION_NEEDED,
+                    status_reason=reason,
+                    question=req.question,
+                    timestamp=timestamp,
+                    explanation=gen.explanation,
+                    guardrail=GuardrailReport(passed=True, checks_run=[]),
+                    clarification=Clarification(reason=reason, options=[]),
+                )
+            return QueryResponse(
+                query_id=query_id,
+                status=QueryStatus.REFUSED,
+                status_reason=reason,
+                question=req.question,
+                timestamp=timestamp,
+                explanation=gen.explanation,
+                guardrail=GuardrailReport(passed=True, checks_run=[]),
+            )
+
         sql = gen.sql
         explanation = gen.explanation
         tables_used = gen.tables_used
         columns_used = gen.columns_used
 
         if not sql or not sql.strip() or is_noop_sql(sql):
-            # The LLM itself declined to produce SQL (e.g. the question is
-            # unanswerable from this schema) -- distinguish this from a
-            # guardrail block so refusals are separable from blocks in
-            # evaluation. check_guardrails() would otherwise also reject an
-            # empty string, but as BLOCKED, which conflates the two. A
-            # disguised refusal (syntactically valid but no-op SQL, e.g.
-            # "SELECT 1 WHERE FALSE") is the same underlying behavior as an
-            # empty string -- the model declining to answer -- just dressed
-            # up to satisfy its own "always emit SQL" response format, so
-            # it's routed the same way rather than silently scoring as a
-            # hollow SUCCESS.
+            # Defensive backstop, not the primary refusal path: refusal was
+            # reported False but the SQL itself is empty or a disguised
+            # no-op (e.g. "SELECT 1 WHERE FALSE") -- the prompt explicitly
+            # forbids this, but LLM output isn't guaranteed to comply, and
+            # letting it through would execute a harmless-looking query
+            # that silently reports SUCCESS with zero rows instead of the
+            # refusal it actually is.
             return QueryResponse(
                 query_id=query_id,
-                status=QueryStatus.CLARIFICATION_NEEDED,
+                status=QueryStatus.REFUSED,
+                status_reason="Detected a disguised refusal (empty or no-op SQL) despite refusal=false.",
                 question=req.question,
                 timestamp=timestamp,
                 explanation=explanation,
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
-                clarification=Clarification(
-                    reason=explanation or "The question could not be translated into a SQL query.",
-                    options=[],
-                ),
             )
 
     # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
@@ -130,6 +158,7 @@ def run_query(req: QueryRequest) -> QueryResponse:
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.BLOCKED,
+            status_reason="; ".join(result.blocked_reasons) or "Blocked by guardrails.",
             question=req.question,
             timestamp=timestamp,
             sql=sql,
@@ -199,6 +228,7 @@ def run_query(req: QueryRequest) -> QueryResponse:
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.ERROR,
+            status_reason=f"Execution failed: {e}",
             question=req.question,
             timestamp=timestamp,
             sql=safe_sql,
