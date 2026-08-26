@@ -9,7 +9,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("workspace");
 
   return (
-    <div className="min-h-screen bg-[#0f1115]">
+    <div className="relative z-[1] min-h-screen">
       <NavBar active={screen} onChange={setScreen} />
       <main>
         {screen === "workspace" && <WorkspaceScreen />}

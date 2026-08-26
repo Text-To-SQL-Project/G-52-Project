@@ -1,8 +1,25 @@
 @import "tailwindcss";
 
 body {
-  background-color: #0f1115;
+  background: #0b1120;
   color: #e6e8eb;
+}
+
+/* Ambient background glow (Gemini-style): fixed, non-interactive, sits
+   behind all app content (see App.tsx's root `relative z-[1]`). Kept
+   subtle -- data-heavy panels (SQL, results table, confidence card) must
+   stay fully legible; tune alpha here, not layout, if that ever slips. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60% 45% at 50% 78%, rgba(99, 102, 241, 0.28) 0%, rgba(99, 102, 241, 0) 70%),
+    radial-gradient(45% 35% at 30% 88%, rgba(139, 92, 246, 0.20) 0%, rgba(139, 92, 246, 0) 70%),
+    radial-gradient(50% 40% at 72% 92%, rgba(34, 211, 238, 0.10) 0%, rgba(34, 211, 238, 0) 70%);
+  filter: blur(20px);
 }
 
 ::selection {
