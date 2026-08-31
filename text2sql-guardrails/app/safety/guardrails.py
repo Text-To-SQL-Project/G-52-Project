@@ -6,6 +6,7 @@ instead of keyword string-matching on the question text.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import sqlglot
@@ -13,6 +14,8 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Statement types that are never allowed, regardless of read/write intent.
 _DDL_BLOCK_TYPES = (exp.Drop, exp.Create, exp.Alter, exp.TruncateTable)
@@ -42,10 +45,17 @@ def check_guardrails(sql: str) -> GuardrailResult:
     try:
         statements = [s for s in sqlglot.parse(sql, dialect="postgres") if s is not None]
     except ParseError as e:
+        # sqlglot's ParseError message routinely echoes a snippet of the
+        # offending SQL (table/column names included) to show where parsing
+        # failed -- that's schema disclosure the same way a raw LLM refusal
+        # reason is, so the detail is logged server-side only; the reason
+        # returned here (and shown to the client via GuardrailReport) stays
+        # generic. See app/api/routes.py's matching client-message pattern.
+        logger.info("SQL failed to parse: %s", e)
         return GuardrailResult(
             passed=False,
             safe_sql=sql,
-            blocked_reasons=[f"failed to parse SQL: {e}"],
+            blocked_reasons=["failed to parse SQL"],
             checks_run=[],
         )
 

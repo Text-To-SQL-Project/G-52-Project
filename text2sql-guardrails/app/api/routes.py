@@ -10,6 +10,7 @@ contract stays fixed as you replace the mocks, so the frontend never breaks.
 """
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
@@ -50,6 +51,32 @@ from app.generation.generator import generate_sql, is_noop_sql
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
+logger = logging.getLogger(__name__)
+
+# The model's own reason for declining is free text -- it was written to
+# explain the refusal clearly, which routinely means naming exactly which
+# tables/entities it checked and ruled out (see eval/README.md's own quoted
+# example). That's schema disclosure to an unauthenticated client, so these
+# generic messages are what the CLIENT sees; the model's real reason is
+# logged server-side (see the `logger.info(...)` calls below) and is still
+# what eval/runner.py records in results.jsonl, since that path calls
+# generate_sql() directly and never goes through this substitution.
+_CLARIFICATION_CLIENT_MESSAGE = (
+    "This question can't be answered from the available data. Try "
+    "rephrasing, or check the Schema Explorer for what's queryable."
+)
+_REFUSED_CLIENT_MESSAGE = (
+    "This request was declined because it appears to ask for a "
+    "destructive or unsafe operation, which isn't permitted."
+)
+# Used only by the disguised-no-op backstop below, where refusal=false was
+# reported so there's no refusal_kind to trust either way -- this message
+# makes no claim about *why* generation failed to produce a real query,
+# unlike _REFUSED_CLIENT_MESSAGE's specific "destructive/unsafe" framing.
+_GENERATION_FAILED_CLIENT_MESSAGE = (
+    "This question could not be translated into a query. Try rephrasing, "
+    "or check the Schema Explorer for what's queryable."
+)
 
 
 def _new_id() -> str:
@@ -109,23 +136,23 @@ def run_query(req: QueryRequest) -> QueryResponse:
             # (CLARIFICATION_NEEDED, with a reason to show the user).
             reason = gen.reason or "The model declined to generate SQL for this request."
             if gen.refusal_kind == "ambiguous":
+                logger.info("CLARIFICATION_NEEDED for question=%r reason=%r", req.question, reason)
                 return QueryResponse(
                     query_id=query_id,
                     status=QueryStatus.CLARIFICATION_NEEDED,
-                    status_reason=reason,
+                    status_reason=_CLARIFICATION_CLIENT_MESSAGE,
                     question=req.question,
                     timestamp=timestamp,
-                    explanation=gen.explanation,
                     guardrail=GuardrailReport(passed=True, checks_run=[]),
-                    clarification=Clarification(reason=reason, options=[]),
+                    clarification=Clarification(reason=_CLARIFICATION_CLIENT_MESSAGE, options=[]),
                 )
+            logger.info("REFUSED (unsafe) for question=%r reason=%r", req.question, reason)
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.REFUSED,
-                status_reason=reason,
+                status_reason=_REFUSED_CLIENT_MESSAGE,
                 question=req.question,
                 timestamp=timestamp,
-                explanation=gen.explanation,
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
             )
 
@@ -142,29 +169,42 @@ def run_query(req: QueryRequest) -> QueryResponse:
             # letting it through would execute a harmless-looking query
             # that silently reports SUCCESS with zero rows instead of the
             # refusal it actually is.
+            logger.info(
+                "REFUSED (disguised no-op despite refusal=false) for question=%r sql=%r",
+                req.question, sql,
+            )
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.REFUSED,
-                status_reason="Detected a disguised refusal (empty or no-op SQL) despite refusal=false.",
+                status_reason=_GENERATION_FAILED_CLIENT_MESSAGE,
                 question=req.question,
                 timestamp=timestamp,
-                explanation=explanation,
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
             )
 
     # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
     result = check_guardrails(sql)
     if not result.passed:
+        # blocked_reasons/checks_run describe the STATEMENT (e.g. "blocked
+        # statement: Delete", a subquery-depth number) -- generic across any
+        # database, safe to show as-is. `sql` and `tables_used`/
+        # `columns_used` are NOT: the blocked SQL and the table list gen.py
+        # extracted from it are schema disclosure the same way a
+        # clarification reason is, so they're logged server-side only and
+        # omitted from the client response (the frontend never rendered
+        # them here anyway -- SqlPanel is success-only -- but they were
+        # still sitting in the raw response body, inspectable via
+        # DevTools/curl regardless of what the UI chose to render).
+        logger.info(
+            "BLOCKED for question=%r sql=%r tables_used=%r reasons=%r",
+            req.question, sql, tables_used, result.blocked_reasons,
+        )
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.BLOCKED,
             status_reason="; ".join(result.blocked_reasons) or "Blocked by guardrails.",
             question=req.question,
             timestamp=timestamp,
-            sql=sql,
-            explanation=explanation,
-            tables_used=tables_used,
-            columns_used=[],
             results=None,
             confidence=None,
             execution_time_ms=None,

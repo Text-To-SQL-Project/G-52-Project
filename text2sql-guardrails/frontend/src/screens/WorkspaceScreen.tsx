@@ -52,7 +52,10 @@ export function WorkspaceScreen() {
       {response && !loading && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <StatusBanner status={response.status} reason={response.status_reason} />
+            <StatusBanner
+              status={response.status}
+              reason={response.status === "clarification" ? null : response.status_reason}
+            />
             {response.execution_time_ms != null && (
               <span className="text-xs text-white/30">{response.execution_time_ms.toFixed(0)} ms</span>
             )}
