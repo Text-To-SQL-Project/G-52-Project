@@ -236,8 +236,19 @@ class SchemaResponse(BaseModel):
 class HistoryItem(BaseModel):
     query_id: str
     question: str
-    sql_preview: str = Field(..., description="Truncated one-line SQL for the card.")
+    sql_preview: Optional[str] = Field(
+        None,
+        description=(
+            "Truncated one-line SQL for the card. Present on SUCCESS only "
+            "-- None for REFUSED/CLARIFICATION_NEEDED/BLOCKED/ERROR, same "
+            "as QueryResponse.sql (see app/api/routes.py's client-message "
+            "constants)."
+        ),
+    )
     status: QueryStatus
+    status_reason: Optional[str] = Field(
+        None, description="Same generic, schema-free message as QueryResponse.status_reason."
+    )
     confidence_score: Optional[float] = None
     row_count: Optional[int] = None
     timestamp: datetime

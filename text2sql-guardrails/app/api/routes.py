@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query
 from sqlalchemy import text
 
-from app.api import mock_data
+from app.api import client_messages, mock_data
 from app.api.admin_models import (
     AdminConfigResponse,
     DetectionConfig,
@@ -48,50 +48,21 @@ from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql, is_noop_sql
+from app.history import read_history, write_history_row
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
 logger = logging.getLogger(__name__)
 
-# The model's own reason for declining is free text -- it was written to
-# explain the refusal clearly, which routinely means naming exactly which
-# tables/entities it checked and ruled out (see eval/README.md's own quoted
-# example). That's schema disclosure to an unauthenticated client, so these
-# generic messages are what the CLIENT sees; the model's real reason is
-# logged server-side (see the `logger.info(...)` calls below) and is still
-# what eval/runner.py records in results.jsonl, since that path calls
-# generate_sql() directly and never goes through this substitution.
-_CLARIFICATION_CLIENT_MESSAGE = (
-    "This question can't be answered from the available data. Try "
-    "rephrasing, or check the Schema Explorer for what's queryable."
-)
-_REFUSED_CLIENT_MESSAGE = (
-    "This request was declined because it appears to ask for a "
-    "destructive or unsafe operation, which isn't permitted."
-)
-# Used only by the disguised-no-op backstop below, where refusal=false was
-# reported so there's no refusal_kind to trust either way -- this message
-# makes no claim about *why* generation failed to produce a real query,
-# unlike _REFUSED_CLIENT_MESSAGE's specific "destructive/unsafe" framing.
-_GENERATION_FAILED_CLIENT_MESSAGE = (
-    "This question could not be translated into a query. Try rephrasing, "
-    "or check the Schema Explorer for what's queryable."
-)
-# ERROR (both branches below): a raw exception -- an Anthropic API error, a
-# malformed-JSON parse failure, or (the worst case) a live psycopg/
-# SQLAlchemy error -- is NEVER shown to the client. Postgres error text
-# embeds real identifiers directly ('column "x" does not exist', 'relation
-# "y" does not exist', plus HINT lines naming similar columns), which is
-# schema disclosure exactly like the LLM's own refusal reason is. Full
-# exception text goes to the server log only.
-_GENERATION_ERROR_CLIENT_MESSAGE = (
-    "The system hit an internal error while generating SQL for this "
-    "question. Please try again."
-)
-_EXECUTION_ERROR_CLIENT_MESSAGE = (
-    "The system hit an internal error while running this query. Please "
-    "try again or rephrase the question."
-)
+# Generic, schema-free client messages -- see app/api/client_messages.py's
+# module docstring for the full rationale (they're shared with
+# app/history.py, which needs the identical text when serving a stored
+# non-SUCCESS row through GET /v1/history).
+_CLARIFICATION_CLIENT_MESSAGE = client_messages.CLARIFICATION_CLIENT_MESSAGE
+_REFUSED_CLIENT_MESSAGE = client_messages.REFUSED_CLIENT_MESSAGE
+_GENERATION_FAILED_CLIENT_MESSAGE = client_messages.GENERATION_FAILED_CLIENT_MESSAGE
+_GENERATION_ERROR_CLIENT_MESSAGE = client_messages.GENERATION_ERROR_CLIENT_MESSAGE
+_EXECUTION_ERROR_CLIENT_MESSAGE = client_messages.EXECUTION_ERROR_CLIENT_MESSAGE
 
 
 def _new_id() -> str:
@@ -129,6 +100,10 @@ def run_query(req: QueryRequest) -> QueryResponse:
             gen = generate_sql(req.question)
         except Exception as e:
             logger.error("SQL generation failed for question=%r: %s", req.question, e)
+            write_history_row(
+                query_id=query_id, session_id=req.session_id, question=req.question,
+                status=QueryStatus.ERROR, sql=None, status_reason=f"SQL generation failed: {e}",
+            )
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.ERROR,
@@ -153,6 +128,10 @@ def run_query(req: QueryRequest) -> QueryResponse:
             reason = gen.reason or "The model declined to generate SQL for this request."
             if gen.refusal_kind == "ambiguous":
                 logger.info("CLARIFICATION_NEEDED for question=%r reason=%r", req.question, reason)
+                write_history_row(
+                    query_id=query_id, session_id=req.session_id, question=req.question,
+                    status=QueryStatus.CLARIFICATION_NEEDED, sql=None, status_reason=reason,
+                )
                 return QueryResponse(
                     query_id=query_id,
                     status=QueryStatus.CLARIFICATION_NEEDED,
@@ -163,6 +142,10 @@ def run_query(req: QueryRequest) -> QueryResponse:
                     clarification=Clarification(reason=_CLARIFICATION_CLIENT_MESSAGE, options=[]),
                 )
             logger.info("REFUSED (unsafe) for question=%r reason=%r", req.question, reason)
+            write_history_row(
+                query_id=query_id, session_id=req.session_id, question=req.question,
+                status=QueryStatus.REFUSED, sql=None, status_reason=reason,
+            )
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.REFUSED,
@@ -188,6 +171,11 @@ def run_query(req: QueryRequest) -> QueryResponse:
             logger.info(
                 "REFUSED (disguised no-op despite refusal=false) for question=%r sql=%r",
                 req.question, sql,
+            )
+            write_history_row(
+                query_id=query_id, session_id=req.session_id, question=req.question,
+                status=QueryStatus.REFUSED, sql=sql,
+                status_reason="Disguised refusal (empty/no-op SQL) despite refusal=false.",
             )
             return QueryResponse(
                 query_id=query_id,
@@ -215,10 +203,15 @@ def run_query(req: QueryRequest) -> QueryResponse:
             "BLOCKED for question=%r sql=%r tables_used=%r reasons=%r",
             req.question, sql, tables_used, result.blocked_reasons,
         )
+        blocked_reason_text = "; ".join(result.blocked_reasons) or "Blocked by guardrails."
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, question=req.question,
+            status=QueryStatus.BLOCKED, sql=sql, status_reason=blocked_reason_text,
+        )
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.BLOCKED,
-            status_reason="; ".join(result.blocked_reasons) or "Blocked by guardrails.",
+            status_reason=blocked_reason_text,
             question=req.question,
             timestamp=timestamp,
             results=None,
@@ -287,6 +280,10 @@ def run_query(req: QueryRequest) -> QueryResponse:
         # columns_used below, so none of the four reach the client. See
         # _EXECUTION_ERROR_CLIENT_MESSAGE's comment above.
         logger.error("Execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, question=req.question,
+            status=QueryStatus.ERROR, sql=safe_sql, status_reason=f"Execution failed: {e}",
+        )
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.ERROR,
@@ -318,6 +315,12 @@ def run_query(req: QueryRequest) -> QueryResponse:
     # overall score (weighted mean + hard fail-override; see
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
+    confidence = fuse_confidence(signals)
+    write_history_row(
+        query_id=query_id, session_id=req.session_id, question=req.question,
+        status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
+        confidence_score=confidence.score, row_count=len(result_rows),
+    )
     return QueryResponse(
         query_id=query_id,
         status=QueryStatus.SUCCESS,
@@ -333,7 +336,7 @@ def run_query(req: QueryRequest) -> QueryResponse:
             row_count=len(result_rows),
             truncated=False,
         ),
-        confidence=fuse_confidence(signals),
+        confidence=confidence,
         execution_time_ms=execution_time_ms,
         guardrail=guardrail_report,
         warnings=[],
@@ -360,13 +363,18 @@ def get_history(
     session_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> HistoryResponse:
-    """Return past queries for the History screen.
-
-    TODO: replace with a real query-log table read.
-    """
-    resp = mock_data.mock_history(session_id)
-    resp.items = resp.items[:limit]
-    return resp
+    """Return past queries for the History screen, backed by
+    app.query_history (app/history.py) -- real, not mock data. Falls back
+    to the old fixture only if the DB itself is unreachable, matching
+    get_schema()'s degrade-gracefully convention above."""
+    try:
+        items = read_history(session_id, limit=limit)
+        return HistoryResponse(session_id=session_id, items=items, total=len(items))
+    except Exception as e:
+        logger.error("Failed to read history for session_id=%r: %s", session_id, e)
+        resp = mock_data.mock_history(session_id)
+        resp.items = resp.items[:limit]
+        return resp
 
 
 @router.get("/admin/config", response_model=AdminConfigResponse)
