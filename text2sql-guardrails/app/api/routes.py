@@ -5,8 +5,8 @@
     GET  /v1/admin/config -> AdminConfigResponse
 
 All real (app.generation/app.safety/app.detection/app.history). schema/
-history each keep a degrade-gracefully fallback to app.api.mock_data if
-their real path (DB-dependent) raises -- see get_schema()/get_history().
+history raise a real 503 if their DB-dependent path fails -- no fallback
+to fake data, see get_schema()/get_history()'s own docstrings for why.
 """
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from app.api import client_messages, mock_data
+from app.api import client_messages
 from app.api.admin_models import (
     AdminConfigResponse,
     DetectionConfig,
@@ -347,15 +347,23 @@ def run_query(req: QueryRequest) -> QueryResponse:
 def get_schema() -> SchemaResponse:
     """Return the LIVE database schema for the Schema Explorer screen.
 
-    Uses real SQLAlchemy introspection against whatever DB is connected
-    (your SQLite file or Postgres). Falls back to mock data only if no DB
-    is reachable yet, so the stub still runs before you connect your data.
+    No fallback to fake data: a plausible-but-wrong schema (the old
+    fallback returned a "customers"/"orders" sample_shop schema, a
+    leftover from before this project's college_erp pivot) is the same
+    failure mode as a green Success badge on a refused query -- it looks
+    fine and is wrong. If introspection fails, this is a real 503: the
+    real exception is logged server-side, the client gets a generic
+    detail (already schema-free, but kept short/generic on principle
+    anyway), and the frontend renders a visible error state for it (both
+    SchemaScreen and HistoryScreen already catch ApiError and show
+    ErrorPanel -- no frontend change needed to wire this up).
     """
     try:
         from app.schema.introspect import introspect_schema
         return introspect_schema()
-    except Exception:
-        return mock_data.mock_schema()
+    except Exception as e:
+        logger.error("Schema introspection failed: %s", e)
+        raise HTTPException(status_code=503, detail="Schema unavailable — could not reach the database.")
 
 
 @router.get("/history", response_model=HistoryResponse)
@@ -364,17 +372,17 @@ def get_history(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> HistoryResponse:
     """Return past queries for the History screen, backed by
-    app.query_history (app/history.py) -- real, not mock data. Falls back
-    to the old fixture only if the DB itself is unreachable, matching
-    get_schema()'s degrade-gracefully convention above."""
+    app.query_history (app/history.py). Same no-fallback rule as
+    get_schema() above: an empty items list on a real DB failure would be
+    indistinguishable from "no history yet", which is its own silent-wrong
+    failure mode -- so a read failure is a real 503, not an empty (or
+    fake) success."""
     try:
         items = read_history(session_id, limit=limit)
         return HistoryResponse(session_id=session_id, items=items, total=len(items))
     except Exception as e:
         logger.error("Failed to read history for session_id=%r: %s", session_id, e)
-        resp = mock_data.mock_history(session_id)
-        resp.items = resp.items[:limit]
-        return resp
+        raise HTTPException(status_code=503, detail="History unavailable — could not reach the database.")
 
 
 @router.get("/admin/config", response_model=AdminConfigResponse)

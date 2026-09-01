@@ -102,7 +102,7 @@ question ──▶ generation (LLM, cached schema prompt)
 |---|---|---|---|
 | POST | `/v1/query` | `QueryResponse` | `app/api/models.py` (fixed — frontend and backend both build against this) |
 | GET | `/v1/schema` | `SchemaResponse` | `app/api/models.py` |
-| GET | `/v1/history` | `HistoryResponse` | `app/api/models.py` — currently backed by mock data server-side (`app/api/mock_data.py`); a real query-log table is a documented TODO in `routes.py` |
+| GET | `/v1/history` | `HistoryResponse` | `app/api/models.py` — backed by a real `app.query_history` table (`app/history.py`), written on every query regardless of status |
 | GET | `/v1/admin/config` | `AdminConfigResponse` | `app/api/admin_models.py` — deliberately **not** in `models.py`, since it's operational introspection, not part of the core query contract |
 | GET | `/health` | `{status, version}` | — |
 
@@ -135,9 +135,6 @@ after.
 
 ## Known limitations
 
-- **History is mock data server-side.** The screen and endpoint contract
-  are real; the persistence behind `GET /v1/history` is not (see the API
-  table above).
 - **Calibration held-out set is small.** 54 questions in the test split —
   materially better than the pre-calibration ECE, but not enough data to
   treat the calibration curve as final; re-fit as the golden set grows
