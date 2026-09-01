@@ -1,12 +1,12 @@
 """
-The three endpoints from the build plan, stubbed with mock data.
-
     POST /v1/query    -> QueryResponse
     GET  /v1/schema   -> SchemaResponse
     GET  /v1/history  -> HistoryResponse
+    GET  /v1/admin/config -> AdminConfigResponse
 
-Each handler has a TODO marking where the real pipeline plugs in. The
-contract stays fixed as you replace the mocks, so the frontend never breaks.
+All real (app.generation/app.safety/app.detection/app.history). schema/
+history each keep a degrade-gracefully fallback to app.api.mock_data if
+their real path (DB-dependent) raises -- see get_schema()/get_history().
 """
 from __future__ import annotations
 
