@@ -1,6 +1,10 @@
+import { clearToken, getToken } from "../hooks/useAuthToken";
 import type {
   AdminConfigResponse,
+  BlockedQueriesResponse,
   HistoryResponse,
+  LoginRequest,
+  LoginResponse,
   QueryRequest,
   QueryResponse,
   SchemaResponse,
@@ -18,9 +22,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, init);
+    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
     throw new ApiError(0, "Could not reach the API. Is uvicorn running on localhost:8000?");
   }
@@ -29,14 +37,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ? JSON.stringify(body.detail) : detail;
+      if (body.detail) detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
     } catch {
       // response wasn't JSON; fall back to statusText
+    }
+    if (res.status === 401) {
+      // Token missing/invalid/expired -- clear it so App.tsx re-renders
+      // the login gate instead of the caller silently retrying forever
+      // against a route it can no longer reach.
+      clearToken();
     }
     throw new ApiError(res.status, `Request failed (${res.status}): ${detail}`);
   }
 
   return (await res.json()) as T;
+}
+
+export function login(req: LoginRequest): Promise<LoginResponse> {
+  return request<LoginResponse>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
 }
 
 export function postQuery(req: QueryRequest): Promise<QueryResponse> {
@@ -59,4 +81,8 @@ export function getHistory(sessionId?: string, limit = 50): Promise<HistoryRespo
 
 export function getAdminConfig(): Promise<AdminConfigResponse> {
   return request<AdminConfigResponse>("/v1/admin/config");
+}
+
+export function getBlockedQueries(limit = 50): Promise<BlockedQueriesResponse> {
+  return request<BlockedQueriesResponse>(`/v1/admin/blocked-queries?limit=${limit}`);
 }

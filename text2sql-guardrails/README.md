@@ -69,7 +69,7 @@ question ──▶ generation (LLM, cached schema prompt)
 
 ### Docker (Postgres + API + frontend)
 
-    cp .env.example .env          # add your Anthropic key
+    cp .env.example .env          # add your Anthropic key, OPERATOR_PASSWORD, and SECRET_KEY -- see Auth below
     docker compose up --build
 
 - Frontend: http://localhost:5173
@@ -87,6 +87,34 @@ question ──▶ generation (LLM, cached schema prompt)
     # frontend, in a second terminal
     cd frontend && npm install && npm run dev
 
+## Auth
+
+Minimal and deliberately scoped: one shared operator password, no users
+table, no registration, no per-user anything. Set two env vars before
+starting the API (both required — the app refuses every login with a 500,
+not a 401, if either is empty, rather than silently accepting an empty
+password or signing tokens with a guessable key):
+
+    OPERATOR_PASSWORD=whatever-you-want
+    SECRET_KEY=<64 random hex chars — generate with: python -c "import secrets; print(secrets.token_hex(32))">
+
+The frontend shows a login screen gating the whole app. On success,
+`POST /auth/login` returns a signed, 12-hour session token (HMAC-SHA256
+over an expiry claim — no JWT library, there's nothing else to put in the
+token when there's only one shared credential); the frontend stores it in
+`localStorage` and sends it as `Authorization: Bearer <token>` on every
+`/v1/*` request. `app/auth.py::require_auth` is applied once, at
+`app.include_router()` in `app/main.py`, so it covers every route on that
+router (query, schema, history, admin/config, admin/blocked-queries) —
+including any added later — rather than being attached per-route where
+one could be forgotten. A missing, malformed, expired, or tampered token
+all get the identical `401 Not authenticated`; a wrong password gets the
+identical `401 Invalid credentials` regardless of how wrong — never which
+specific thing about the credential failed.
+
+Explicitly out of scope: multiple users, roles, per-user history, OAuth,
+refresh tokens, rate limiting on login attempts.
+
 ## Screens
 
 | Screen | Talks to | What it shows |
@@ -94,21 +122,30 @@ question ──▶ generation (LLM, cached schema prompt)
 | **Workspace** | `POST /v1/query` | NL input, syntax-highlighted SQL (editable + re-runnable via `sql_override`), results table, confidence card with per-signal bars, guardrail/clarification/error states |
 | **History** | `GET /v1/history` | Past queries for the current browser session (session id persisted in `localStorage`) |
 | **Schema Explorer** | `GET /v1/schema` | All 25 live tables, searchable, with PK/FK/sample values |
-| **Admin** | `GET /v1/admin/config` | The results table above, live guardrail/detection config, and the confidence-fusion weights |
+| **Admin** | `GET /v1/admin/config`, `GET /v1/admin/blocked-queries` | The results table above, live guardrail/detection config, confidence-fusion weights, and the real (unredacted) SQL for recent BLOCKED queries — see Auth above for why that's safe to show here and nowhere else |
+
+Every screen requires being logged in first — see [Auth](#auth) above.
 
 ## API
 
 | Method | Path | Returns | Contract |
 |---|---|---|---|
+| POST | `/auth/login` | `LoginResponse` | `app/api/auth_models.py` — outside `/v1`, unauthenticated by necessity (see Auth above) |
 | POST | `/v1/query` | `QueryResponse` | `app/api/models.py` (fixed — frontend and backend both build against this) |
-| GET | `/v1/schema` | `SchemaResponse` | `app/api/models.py` |
-| GET | `/v1/history` | `HistoryResponse` | `app/api/models.py` — backed by a real `app.query_history` table (`app/history.py`), written on every query regardless of status |
+| GET | `/v1/schema` | `SchemaResponse` | `app/api/models.py` — 503 (not a fake schema) if introspection fails |
+| GET | `/v1/history` | `HistoryResponse` | `app/api/models.py` — backed by a real `app.query_history` table (`app/history.py`), written on every query regardless of status; 503 if the read fails |
 | GET | `/v1/admin/config` | `AdminConfigResponse` | `app/api/admin_models.py` — deliberately **not** in `models.py`, since it's operational introspection, not part of the core query contract |
+| GET | `/v1/admin/blocked-queries` | `BlockedQueriesResponse` | `app/api/admin_models.py` — real, unredacted SQL for BLOCKED queries; never present in `QueryResponse` or `HistoryResponse` |
 | GET | `/health` | `{status, version}` | — |
 
-`app/api/models.py` is the single source of truth for the four contracted
-endpoints; the frontend's `frontend/src/types/api.ts` mirrors it by hand
-and is kept in sync manually (see that file's own header comment).
+All `/v1/*` routes above require `Authorization: Bearer <token>` (see Auth); `/auth/login` and `/health` do not.
+
+`app/api/models.py` is the single source of truth for the core query/
+schema/history contract; the frontend's `frontend/src/types/api.ts`
+mirrors it by hand and is kept in sync manually (see that file's own
+header comment). Admin and auth each get their own smaller models file
+(`app/api/admin_models.py`, `app/api/auth_models.py`), deliberately kept
+out of the fixed contract since they're operational, not core.
 
 ## Evaluation
 

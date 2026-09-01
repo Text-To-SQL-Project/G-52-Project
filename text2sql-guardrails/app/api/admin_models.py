@@ -6,6 +6,8 @@ config + eval numbers for the Admin screen), not part of that contract.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -46,3 +48,20 @@ class AdminConfigResponse(BaseModel):
     guardrail: GuardrailConfig
     detection: DetectionConfig
     eval_summary: EvalSummary
+
+
+class BlockedQueryItem(BaseModel):
+    """The REAL, unredacted SQL for one BLOCKED query -- deliberately not
+    in app/api/models.py or exposed via GET /v1/history (see
+    app/history.py::read_blocked_queries()'s docstring). Only reachable
+    via GET /v1/admin/blocked-queries, behind require_auth."""
+    query_id: str
+    question: str
+    sql: str | None
+    blocked_reason: str | None
+    timestamp: datetime
+
+
+class BlockedQueriesResponse(BaseModel):
+    items: list[BlockedQueryItem]
+    total: int

@@ -1,3 +1,5 @@
+import { clearToken } from "../hooks/useAuthToken";
+
 export type Screen = "workspace" | "history" | "schema" | "admin";
 
 const TABS: { key: Screen; label: string }[] = [
@@ -20,21 +22,30 @@ export function NavBar({ active, onChange }: Props) {
           <h1 className="text-lg font-semibold text-white">Text-to-SQL Guardrails</h1>
           <p className="text-xs text-white/40">college_erp</p>
         </div>
-        <nav className="flex gap-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => onChange(tab.key)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                active === tab.key
-                  ? "bg-blue-600 text-white"
-                  : "text-white/50 hover:bg-white/5 hover:text-white/80"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center gap-3">
+          <nav className="flex gap-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => onChange(tab.key)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  active === tab.key
+                    ? "bg-blue-600 text-white"
+                    : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <button
+            onClick={clearToken}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/40 transition hover:bg-white/5 hover:text-white/70"
+            title="Log out"
+          >
+            Log out
+          </button>
+        </div>
       </div>
     </header>
   );

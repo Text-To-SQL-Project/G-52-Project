@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ApiError, getAdminConfig } from "../api/client";
+import { ApiError, getAdminConfig, getBlockedQueries } from "../api/client";
 import { ErrorPanel } from "../components/ErrorPanel";
-import type { AdminConfigResponse } from "../types/api";
+import type { AdminConfigResponse, BlockedQueryItem } from "../types/api";
 
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -18,6 +18,50 @@ function ConfigRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between border-b border-white/5 py-2 text-sm last:border-0">
       <span className="text-white/50">{label}</span>
       <span className="font-mono text-white/90">{value}</span>
+    </div>
+  );
+}
+
+function BlockedQueriesSection() {
+  const [items, setItems] = useState<BlockedQueryItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getBlockedQueries()
+      .then((resp) => setItems(resp.items))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load blocked queries."));
+  }, []);
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
+        Recent blocked queries
+      </h3>
+      <p className="mb-3 text-xs text-white/30">
+        Real, unredacted SQL the AST guardrail caught — visible here only, never in the Workspace
+        response body (see Task 1). Across all sessions.
+      </p>
+
+      {error && <ErrorPanel message={error} />}
+      {!error && items === null && <p className="py-4 text-center text-sm text-white/30">Loading…</p>}
+      {items && items.length === 0 && (
+        <p className="py-4 text-center text-sm text-white/30">No blocked queries yet.</p>
+      )}
+      {items && items.length > 0 && (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div key={item.query_id} className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+              <p className="mb-1 text-sm text-white/80">{item.question}</p>
+              <code className="block truncate rounded-md bg-black/30 px-2 py-1 text-xs text-red-300">
+                {item.sql ?? "(no SQL recorded)"}
+              </code>
+              <p className="mt-1 text-xs text-white/30">
+                {item.blocked_reason} — {new Date(item.timestamp).toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -129,6 +173,8 @@ export function AdminScreen() {
           ))}
         </div>
       </div>
+
+      <BlockedQueriesSection />
     </div>
   );
 }

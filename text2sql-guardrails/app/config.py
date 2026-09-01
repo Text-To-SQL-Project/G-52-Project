@@ -49,5 +49,15 @@ class Settings:
         "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
     ).split(",")
 
+    # Minimal auth (Task 4): one shared operator password, no users table,
+    # no registration. Empty by default -- app/auth.py refuses ALL logins
+    # (500, not 401 -- "not configured" is a different failure than "wrong
+    # password") rather than silently accepting an empty password.
+    OPERATOR_PASSWORD: str = os.getenv("OPERATOR_PASSWORD", "")
+    # Signs the session token app/auth.py issues on successful login.
+    # Empty is refused the same way as an empty OPERATOR_PASSWORD -- an
+    # empty HMAC key would "work" but make every token trivially forgeable.
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+
 
 settings = Settings()

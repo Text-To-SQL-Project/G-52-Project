@@ -135,3 +135,37 @@ def read_history(session_id: str | None, limit: int = 50) -> list[HistoryItem]:
             )
         )
     return items
+
+
+def read_blocked_queries(limit: int = 50) -> list[dict]:
+    """The REAL, unredacted SQL for recent BLOCKED queries, across ALL
+    sessions -- deliberately the one place that bypasses read_history()'s
+    redaction. Callers (app/api/routes.py's admin-only endpoint) MUST sit
+    behind require_auth; this function has no auth of its own, same as
+    every other function in this module -- the boundary is the route, not
+    the query. See Task 4's scope: "re-expose the blocked SQL -- but ONLY
+    in the Admin screen, behind the auth dependency, never in the
+    Workspace response body" -- this is what makes that possible without
+    touching Task 1's fix to the actual query-response path."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT query_id, question, sql_preview, status_reason, created_at "
+                "FROM app.query_history "
+                "WHERE status = 'blocked' "
+                "ORDER BY created_at DESC "
+                "LIMIT :limit"
+            ),
+            {"limit": limit},
+        ).fetchall()
+    return [
+        {
+            "query_id": r.query_id,
+            "question": r.question,
+            "sql": r.sql_preview,
+            "blocked_reason": r.status_reason,
+            "timestamp": r.created_at,
+        }
+        for r in rows
+    ]

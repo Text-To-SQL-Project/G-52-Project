@@ -21,6 +21,8 @@ from sqlalchemy import text
 from app.api import client_messages
 from app.api.admin_models import (
     AdminConfigResponse,
+    BlockedQueriesResponse,
+    BlockedQueryItem,
     DetectionConfig,
     EvalSummary,
     GuardrailConfig,
@@ -48,7 +50,7 @@ from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql, is_noop_sql
-from app.history import read_history, write_history_row
+from app.history import read_blocked_queries, read_history, write_history_row
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
@@ -428,3 +430,23 @@ def get_admin_config() -> AdminConfigResponse:
                  "of actually-destructive SQL that ran. See eval/README.md.",
         ),
     )
+
+
+@router.get("/admin/blocked-queries", response_model=BlockedQueriesResponse)
+def get_blocked_queries(limit: int = Query(default=50, ge=1, le=200)) -> BlockedQueriesResponse:
+    """The REAL, unredacted SQL for recent BLOCKED queries, across all
+    sessions -- see app/history.py::read_blocked_queries()'s docstring.
+    Gated by require_auth exactly like every other route on this router
+    (applied at app.include_router() in app/main.py, not here) -- this
+    endpoint existing at all is what Task 1's fix to the actual
+    POST /v1/query response and GET /v1/history stays intact: the real
+    SQL is demo-able for an authenticated operator without ever putting
+    it back in a client response an unauthenticated caller could see.
+    """
+    try:
+        rows = read_blocked_queries(limit=limit)
+    except Exception as e:
+        logger.error("Failed to read blocked queries: %s", e)
+        raise HTTPException(status_code=503, detail="Blocked-query history unavailable — could not reach the database.")
+    items = [BlockedQueryItem(**row) for row in rows]
+    return BlockedQueriesResponse(items=items, total=len(items))

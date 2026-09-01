@@ -113,8 +113,9 @@ export interface SchemaResponse {
 export interface HistoryItem {
   query_id: string;
   question: string;
-  sql_preview: string;
+  sql_preview?: string | null;
   status: QueryStatus;
+  status_reason?: string | null;
   confidence_score?: number | null;
   row_count?: number | null;
   timestamp: string;
@@ -166,4 +167,37 @@ export interface AdminConfigResponse {
   guardrail: GuardrailConfig;
   detection: DetectionConfig;
   eval_summary: EvalSummary;
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/admin/blocked-queries -- admin-only, real unredacted SQL for
+// BLOCKED queries (see app/api/admin_models.py::BlockedQueryItem). Never
+// present in QueryResponse or HistoryItem -- Task 1's fix stays intact.
+// ---------------------------------------------------------------------------
+
+export interface BlockedQueryItem {
+  query_id: string;
+  question: string;
+  sql?: string | null;
+  blocked_reason?: string | null;
+  timestamp: string;
+}
+
+export interface BlockedQueriesResponse {
+  items: BlockedQueryItem[];
+  total: number;
+}
+
+// ---------------------------------------------------------------------------
+// POST /auth/login -- outside /v1 and outside app/api/models.py; see
+// app/api/auth_models.py.
+// ---------------------------------------------------------------------------
+
+export interface LoginRequest {
+  password: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  expires_in: number;
 }
