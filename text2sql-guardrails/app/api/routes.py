@@ -77,6 +77,21 @@ _GENERATION_FAILED_CLIENT_MESSAGE = (
     "This question could not be translated into a query. Try rephrasing, "
     "or check the Schema Explorer for what's queryable."
 )
+# ERROR (both branches below): a raw exception -- an Anthropic API error, a
+# malformed-JSON parse failure, or (the worst case) a live psycopg/
+# SQLAlchemy error -- is NEVER shown to the client. Postgres error text
+# embeds real identifiers directly ('column "x" does not exist', 'relation
+# "y" does not exist', plus HINT lines naming similar columns), which is
+# schema disclosure exactly like the LLM's own refusal reason is. Full
+# exception text goes to the server log only.
+_GENERATION_ERROR_CLIENT_MESSAGE = (
+    "The system hit an internal error while generating SQL for this "
+    "question. Please try again."
+)
+_EXECUTION_ERROR_CLIENT_MESSAGE = (
+    "The system hit an internal error while running this query. Please "
+    "try again or rephrase the question."
+)
 
 
 def _new_id() -> str:
@@ -113,14 +128,15 @@ def run_query(req: QueryRequest) -> QueryResponse:
         try:
             gen = generate_sql(req.question)
         except Exception as e:
+            logger.error("SQL generation failed for question=%r: %s", req.question, e)
             return QueryResponse(
                 query_id=query_id,
                 status=QueryStatus.ERROR,
-                status_reason=f"SQL generation failed: {e}",
+                status_reason=_GENERATION_ERROR_CLIENT_MESSAGE,
                 question=req.question,
                 timestamp=timestamp,
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
-                error_message=f"SQL generation failed: {e}",
+                error_message=_GENERATION_ERROR_CLIENT_MESSAGE,
             )
 
         if gen.refusal:
@@ -265,22 +281,24 @@ def run_query(req: QueryRequest) -> QueryResponse:
             result_columns = list(cursor.keys())
             result_rows = [list(row) for row in cursor.fetchall()]
     except Exception as e:
+        # Raw psycopg/SQLAlchemy error text embeds real identifiers
+        # directly (column/relation names, HINT lines naming similar
+        # columns) -- same schema-disclosure risk as sql/tables_used/
+        # columns_used below, so none of the four reach the client. See
+        # _EXECUTION_ERROR_CLIENT_MESSAGE's comment above.
+        logger.error("Execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
         return QueryResponse(
             query_id=query_id,
             status=QueryStatus.ERROR,
-            status_reason=f"Execution failed: {e}",
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
             question=req.question,
             timestamp=timestamp,
-            sql=safe_sql,
-            explanation=explanation,
-            tables_used=tables_used,
-            columns_used=columns_used,
             results=None,
             confidence=None,
             execution_time_ms=None,
             guardrail=guardrail_report,
             warnings=[],
-            error_message=f"Execution failed: {e}",
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
         )
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
 
