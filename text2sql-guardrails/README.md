@@ -57,9 +57,15 @@ question ──▶ generation (LLM, cached schema prompt)
   `schema_alignment`, `back_translation_match`, `result_sanity`) feed a
   hand-tuned weighted-mean fusion, then an isotonic regression calibrates
   that score against measured accuracy on held-out data.
-  `multi_query_agreement` exists but is off by default — an ablation study
-  found it was the only signal whose removal *increased* AUROC (see
-  results table above).
+  `multi_query_agreement` exists but is off by default (`MULTI_QUERY_ENABLED=false`)
+  — an ablation study found it was the only signal whose removal
+  *increased* AUROC (see results table above), and it was never in
+  `fuse_confidence()`'s weighted set to begin with. `eval/runner.py`
+  evaluates whatever config is actually deployed rather than overriding
+  it — it used to force this signal on regardless of `.env`, which meant
+  the eval measured a configuration nothing ships with; `eval/analyze.py`
+  now notes plainly when the signal's data is absent instead of silently
+  omitting it.
 - **Read-only execution** — `app/db.py`'s execution engine is meant to map
   to a SELECT-only Postgres role (`READONLY_DATABASE_URL`), so even a
   guardrail miss can't write. The Docker stack provisions this role for

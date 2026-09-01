@@ -5,6 +5,18 @@ Runs every case in eval/golden_set.jsonl through the REAL pipeline
 to eval/results.jsonl. Computes NO metrics itself -- that's eval/metrics.py
 and (eventually) analyze.py's job; this script only records what happened.
 
+Evaluates the DEPLOYED config as-is (reads .env like every other entrypoint)
+rather than overriding it -- this used to force MULTI_QUERY_ENABLED=true
+regardless of .env so multi_query_agreement was always populated, but that
+meant the eval measured a configuration nothing actually ships with. Now
+that the ablation study has settled multi_query_agreement's fate (dropped
+from fuse_confidence()'s WEIGHTS -- see app/detection/confidence.py -- and
+MULTI_QUERY_ENABLED defaults to false in .env.example to match), a fresh
+run with the shipped default won't populate that signal; eval/analyze.py
+skips its diagnostic section gracefully when the data's absent rather than
+erroring. Pass --repeats and/or set MULTI_QUERY_ENABLED=true in your own
+.env first if you deliberately want to re-derive it.
+
 Usage:
     python -m eval.runner --limit 5 --repeats 1
     python -m eval.runner                      # full set, 3 repeats each
@@ -16,29 +28,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 
-# MUST happen before any `app...` import: app.config.Settings reads env vars
-# at class-definition time, so this has to land before app.config (or
-# anything that imports it) is first imported. Evaluation runs always want
-# multi_query_agreement populated, regardless of what .env has it set to.
-os.environ["MULTI_QUERY_ENABLED"] = "true"
+from sqlalchemy import text
 
-from sqlalchemy import text  # noqa: E402
+import app.generation.llm_client as llm_client
+from app.api.models import ConfidenceSignal, SignalStatus
+from app.db import get_readonly_engine
+from app.detection.back_translation import check_back_translation
+from app.detection.multi_query import check_multi_query_agreement
+from app.detection.result_sanity import check_result_sanity
+from app.detection.schema_align import check_schema_alignment
+from app.generation.generator import generate_sql, is_noop_sql
+from app.safety.guardrails import check_guardrails
 
-import app.generation.llm_client as llm_client  # noqa: E402
-from app.api.models import ConfidenceSignal, SignalStatus  # noqa: E402
-from app.db import get_readonly_engine  # noqa: E402
-from app.detection.back_translation import check_back_translation  # noqa: E402
-from app.detection.multi_query import check_multi_query_agreement  # noqa: E402
-from app.detection.result_sanity import check_result_sanity  # noqa: E402
-from app.detection.schema_align import check_schema_alignment  # noqa: E402
-from app.generation.generator import generate_sql, is_noop_sql  # noqa: E402
-from app.safety.guardrails import check_guardrails  # noqa: E402
-
-from eval.metrics import execution_match, load_golden_set, strip_trailing_limit  # noqa: E402
+from eval.metrics import execution_match, load_golden_set, strip_trailing_limit
 
 EVAL_DIR = Path(__file__).parent
 DEFAULT_GOLDEN = EVAL_DIR / "golden_set.jsonl"

@@ -284,6 +284,13 @@ def print_report(golden: list[dict], results: list[dict]) -> None:
     for key in sorted(signal_scores):
         scores = signal_scores[key]
         print(f"  {key:24s} n={len(scores):3d}  mean={sum(scores) / len(scores):.3f}")
+    if "multi_query_agreement" not in signal_scores:
+        print(
+            "  multi_query_agreement    -- no data (MULTI_QUERY_ENABLED=false for this run, "
+            "the shipped default; dropped from fuse_confidence()'s WEIGHTS after the ablation "
+            "study found its removal improved fused AUROC -- see app/detection/confidence.py). "
+            "Set MULTI_QUERY_ENABLED=true before running eval.runner to re-populate it."
+        )
 
     print("\n--- Per-signal detection performance (all runs pooled) ---")
     print("  ground truth: was the outcome actually wrong? (see is_wrong_label() docstring)")
@@ -292,6 +299,8 @@ def print_report(golden: list[dict], results: list[dict]) -> None:
         m = f1_auroc[key]
         auroc_str = f"{m['auroc']:.3f}" if m["auroc"] is not None else "N/A (single class)"
         print(f"  {key:24s} n={m['n']:3d}  n_wrong={m['n_wrong']:3d}  AUROC={auroc_str}  F1={m['f1']:.3f}")
+    if "multi_query_agreement" not in f1_auroc:
+        print("  multi_query_agreement    -- no data, same reason as above; skipping.")
 
     print("\n--- Ablation: leave-one-signal-out AUROC drop (fused confidence discriminating correct/wrong) ---")
     ablation = ablation_study(results)
