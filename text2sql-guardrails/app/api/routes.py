@@ -370,7 +370,7 @@ def get_schema() -> SchemaResponse:
 
 @router.get("/history", response_model=HistoryResponse)
 def get_history(
-    session_id: str | None = Query(default=None),
+    session_id: str = Query(...),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> HistoryResponse:
     """Return past queries for the History screen, backed by
@@ -378,7 +378,10 @@ def get_history(
     get_schema() above: an empty items list on a real DB failure would be
     indistinguishable from "no history yet", which is its own silent-wrong
     failure mode -- so a read failure is a real 503, not an empty (or
-    fake) success."""
+    fake) success. session_id is required for the same reason: a missing
+    required parameter must fail visibly (422) rather than returning a
+    plausible-looking empty history, which would be indistinguishable from
+    "this session really has no queries yet"."""
     try:
         items = read_history(session_id, limit=limit)
         return HistoryResponse(session_id=session_id, items=items, total=len(items))
