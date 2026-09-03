@@ -24,10 +24,38 @@ class Settings:
     # LLM (wired in Phase 2)
     READONLY_DATABASE_URL: str = os.getenv("READONLY_DATABASE_URL", "")
 
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # or "openai"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" | "gemini" | "groq"
     LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-5")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
     MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "1024"))
+    # 0 = unlimited (the historical default -- keeps the Anthropic path's
+    # timing, and therefore nothing about its behavior, unchanged). Set to
+    # e.g. 15 for Gemini's free-tier RPM cap or 30 for Groq's so eval runs
+    # self-throttle with a sleep instead of hammering the provider into a
+    # string of 429s. See app/generation/llm_client.py's _RpmThrottle.
+    LLM_RPM_LIMIT: int = int(os.getenv("LLM_RPM_LIMIT", "0"))
+    # Per-HTTP-request timeout passed to BOTH the Anthropic and the
+    # OpenAI-compatible client -- without this, a hung upstream response
+    # (observed live: a transient 503 from Gemini's endpoint, retried by
+    # the openai SDK, then no response at all for minutes) blocks a
+    # request thread indefinitely instead of failing into the existing
+    # ERROR path. See llm_client.py's _with_backoff for how this composes
+    # with retry count into a bounded worst case.
+    LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
+    # 0 = unlimited. A hard ceiling on real LLM calls for ONE eval.runner
+    # invocation -- consumed there (see eval/runner.py's main loop), not
+    # enforced by llm_client.py itself, since this is an eval-run cost/
+    # quota control, not something the live API should ever cut a user off
+    # for. Exists because a DAILY provider quota (not RPM/TPM, which
+    # LLM_RPM_LIMIT already throttles for) can be exhausted mid-run with no
+    # warning -- observed live: 2,128 pointless 429s once
+    # gemini-3.5-flash-lite's 500/day cap hit, because nothing stopped the
+    # runner from continuing to attempt (and retry, 5x each) every
+    # remaining question regardless. Set below whatever the provider's
+    # actual daily cap is, with margin, so the run stops cleanly with an
+    # honest partial file instead of burning the rest of the day's already-
+    # spent quota on calls that cannot succeed.
+    LLM_DAILY_CALL_LIMIT: int = int(os.getenv("LLM_DAILY_CALL_LIMIT", "0"))
     # Toggle off for the back-translation ablation study.
     BACK_TRANSLATION_ENABLED: bool = os.getenv(
         "BACK_TRANSLATION_ENABLED", "true"
