@@ -41,6 +41,7 @@ comparison logic changes.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from collections import Counter
@@ -88,6 +89,23 @@ def strip_trailing_limit(sql: str) -> str:
     if not stripped.endswith(";"):
         stripped += ";"
     return stripped
+
+
+def gold_sql_has_top_level_order_by(sql: str) -> bool:
+    """Structural order-sensitivity check used by strict-mode execution_match
+    (see its docstring, departure #4): does gold_sql have a top-level ORDER
+    BY, the way standard Spider/BIRD EX infers order-sensitivity, instead of
+    this project's own explicit per-case `ordered` annotation? Parses with
+    sqlglot; a query that doesn't parse as a single exp.Select is treated as
+    NOT order-sensitive (conservative default -- unordered/subset semantics
+    would otherwise be impossible to apply to it at all)."""
+    try:
+        stmt = sqlglot.parse_one(sql, dialect="postgres")
+    except Exception:
+        return False
+    if not isinstance(stmt, exp.Select):
+        return False
+    return stmt.args.get("order") is not None
 
 
 def load_golden_set(path: str) -> list[dict]:
@@ -190,6 +208,64 @@ def block_accuracy(
     return correct / len(cases)
 
 
+_MAX_STRICT_PERMUTATION_COLUMNS = 8  # 8! = 40320 -- generous headroom over the golden set's observed max of 5
+
+
+def _execution_match_strict(
+    pred_columns: list[str],
+    pred_rows: list[list],
+    gold_sql: str,
+    gold_columns: list[str],
+    gold_rows: list[list],
+) -> bool:
+    """Reproduces (as closely as practical -- see eval/README.md's "Strict
+    mode" section for exactly where this still differs) the test-suite
+    execution-accuracy comparison standard to Spider (Yu et al., 2018) /
+    BIRD (Li et al., 2023): SQL gives no guarantee that a semantically
+    correct prediction names its columns the same as gold, so instead of
+    matching gold's columns to pred's BY NAME (the permissive path's
+    departure #1), this requires an EXACT column count and searches every
+    permutation of pred's columns for one whose VALUES satisfy the row-match
+    rule below -- a strictly more general replacement for the permissive
+    path's aggregate-kind positional fallback, since it matches on value
+    equality directly rather than a same-function-kind heuristic.
+
+    Order-sensitivity (departure #4) is inferred structurally from whether
+    gold_sql has a top-level ORDER BY, per gold_sql_has_top_level_order_by()
+    -- NOT from the caller's `ordered` annotation, which strict mode ignores
+    entirely. When order-sensitive: exact positional match. Otherwise: exact
+    multiset EQUALITY (departure #2 -- not the permissive path's subset
+    match), so a prediction missing rows gold has now fails, not just one
+    containing rows gold doesn't have.
+
+    Callers are responsible for departure #3 (no LIMIT stripping): pass the
+    gold_rows/gold_columns from executing gold_sql exactly as authored, not
+    the strip_trailing_limit()'d version execution_accuracy() uses for the
+    permissive path.
+    """
+    if len(pred_columns) != len(gold_columns):
+        return False
+    n = len(gold_columns)
+    if n > _MAX_STRICT_PERMUTATION_COLUMNS:
+        # Pathological case, not expected in practice (see the module-level
+        # constant's comment) -- fail closed rather than hang on n!.
+        return False
+
+    ordered = gold_sql_has_top_level_order_by(gold_sql)
+    gold_tuples = [tuple(str(v) for v in row) for row in gold_rows]
+    gold_counts = Counter(gold_tuples) if not ordered else None
+
+    for perm in itertools.permutations(range(n)):
+        projected = [tuple(str(row[i]) for i in perm) for row in pred_rows]
+        if ordered:
+            if projected == gold_tuples:
+                return True
+        else:
+            if Counter(projected) == gold_counts:
+                return True
+    return False
+
+
 def execution_match(
     pred_sql: str,
     pred_columns: list[str],
@@ -198,8 +274,17 @@ def execution_match(
     gold_columns: list[str],
     gold_rows: list[list],
     ordered: bool = False,
+    strict: bool = False,
 ) -> bool:
     """Compare a single predicted result set to a single gold result set.
+
+    strict=True disables all four eval/README.md-documented departures from
+    standard Spider/BIRD execution accuracy and delegates to
+    _execution_match_strict() (see that function's docstring for exactly
+    how). The `ordered` argument is ignored in strict mode -- order-
+    sensitivity there is inferred from gold_sql itself, not passed in. The
+    permissive behavior below (this project's own methodology, the default)
+    is unchanged.
 
     The model is free to SELECT extra columns beyond gold_sql's exact list
     (e.g. gold asks for name+email, the model also returns a status column)
@@ -247,6 +332,9 @@ def execution_match(
     "subset" of anything, which would wrongly count "returned nothing" as
     correct against a non-empty gold -- guarded against explicitly.
     """
+    if strict:
+        return _execution_match_strict(pred_columns, pred_rows, gold_sql, gold_columns, gold_rows)
+
     pred_index = {c.lower(): i for i, c in enumerate(pred_columns)}
     unmatched_gold = [c for c in gold_columns if c.lower() not in pred_index]
 
@@ -297,11 +385,19 @@ def execution_accuracy(
     golden: list[dict],
     predictions: dict[str, dict],
     engine: Any = None,
+    strict: bool = False,
 ) -> float:
     """Fraction of answerable, non-adversarial cases where the predicted
     result set matches gold_sql's actual result set (executed fresh
     against `engine`, defaulting to app.db.get_readonly_engine()), via
     execution_match().
+
+    strict=True reports the leaderboard-comparable number: gold_sql is
+    executed exactly as authored (no strip_trailing_limit() -- that's
+    departure #3, permissive-only, see eval/README.md) and passed through
+    to execution_match(strict=True), which ignores the `ordered` annotation
+    entirely in favor of its own structural ORDER BY check. The default
+    (strict=False) is this project's own documented methodology, unchanged.
     """
     if engine is None:
         from app.db import get_readonly_engine
@@ -321,13 +417,16 @@ def execution_accuracy(
         pred_rows = pred.get("rows", [])
         ordered = bool(g.get("ordered"))
 
-        gold_sql = g["gold_sql"] if ordered else strip_trailing_limit(g["gold_sql"])
+        gold_sql = g["gold_sql"] if (ordered or strict) else strip_trailing_limit(g["gold_sql"])
         with engine.connect() as conn:
             cursor = conn.execute(text(gold_sql))
             gold_columns = list(cursor.keys())
             gold_rows = [list(row) for row in cursor.fetchall()]
 
-        if execution_match(pred_sql, pred_columns, pred_rows, gold_sql, gold_columns, gold_rows, ordered=ordered):
+        if execution_match(
+            pred_sql, pred_columns, pred_rows, gold_sql, gold_columns, gold_rows,
+            ordered=ordered, strict=strict,
+        ):
             correct += 1
 
     return correct / len(cases)

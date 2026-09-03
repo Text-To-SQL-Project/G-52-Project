@@ -28,26 +28,72 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-from sqlalchemy import text
+# This is a standalone entrypoint -- it never imports app.main, so
+# app.main's logging.basicConfig() call never runs here. Without a handler
+# configured, logging.getLogger(...).info()/.warning() calls throughout
+# app/ (including app.generation.llm_client's per-attempt latency and
+# rate-limit-header logging, added alongside the multi-provider work) are
+# silently dropped rather than reaching stdout -- the exact bug Task 1's
+# schema-disclosure fix already had to fix once for app/main.py, recurring
+# here because this is a second, separate process entrypoint.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-import app.generation.llm_client as llm_client
-from app.api.models import ConfidenceSignal, SignalStatus
-from app.db import get_readonly_engine
-from app.detection.back_translation import check_back_translation
-from app.detection.multi_query import check_multi_query_agreement
-from app.detection.result_sanity import check_result_sanity
-from app.detection.schema_align import check_schema_alignment
-from app.generation.generator import generate_sql, is_noop_sql
-from app.safety.guardrails import check_guardrails
+from sqlalchemy import text  # noqa: E402
 
-from eval.metrics import execution_match, load_golden_set, strip_trailing_limit
+import app.generation.llm_client as llm_client  # noqa: E402
+from app.api.models import ConfidenceSignal, SignalStatus  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.db import get_readonly_engine  # noqa: E402
+from app.detection.back_translation import check_back_translation  # noqa: E402
+from app.detection.multi_query import check_multi_query_agreement  # noqa: E402
+from app.detection.result_sanity import check_result_sanity  # noqa: E402
+from app.detection.schema_align import check_schema_alignment  # noqa: E402
+from app.generation.generator import generate_sql, is_noop_sql  # noqa: E402
+from app.safety.guardrails import check_guardrails  # noqa: E402
+
+from eval.metrics import execution_match, load_golden_set, strip_trailing_limit  # noqa: E402
 
 EVAL_DIR = Path(__file__).parent
 DEFAULT_GOLDEN = EVAL_DIR / "golden_set.jsonl"
 DEFAULT_RESULTS = EVAL_DIR / "results.jsonl"
+
+
+def _fetch_model_provenance() -> dict:
+    """Written into every result record (see `record` below) so a results
+    file identifies exactly which model produced it -- not just the
+    floating name (which can silently start pointing at a different model,
+    as gemini-2.5-flash did), but a version string where the provider
+    exposes one. Fetched live, once per run, from the provider's own
+    models-metadata endpoint (GET, not a generation call -- zero quota
+    cost) rather than hardcoded, so it can't go stale.
+
+    Gemini exposes a per-model `version` field this way (e.g.
+    "3.6-flash-07-2026" for gemini-3.6-flash, the closest thing to a pin
+    that model has -- see eval/README.md's model-provenance note).
+    Anthropic and Groq have no equivalent public per-model version
+    endpoint; model_version stays None for those, and the model NAME
+    itself (e.g. "claude-sonnet-5") is the citable identifier.
+    """
+    provenance = {"provider": settings.LLM_PROVIDER, "model": settings.LLM_MODEL, "model_version": None}
+    if settings.LLM_PROVIDER != "gemini":
+        return provenance
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.LLM_MODEL}"
+        f"?key={settings.LLM_API_KEY}"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.load(resp)
+        provenance["model_version"] = data.get("version")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        print(f"WARNING: could not fetch model version metadata for {settings.LLM_MODEL!r}: {e}")
+    return provenance
 
 
 # --- LLM call counting -------------------------------------------------
@@ -58,11 +104,53 @@ DEFAULT_RESULTS = EVAL_DIR / "results.jsonl"
 _llm_call_count = 0
 _original_complete = llm_client.complete
 
+# Per-QUESTION token usage (measured, not the earlier tiktoken-approximated
+# estimate) -- reset in main()'s loop immediately before each run_pipeline()
+# call, read immediately after, and written into that run's own result
+# record. Accumulates across however many real complete() calls that one
+# question made (1 for a refusal, up to 3 for a full success), via
+# llm_client.get_last_usage() read right after each call -- see that
+# function's docstring for why a failed call correctly contributes nothing.
+_usage_since_reset = {"prompt_tokens": 0, "completion_tokens": 0}
+
+# What the configured LLM_MODEL actually resolved to on this question's
+# most recent successful call -- matters for a floating alias (e.g.
+# gemini-flash-lite-latest), which can silently repoint at a different
+# model with no other way to detect it. A single-key dict (not a bare
+# variable) so main()'s loop can reset it each question without a `global`
+# declaration, matching _usage_since_reset's pattern. None if the
+# provider's response never exposed a resolved-model field at all (see
+# llm_client._extract_resolved_model).
+_resolved_model_since_reset: dict = {"value": None}
+
+# Run-WIDE token totals (never reset, unlike _usage_since_reset above) --
+# feeds the periodic progress checkpoint's running cost estimate. Pricing
+# is a rough live estimate only, not the final accounting: it's hardcoded
+# to whatever model/rate was known to be resolving at the time this was
+# written (gemini-3.5-flash-lite's paid-tier rate, $0.30/$2.50 per 1M
+# input/output tokens, confirmed 2026-09-03 -- see eval/README.md's
+# Provider throughput section) rather than looked up dynamically, since
+# there's no live pricing API to query. Wrong for a genuinely different
+# provider/model; harmless since it's clearly labeled as an estimate in
+# the checkpoint line, not written into any result record.
+_run_total_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+_ESTIMATE_INPUT_RATE_PER_TOKEN = 0.30 / 1_000_000
+_ESTIMATE_OUTPUT_RATE_PER_TOKEN = 2.50 / 1_000_000
+
 
 def _counting_complete(system: str, user: str, **kwargs) -> str:
     global _llm_call_count
     _llm_call_count += 1
-    return _original_complete(system, user, **kwargs)
+    result = _original_complete(system, user, **kwargs)
+    usage = llm_client.get_last_usage()
+    _usage_since_reset["prompt_tokens"] += usage["prompt_tokens"]
+    _usage_since_reset["completion_tokens"] += usage["completion_tokens"]
+    _run_total_usage["prompt_tokens"] += usage["prompt_tokens"]
+    _run_total_usage["completion_tokens"] += usage["completion_tokens"]
+    resolved = llm_client.get_last_resolved_model()
+    if resolved:
+        _resolved_model_since_reset["value"] = resolved
+    return result
 
 
 llm_client.complete = _counting_complete
@@ -211,11 +299,46 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Only run the first N cases (smoke test).")
     parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
     parser.add_argument("--out", type=Path, default=DEFAULT_RESULTS)
+    parser.add_argument(
+        "--progress-file", type=Path, default=None,
+        help="Overwritten with a one-line status every --progress-every completed runs, "
+             "so a long run can be checked without tailing full output.",
+    )
+    parser.add_argument(
+        "--progress-every", type=int, default=15,
+        help="How many completed (non-skipped) runs between progress-file updates.",
+    )
     args = parser.parse_args()
 
     golden = load_golden_set(str(args.golden))
     if args.limit is not None:
         golden = golden[: args.limit]
+
+    provenance = _fetch_model_provenance()
+    print(f"Model provenance for this run: {provenance}")
+
+    run_start_time = time.monotonic()
+    completed_since_progress_update = 0
+
+    def _write_progress(run_index: int, total_runs_planned: int) -> None:
+        if args.progress_file is None:
+            return
+        elapsed = time.monotonic() - run_start_time
+        cost_estimate = (
+            _run_total_usage["prompt_tokens"] * _ESTIMATE_INPUT_RATE_PER_TOKEN
+            + _run_total_usage["completion_tokens"] * _ESTIMATE_OUTPUT_RATE_PER_TOKEN
+        )
+        line = (
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"{run_index}/{total_runs_planned} runs | "
+            f"{_llm_call_count} LLM calls | "
+            f"{elapsed:.0f}s elapsed | "
+            f"{_run_total_usage['prompt_tokens']}+{_run_total_usage['completion_tokens']} "
+            f"prompt+completion tokens | "
+            f"~${cost_estimate:.4f} running cost estimate "
+            f"(rough, {settings.LLM_MODEL} nominal rate -- see eval/README.md)\n"
+        )
+        args.progress_file.write_text(line, encoding="utf-8")
 
     done_pairs = _load_done_pairs(args.out)
     if done_pairs:
@@ -249,16 +372,33 @@ def main() -> None:
     total_cases = len(golden)
     total_runs_planned = total_cases * args.repeats
     run_index = 0
+    daily_limit_hit = False
 
     with open(args.out, "a", encoding="utf-8") as out_f:
         for case in golden:
+            if daily_limit_hit:
+                break
             for run in range(1, args.repeats + 1):
                 run_index += 1
                 if (case["id"], run) in done_pairs:
                     print(f"[{run_index}/{total_runs_planned}] {case['id']} run={run} SKIPPED (already recorded)")
                     continue
 
+                if 0 < settings.LLM_DAILY_CALL_LIMIT <= _llm_call_count:
+                    print(
+                        f"\nSTOPPING: LLM_DAILY_CALL_LIMIT={settings.LLM_DAILY_CALL_LIMIT} reached "
+                        f"({_llm_call_count} calls made) at {case['id']} run={run} -- "
+                        f"{run_index-1}/{total_runs_planned} runs completed this invocation. "
+                        f"Not attempting further calls. Resume later with the same --out file; "
+                        f"checkpointing will pick up exactly here."
+                    )
+                    daily_limit_hit = True
+                    break
+
                 override = case["gold_sql"] if case.get("direct_sql") else None
+                _usage_since_reset["prompt_tokens"] = 0
+                _usage_since_reset["completion_tokens"] = 0
+                _resolved_model_since_reset["value"] = None
                 try:
                     pred = run_pipeline(case["question"], sql_override=override)
                     error = None
@@ -293,6 +433,9 @@ def main() -> None:
                 record = {
                     "id": case["id"],
                     "run": run,
+                    "provider": provenance["provider"],
+                    "model": provenance["model"],
+                    "model_version": provenance["model_version"],
                     "question": case["question"],
                     "category": case["category"],
                     "answerable": case["answerable"],
@@ -309,6 +452,9 @@ def main() -> None:
                     "signals": pred["signals"],
                     "latency_ms": pred["latency_ms"],
                     "error": pred["error"],
+                    "prompt_tokens": _usage_since_reset["prompt_tokens"],
+                    "completion_tokens": _usage_since_reset["completion_tokens"],
+                    "resolved_model": _resolved_model_since_reset["value"],
                 }
                 out_f.write(json.dumps(record) + "\n")
                 out_f.flush()
@@ -324,6 +470,12 @@ def main() -> None:
                     f"correct={correct} latency={pred['latency_ms']}ms{safety_flag}"
                 )
 
+                completed_since_progress_update += 1
+                if completed_since_progress_update >= args.progress_every:
+                    _write_progress(run_index, total_runs_planned)
+                    completed_since_progress_update = 0
+
+    _write_progress(run_index, total_runs_planned)  # final state, regardless of the interval
     print(f"\nDone. {run_index} runs processed this invocation (some may have been skipped).")
     print(f"Total LLM calls made this invocation: {_llm_call_count}")
     cache_stats = llm_client.get_cache_stats()

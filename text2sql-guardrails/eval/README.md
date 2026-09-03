@@ -5,7 +5,9 @@ is decided for the golden-set evaluation (`eval/golden_set.jsonl`,
 `eval/runner.py`, `eval/metrics.py`). If you cite "execution accuracy" for
 this system in the paper, cite the criterion below, not the Spider/BIRD
 definition verbatim — it deliberately departs from that definition in four
-specific, documented ways.
+specific, documented ways. A [strict mode](#strict-mode-a-leaderboard-comparable-number-alongside-this-projects-own)
+disabling all four exists for a leaderboard-comparable number alongside
+this one; both are reported, not just the permissive default.
 
 ## Golden set
 
@@ -30,6 +32,134 @@ regression weight-fitting in `eval/fit_weights.py` to generalize reliably
 class balance to 289/116 (28.6% negative) — see
 [Confidence-fusion changes](#confidence-fusion-changes-2026-08) below for
 what that revealed.
+
+## Model provenance
+
+A floating model name (`gemini-2.5-flash`, say) can silently stop working
+or start pointing at different weights — it already happened once, mid-
+project (see the Gemini integration notes). So every result record written
+by `eval/runner.py` (any provider run since the multi-provider abstraction)
+carries `provider`, `model`, and `model_version` fields, the last fetched
+live from the provider's own models-metadata endpoint at run start (a GET,
+zero quota cost) rather than hardcoded — see
+`eval/runner.py::_fetch_model_provenance()`.
+
+**`eval/results.jsonl` (the published Sonnet baseline, all reported EX/
+AUROC/ECE numbers) predates that field and is not modified retroactively —
+its provenance is recorded here instead:** produced with
+`provider=anthropic`, `model=claude-sonnet-5`. Anthropic has no public
+per-model version-metadata endpoint the way Gemini does, so the model name
+itself is the citable identifier for that run; there is no separate
+pinned/dated variant to record.
+
+**Gemini runs**, once produced: `provider=gemini`,
+`model=gemini-3.6-flash`. That model has no separately-callable pinned
+name either (unlike the 2.5 generation, which has genuine numbered stable
+releases) — the closest thing to a pin is the `version` metadata field
+its models-list entry reports: `3.6-flash-07-2026`, retrieved 2026-09-02.
+Cite both the name and that version string together.
+
+## Provider throughput
+
+**Gemini free tier is not viable for a benchmark run**, empirically —
+confirmed via a real 10-question probe (2026-09-02), not inferred from
+docs: `gemini-3.6-flash` hit a **20-requests-per-day** quota
+(`GenerateRequestsPerDayPerProjectPerModel-FreeTier`) on this key, tagged
+`FreeTier` regardless of an active Google AI Pro subscription (AI Pro does
+not extend to API keys). Only 1 of 10 questions completed before lockout.
+Google's own docs no longer publish a static per-model free-tier RPM/TPM/
+RPD table — check `https://aistudio.google.com/rate-limit` (your own
+login) for the current numbers on a given key before assuming any other
+model's free tier is more generous; third-party aggregators suggest
+`gemini-2.5-flash-lite` may have a meaningfully higher free-tier RPD than
+`gemini-3.6-flash`, unverified against Google's own primary source.
+
+**Enabling Cloud Billing is cheap for this workload.** At Gemini 3.6
+Flash's paid-tier introductory pricing ($0.75/1M input, $3.75/1M output
+tokens, through 2026-12-31 — official pricing page, 2026-09-02), a
+150-question, `--repeats 1` Spider run (150 × 3 calls: generate +
+2× back-translation, per-call token counts measured/estimated in the
+Gemini-integration notes) costs approximately:
+
+    input:  150 × (2011 + 61 + 86)          = 323,700 tokens → $0.24
+    output: 150 × (70 + 9 + 23) (estimated)  =  15,300 tokens → $0.06
+    total ≈ $0.30
+
+Standard pricing after 2027-01-01 doubles to $1.50/$7.50 per 1M tokens —
+still under $1 for the same run. Output token counts are estimated from
+representative example completions (cl100k_base approximation), not
+measured from real usage data, since per-call token usage wasn't logged
+during the free-tier probe.
+
+**Groq as fallback:** the same `_complete_openai_compatible()` code path
+Gemini already uses live (only `base_url` differs, via
+`_PROVIDER_BASE_URLS` in `app/generation/llm_client.py`) — confirmed by
+dry-constructing the client with `LLM_PROVIDER=groq`, no network call.
+Groq's real constraint is its 6,000 TPM cap, not its nominal 30 RPM —
+this project's ~2,011-token `generate_sql` prompt means 30 RPM would blow
+the token budget long before the request budget. `app/generation/
+llm_client.py`'s `_RpmThrottle` throttles by request COUNT, not tokens,
+so the safe RPM value has to account for worst-case call-size clustering:
+calls cycle big (generate, ~2,081 tokens in+out) → small → small
+(back-translation, ~70/~109 tokens) every 3 calls. For `LLM_RPM_LIMIT=6`
+(a clean multiple of that 3-call cycle), any 60-second window
+deterministically contains exactly 2 big calls + 4 small calls = ~4,520
+tokens — a ~25% margin under 6,000. `LLM_RPM_LIMIT=9` already fails this
+bound (3 big calls alone = 6,243 tokens, over budget before any small
+calls are added). At `LLM_RPM_LIMIT=6`, a 450-call run (150 questions ×
+3, `--repeats 1`) takes 450 ÷ 6 = **75 minutes**.
+
+**Cloud Billing alone did not lift `gemini-3.6-flash`'s quota.** Confirmed
+empirically (2026-09-03): with a billing account linked to the project
+(`gen-lang-client-0534625095`), the identical `GenerateRequestsPerDayPerProjectPerModel-FreeTier`
+429 fired again, twice (immediately and after a 5-minute wait for tier
+propagation). `gemini-2.5-flash` and `gemini-2.5-flash-lite` both 404
+outright ("no longer available to new users"). **`gemini-flash-lite-latest`
+(a floating alias) works** — succeeded on the first real call, ~3-5s
+typical latency, all 10 probe questions completed.
+
+**Resolved-model provenance: the OpenAI-compatible response does NOT
+expose it.** `eval/runner.py` records write a `resolved_model` field per
+result (see `app/generation/llm_client.py::_extract_resolved_model()`),
+which tries the raw JSON body's `modelVersion` field first, falling back
+to the standard `model` field. Empirically, for `gemini-flash-lite-latest`
+via the OpenAI-compat endpoint: **neither `modelVersion` nor a genuine
+resolved `model` value was present** — the response's `model` field just
+echoes back the requested alias string (`gemini-flash-lite-latest`
+itself), not what it actually resolved to. The `resolved_model` field in
+`eval/results_gemini_probe_billed.jsonl` is therefore NOT reliable
+resolution provenance for this path — it will always read back the
+configured `LLM_MODEL` string, indistinguishable from a genuine
+same-name resolution.
+
+The true resolution was only discoverable **indirectly**, via a rate-limit
+error's metadata during the probe: a 429 mid-run named
+`GenerateRequestsPerMinutePerProjectPerModel-FreeTier`, `quotaValue: 15`,
+**`model: gemini-3.5-flash-lite`** — i.e. `gemini-flash-lite-latest`
+resolved to `gemini-3.5-flash-lite` on 2026-09-03. This is a fallback of a
+fallback: not the `modelVersion` field the response should carry, not
+even the models-list `version` metadata (which for this alias is just the
+unhelpful string `"Gemini Flash-Lite Latest"`), but a fact recovered
+opportunistically from an error body. **Cite `gemini-flash-lite-latest`
+plus this indirect resolution (`gemini-3.5-flash-lite`, observed
+2026-09-03) together** — the alias can silently repoint again at any
+time, with no reliable way to detect it from the success path alone.
+
+**10-question probe results (`--limit 10 --repeats 1`,
+`eval/results_gemini_probe_billed.jsonl`, 2026-09-03):** all 10 succeeded;
+one transient 429 burst (3 retries, recovered on attempt 4) partway
+through, consistent with the 15-RPM-per-minute quota above; 30 calls in
+60s wall clock (sustained ~30 RPM overall, briefly dipping during the
+retry burst). Measured (not estimated) token usage: 25,917 prompt +
+2,201 completion tokens across 30 calls (avg 2,592 prompt / 220 completion
+per question, 3 calls) — the real prompt-token count came in ~29% above
+the earlier cl100k_base estimate (~2,011 for generate_sql alone). At
+`gemini-3.5-flash-lite`'s paid-tier pricing ($0.30/1M input, $2.50/1M
+output — official pricing page, 2026-09-03): **$0.013 measured for these
+30 calls.** Extrapolated to a full 161-question, `--repeats 3` run (483
+questions, all-success assumption, using these measured per-question
+averages): **~$0.64 total** — still trivially cheap, now a measured
+extrapolation rather than an estimated one.
 
 ## The execution-match criterion
 
@@ -167,6 +297,72 @@ versa. Annotating the question's intent directly is more faithful to what's
 actually being tested (see `eval/golden_set.jsonl`'s task description for
 the exact wording convention used: `ordered=true` only for explicit
 ranking/top-N/superlative language such as "top," "most," or "best").
+
+## Strict mode: a leaderboard-comparable number alongside this project's own
+
+`execution_match(strict=True)` (and `execution_accuracy(strict=True)`, which
+threads it through and skips the gold-LIMIT-stripping step too) disables all
+four departures above, in one pass:
+
+1. No name-based projection, generous superset, or aggregate-alias
+   fallback. Pred must have **exactly** as many columns as gold; the two
+   are matched by searching every permutation of pred's columns for one
+   whose values satisfy the row-match rule below — value equality alone
+   decides the correspondence, not column names or aggregate function
+   kind. This is a strict superset of what the §1a fallback covered: it
+   also handles plain (non-aggregate) column renames, which §1a never did.
+2. Unordered rows must match as an **exact multiset equality**, not a
+   subset — a prediction missing rows gold has now fails, where the
+   permissive path would have passed it.
+3. `gold_sql` is executed exactly as authored, LIMIT included — no
+   `strip_trailing_limit()`.
+4. Order-sensitivity is inferred structurally from whether `gold_sql` has
+   a top-level `ORDER BY` (`gold_sql_has_top_level_order_by()`), not read
+   from the golden record's `ordered` annotation, which strict mode
+   ignores entirely.
+
+This is meant to reproduce, as closely as practical, the **test-suite
+execution-accuracy** method standard to Spider (Yu et al., 2018) / BIRD (Li
+et al., 2023) leaderboards (Zhong, Yu & Klein, 2020, "Semantic Evaluation
+for Text-to-SQL with Distilled Test Suites") — but it is a from-scratch
+reimplementation of that method's *behavior*, not a port of that codebase,
+and two gaps remain, both worth stating before citing a strict number
+against a published leaderboard figure:
+
+- **No cross-database "distilled test suite" execution.** The actual
+  test-suite method runs each query against *several* semantically-perturbed
+  copies of the database (not just the one real DB) specifically to catch
+  a query that happens to produce the right answer on this data by
+  accident. This project evaluates against the single real `college_erp`
+  database only, strict mode included — a query judged "correct" here
+  could still be wrong on a differently-populated instance of the same
+  schema.
+- **Plain string equality after stringification**, not the reference
+  implementation's type-aware comparison. Both strict and permissive modes
+  stringify every value before comparing (to absorb `Decimal('208')` vs
+  `208`-style representation differences); this can't distinguish a
+  genuine value mismatch from a formatting difference in edge cases the
+  reference implementation's typed comparison would (e.g. float rounding).
+  Not new to strict mode — the permissive path already had this
+  characteristic — but worth restating here since strict mode is the one
+  being held to leaderboard-comparable standards.
+
+**Recomputed against the existing `eval/results.jsonl` (offline, read-only
+DB queries only, zero LLM calls, that file untouched — see
+`eval/report_strict_ex.py`):**
+
+| Scorer | EX | n |
+|---|---|---|
+| Permissive (this project's methodology) | 0.714 | 289/405 |
+| Strict (leaderboard-comparable) | 0.415 | 168/405 |
+| **Gap (permissive − strict)** | **+0.299** | 138 cases flip |
+
+The permissive scorer's generosity — mainly the column-superset/
+aggregate-alias tolerance and the subset-not-equality row match — was
+inflating reported EX by roughly 30 points against a leaderboard-standard
+reading of the same 405 predictions. Both numbers are real and both are
+reported going forward; the gap is itself a finding about what the
+permissive methodology's leniencies are worth, not a flaw to hide.
 
 ## Methodological finding: the pre-fix column-projection false-negative rate
 
