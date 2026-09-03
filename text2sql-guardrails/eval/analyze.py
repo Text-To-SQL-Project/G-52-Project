@@ -23,7 +23,7 @@ from pathlib import Path
 from sklearn.metrics import f1_score, roc_auc_score
 
 from app.api.models import ConfidenceSignal, SignalStatus
-from app.detection.confidence import WEIGHTS, fuse_confidence
+from app.detection.confidence import WEIGHTS, compute_raw_score, fuse_confidence
 from eval.metrics import block_accuracy, clarification_accuracy, load_golden_set, refusal_accuracy
 
 EVAL_DIR = Path(__file__).parent
@@ -59,10 +59,43 @@ def reconstruct_confidence_score(signals: dict) -> float | None:
     same app.detection.confidence.fuse_confidence() the live pipeline
     calls -- not a re-derivation of its logic. Returns None if no signals
     were recorded at all (pipeline exited before any detector ran, e.g.
-    blocked/clarification/generation-error)."""
+    blocked/clarification/generation-error).
+
+    This is DELIBERATELY calibrated (fuse_confidence() always applies
+    whatever calibrator is on disk) -- correct for mirroring what the live
+    app actually returned. For anything that needs the score BEFORE
+    calibration (most importantly: fitting a NEW, independent calibrator --
+    see reconstruct_raw_score() below, and eval/README.md's writeup of the
+    bug that existed here before that function did), use that instead."""
     if not signals:
         return None
     return _fuse_excluding(signals, None)
+
+
+def reconstruct_raw_score(signals: dict, weights: dict[str, float] | None = None) -> float | None:
+    """Like reconstruct_confidence_score(), but the TRUE raw hand-tuned
+    score -- weighted mean + FAIL_SCORE_CAP, no calibration applied at all
+    (app.detection.confidence.compute_raw_score(), not fuse_confidence()).
+
+    `weights` defaults to the live 4-signal WEIGHTS but accepts a
+    different dict -- e.g. a 5-signal set including multi_query_agreement,
+    for re-deriving the original signal-drop ablation (see
+    eval/README.md's "Confidence-fusion changes" section and its
+    reproduction in eval/ablation_multiquery.py)."""
+    if not signals:
+        return None
+    w = weights if weights is not None else WEIGHTS
+    reconstructed = []
+    for key, sig in signals.items():
+        if key not in w:
+            continue
+        reconstructed.append(ConfidenceSignal(
+            key=key, label=key, score=sig["score"],
+            status=SignalStatus(sig["status"]),
+            detail="disabled (reconstructed)" if sig.get("disabled") else None,
+        ))
+    score, _ = compute_raw_score(reconstructed, w)
+    return score
 
 
 def status_breakdown(records: list[dict]) -> dict[str, int]:

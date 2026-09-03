@@ -54,25 +54,56 @@ def _is_disabled(signal: ConfidenceSignal) -> bool:
     return bool(signal.detail) and "disabled" in signal.detail.lower()
 
 
-def fuse_confidence(signals: list[ConfidenceSignal]) -> Confidence:
+def compute_raw_score(
+    signals: list[ConfidenceSignal], weights: dict[str, float] | None = None
+) -> tuple[float, bool]:
+    """The hand-tuned weighted mean + FAIL_SCORE_CAP -- the score BEFORE
+    calibration. Factored out of fuse_confidence() specifically so eval
+    tooling that needs the genuinely raw, uncalibrated score (e.g.
+    eval/fit_calibration.py fitting a NEW calibrator) can get it without
+    calibrate() being silently applied first -- fuse_confidence() itself
+    always calibrates when a calibrator artifact is on disk, which for a
+    while meant every "raw hand-tuned score" reconstruction elsewhere in
+    this codebase (eval/analyze.py's reconstruct_confidence_score(),
+    eval/fit_calibration.py's build_rows()) was actually silently passing
+    scores through whatever calibrator happened to be loaded --
+    app/detection/calibrator.joblib, Anthropic-fit -- before a caller ever
+    saw them, including when fitting a calibrator meant to be independent
+    of it (e.g. a Gemini refit). See eval/README.md for the writeup.
+
+    `weights` defaults to the module's WEIGHTS (the live 4-signal set) but
+    accepts a different dict, e.g. for re-deriving an ablation over a
+    signal set WEIGHTS no longer includes (multi_query_agreement).
+
+    Returns (score, is_fail_capped) -- callers that go on to calibrate
+    need is_fail_capped to re-apply the cap after calibration, since a
+    fitted curve isn't trusted to preserve a hard safety invariant on its
+    own in a region it may have seen little data for.
+    """
+    if weights is None:
+        weights = WEIGHTS
     present = [
         s for s in signals
-        if s.key in WEIGHTS and not _is_disabled(s)
+        if s.key in weights and not _is_disabled(s)
     ]
-    total_weight = sum(WEIGHTS[s.key] for s in present)
+    total_weight = sum(weights[s.key] for s in present)
 
     if total_weight <= 0:
         # Nothing was actually measured -- report neutral, not "definitely
         # wrong" (0.0) or "definitely right" (1.0).
-        score = 0.5
-    else:
-        score = sum(WEIGHTS[s.key] * s.score for s in present) / total_weight
+        return 0.5, False
+
+    score = sum(weights[s.key] * s.score for s in present) / total_weight
 
     is_fail_capped = any(s.status == SignalStatus.FAIL for s in present)
     if is_fail_capped:
         score = min(score, FAIL_SCORE_CAP)
 
-    score = max(0.0, min(1.0, score))
+    return max(0.0, min(1.0, score)), is_fail_capped
+
+
+def fuse_confidence(signals: list[ConfidenceSignal]) -> Confidence:
+    score, is_fail_capped = compute_raw_score(signals)
 
     # eval/fit_calibration.py fits an isotonic regression mapping this raw
     # hand-tuned score -> P(correct), on a question-level 60/40 train/test

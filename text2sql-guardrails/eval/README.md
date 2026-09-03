@@ -519,6 +519,141 @@ refresh) overwrites `app/detection/calibrator.joblib` in place — restart
 the API process afterward, since the loader caches the artifact in memory
 for the process lifetime.
 
+## Bug found and fixed: "raw" scores weren't raw
+
+Every "raw hand-tuned score" reconstruction in this codebase —
+`eval/analyze.py`'s `reconstruct_confidence_score()`, and through it
+`eval/fit_calibration.py`'s `build_rows()` — went through
+`app.detection.confidence.fuse_confidence()`, which **unconditionally
+applies whatever calibrator is currently on disk** at
+`app/detection/calibrator.joblib` if one exists. `fit_calibration.py`'s
+own "RAW hand-tuned score (no calibration)" print label was therefore
+wrong: the input to its isotonic fit had already been passed through
+Anthropic's fitted curve. Harmless for Anthropic's own held-out
+re-evaluation (the artifact was fit on Anthropic's own data, so re-
+applying it to Anthropic data isn't cross-contamination, just a redundant
+extra isotonic pass whose main effect is on AUROC's tie structure, not its
+ranking) — **actively wrong for fitting a calibrator on a different
+provider's data**, exactly the "never reuse the Anthropic curve"
+requirement: the first Gemini calibration refit in this project silently
+violated it, because the raw score it trained on wasn't raw.
+
+**Fixed** by extracting a genuine pre-calibration function,
+`app.detection.confidence.compute_raw_score()` (weighted mean +
+`FAIL_SCORE_CAP`, no `calibrate()` call at all — `fuse_confidence()` now
+calls it internally too, so the live app's behavior is unchanged, verified
+by the full test suite passing unmodified). `eval/analyze.py` gained
+`reconstruct_raw_score()` alongside the existing (deliberately still
+calibrated, for mirroring live-app output) `reconstruct_confidence_score()`.
+`eval/fit_calibration.py::build_rows()` now uses the raw version.
+
+**Validated the fix reproduces the documented, pre-calibration-existing
+baseline almost exactly**: re-running the fixed held-out permissive
+evaluation against `eval/results.jsonl` gives raw AUROC 0.552 / raw ECE
+0.171, against this document's own recorded 0.557 / 0.172 (§"Isotonic
+calibration" above) — before the fix, this same call returned 0.564 /
+0.114–0.121, silently pre-calibrated. `app/detection/calibrator.joblib`
+(the live artifact) is unaffected — it was always fit correctly on truly
+raw Anthropic scores at the time this bug's downstream effects didn't yet
+matter; only *re-derivations* since (this project's Gemini integration)
+were affected. `eval/calibrator_gemini.joblib` has been refit with the fix
+and is the corrected artifact as of 2026-09-03.
+
+## Strict-mode calibration refit and the multi-query ablation, revisited
+
+`eval/fit_calibration.py --strict` recomputes `correct` via
+`execution_match(strict=True)` (live re-execution, no LLM calls) before
+fitting — same question-level 60/40 split, same seed, only the label
+definition changes. Held-out results, both providers, both label
+definitions (all using the fixed raw scorer above):
+
+| | Anthropic — raw AUROC / ECE | Anthropic — calibrated AUROC / ECE | Gemini — raw AUROC / ECE | Gemini — calibrated AUROC / ECE |
+|---|---|---|---|---|
+| Permissive | 0.552 / 0.171 | 0.564 / 0.121 | 0.563 / 0.272 | 0.538 / 0.032 |
+| Strict | 0.729 / 0.475 | 0.728 / 0.078 | 0.795 / 0.485 | 0.786 / 0.077 |
+
+Two things jump out. First, calibration matters enormously more under
+strict labels (ECE 0.475→0.078 Anthropic, 0.485→0.077 Gemini) — the raw
+hand-tuned score's scale was tuned assuming permissive-style base rates,
+and strict labels shift the correct/incorrect balance sharply (Anthropic
+permissive train split: 160 correct/83 incorrect; strict, the *same*
+rows: 99/144), so the uncalibrated score is badly miscalibrated against
+strict ground truth until the isotonic fit corrects for it. Second,
+**strict AUROC is higher than permissive AUROC on both providers, by a
+wide margin** (0.729 vs 0.552 raw Anthropic; 0.795 vs 0.563 raw Gemini) —
+the confidence signals discriminate leaderboard-comparable correctness
+*better* than they discriminate this project's own permissive definition
+of correctness. That finding motivated re-examining the multi-query
+ablation specifically:
+
+**Re-deriving the original 5-signal-vs-4-signal ablation
+(`eval/ablation_multiquery.py`, Anthropic only — Gemini has no
+`multi_query_agreement` data by design) under strict labels inverts the
+conclusion that justified dropping the signal:**
+
+| | in-sample | held-out |
+|---|---|---|
+| Permissive: 5-signal (with MQ) | 0.560 | 0.573 |
+| Permissive: 4-signal (dropped) | 0.625 | 0.552 |
+| Permissive delta (4 − 5) | **+0.065 (dropping helps)** | **−0.020 (dropping hurts)** |
+| Strict: 5-signal (with MQ) | 0.772 | 0.804 |
+| Strict: 4-signal (dropped) | 0.717 | 0.729 |
+| Strict delta (4 − 5) | **−0.055 (dropping hurts)** | **−0.075 (dropping hurts)** |
+
+Under permissive labels the in-sample number replicates the original
+finding directionally (dropping helps, though the magnitude — the
+original ablation reported 0.575→0.649, a +0.074 delta — doesn't fully
+reproduce; see "Reconciling the 0.649 figure" below). But that
+in-sample/permissive cell is the *only* one of four where dropping
+`multi_query_agreement` helps. Held-out permissive already shows a small
+reversal (−0.020); both strict cells show a large one (−0.055, −0.075).
+**The original ablation's conclusion does not hold under strict scoring or
+under held-out evaluation — it was an artifact of measuring on in-sample,
+permissively-labeled data specifically.**
+
+**Mechanism, tested directly** (not just theorized): among the 405
+Anthropic rows with `multi_query_agreement` data, 155 have permissive and
+strict scorers disagreeing on `correct` (mostly: permissive says correct,
+strict says incorrect — the permissive scorer's leniencies, chiefly the
+column-superset/aggregate-alias tolerance and the row-subset match,
+forgiving something strict catches). On those 155 disagreement rows,
+`multi_query_agreement` has mean score **0.303** (70% FAIL). On the 250
+rows where both scorers agree, mean score is **0.632** (63% PASS). The
+signal is doing real work — it's flagging structural disagreement between
+two independently-generated queries — precisely concentrated on the cases
+where permissive scoring is being lenient about a real difference. Under
+permissive labels those flagged rows are mislabeled "correct," so a low
+`multi_query_agreement` score there scores as a false alarm, dragging its
+AUROC down. Under strict labels those same rows are correctly labeled
+"incorrect," so the identical low score becomes a true positive. The
+signal didn't get worse — the permissive label destroyed its measured
+value by systematically forgiving exactly what it detects.
+
+### Reconciling the 0.649 figure
+
+The double-calibration fix resolved the ECE/held-out-AUROC confusion
+almost exactly (0.552/0.171 reproduced vs 0.557/0.172 documented, within
+noise). The in-sample, permissive, 4-signal raw AUROC does not fully
+reproduce this way: 0.625 fresh vs 0.649 documented, a 0.024 gap that
+survived the fix. Ruled out as causes: data drift (`eval/results.jsonl`
+has been byte-identical since the commit that documented 0.649, per git
+history), wrong weights (the original 5-signal weights — 0.30/0.25/0.20/
+0.15/0.10 — and the renormalized 4-signal weights — 0.35/0.29/0.24/0.12 —
+both confirmed against that same commit's diff, both match exactly what
+was used here), and row-count/eligibility mismatch (n=405 both then and
+now). Not ruled out: `roc_auc_score`'s tie-handling has changed across
+sklearn versions historically, and this repo pins `sklearn==1.9.0` in
+`requirements.txt` with no record of what version was installed when
+0.649 was first computed. Given the held-out figures (computed via the
+identical fixed methodology, same library versions installed today)
+reproduce almost exactly while only the in-sample figure doesn't, version
+drift affecting one computation and not the structurally similar other is
+plausible but unconfirmed — this is reported as an open, unresolved
+discrepancy, not a settled explanation. **For citing this system going
+forward, prefer the freshly-reproduced, documented-methodology numbers
+above (0.625 in-sample / 0.552 held-out raw permissive AUROC) over 0.649,
+since they're independently reproducible today and 0.649 was not.**
+
 ## Summary table
 
 | Dimension | Standard Spider/BIRD EX | This system |

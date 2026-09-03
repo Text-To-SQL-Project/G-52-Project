@@ -27,7 +27,7 @@ import joblib
 from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import roc_auc_score
 
-from eval.analyze import reconstruct_confidence_score
+from eval.analyze import reconstruct_raw_score
 from eval.fit_weights import compute_ece, load_results
 
 EVAL_DIR = Path(__file__).parent
@@ -35,16 +35,38 @@ DEFAULT_CALIBRATOR_OUT = EVAL_DIR.parent / "app" / "detection" / "calibrator.job
 DEFAULT_PLOT_OUT = EVAL_DIR / "reliability_holdout.png"
 
 
-def build_rows(results: list[dict]) -> list[tuple[str, float, int]]:
+def build_rows(results: list[dict], strict: bool = False) -> list[tuple[str, float, int]]:
     """(question_id, raw hand-tuned fused score, correct label) for every
     usable row -- same eligibility as fit_weights.build_dataset(): a
     non-None `correct` label (answerable, non-adversarial) with at least
-    one recorded signal."""
+    one recorded signal.
+
+    Uses reconstruct_raw_score(), NOT reconstruct_confidence_score() --
+    the latter always applies whatever calibrator is currently on disk
+    (app/detection/calibrator.joblib), which would mean fitting THIS
+    calibrator on output that already passed through a different one
+    (wrong for a from-scratch fit; actively wrong when fitting on a
+    different provider's data than that calibrator was fit on). See
+    eval/README.md for the bug this replaces.
+
+    strict=True recomputes `correct` via execution_match(strict=True)
+    before building rows (eval.analyze_strict.recompute_strict_labels(),
+    reused directly rather than duplicated -- makes one read-only DB
+    round-trip per eligible row, no LLM calls). The raw confidence score
+    itself is unaffected by which label definition is used; only which
+    `correct` value labels each row changes.
+    """
+    if strict:
+        from eval.analyze_strict import recompute_strict_labels
+        results, skipped = recompute_strict_labels(results)
+        if skipped:
+            print(f"WARNING: {skipped} record(s) skipped during strict relabeling (kept at permissive value)")
+
     rows = []
     for r in results:
         if r["correct"] is None:
             continue
-        score = reconstruct_confidence_score(r["signals"])
+        score = reconstruct_raw_score(r["signals"])
         if score is None:
             continue
         rows.append((r["id"], score, 1 if r["correct"] else 0))
@@ -114,10 +136,19 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=DEFAULT_CALIBRATOR_OUT)
     parser.add_argument("--plot", type=Path, default=DEFAULT_PLOT_OUT)
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Recompute `correct` via execution_match(strict=True) before fitting -- "
+             "leaderboard-comparable labels instead of this project's permissive default.",
+    )
     args = parser.parse_args()
 
     results = load_results(str(args.results))
-    rows = build_rows(results)
+    rows = build_rows(results, strict=args.strict)
+    if args.strict:
+        print("Labels: STRICT (execution_match(strict=True), recomputed via live re-execution)")
+    else:
+        print("Labels: permissive (stored `correct` field, this project's default methodology)")
     train_rows, test_rows = split_by_question(rows, args.train_frac, args.seed)
 
     train_ids = sorted({q for q, _, _ in train_rows})
