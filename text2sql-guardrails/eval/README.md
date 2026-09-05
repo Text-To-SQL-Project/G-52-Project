@@ -746,3 +746,34 @@ be computed together via `evaluate_all()`.
   Writes `app/detection/calibrator.joblib` (loaded by
   `app/detection/calibration.py` at runtime) and
   `eval/reliability_holdout.png`.
+
+## Result files vs. failure-investigation records
+
+Not every `.jsonl` in this directory is a result. Only two files feed any
+reported metric:
+
+- **`eval/results.jsonl`** — the Anthropic baseline (`claude-sonnet-5`,
+  161 questions × 3 repeats). Every published Anthropic number comes from
+  here.
+- **`eval/results_gemini.jsonl`** — the Gemini run
+  (`gemini-flash-lite-latest`, 161 questions at `run=1` complete;
+  `run=2`/`run=3` partial and excluded from headline numbers).
+
+The remaining three are **records of failed or superseded runs**, kept as
+evidence of what went wrong and why. **None of them feeds any reported
+metric, and none should be read as a result:**
+
+- **`eval/results_verify.jsonl`** — an attempted Anthropic re-run that hit
+  API credit exhaustion partway through: ~80% of records are API failures
+  rather than pipeline outcomes. Invalid as a result; kept because it
+  documents the failure mode (and why the run was abandoned rather than
+  reported).
+- **`eval/results_gemini_probe.jsonl`** — a 10-question probe against
+  `gemini-3.6-flash` that hit that model's 20-requests-per-day free-tier
+  quota wall (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`). Only
+  1 of 10 questions completed. Documents why that model was abandoned.
+- **`eval/results_gemini_probe_billed.jsonl`** — the 10-question probe
+  re-run against `gemini-flash-lite-latest` after Cloud Billing was
+  linked, used to verify throughput and measure real token usage before
+  committing to the full run. All 10 succeeded, but it is a throughput
+  probe, not an evaluation.
