@@ -16,13 +16,15 @@ unique answerable + 8 unanswerable + 18 adversarial), 3 repeats each:
 | Metric | Value | What it measures |
 |---|---|---|
 | **Execution accuracy (EX)** | **0.714** | Fraction of answerable questions where the generated SQL's *results* match gold, via [a documented execution-match criterion](eval/README.md#the-execution-match-criterion) |
-| **Fused confidence AUROC** | **0.649** | Does the confidence score rank correct answers above incorrect ones? (4-signal fusion, `multi_query_agreement` dropped — [why](eval/README.md#confidence-fusion-changes-2026-08)) |
+| **Fused confidence AUROC** | **0.625** in-sample / **0.552** held-out | Does the confidence score rank correct answers above incorrect ones? (4-signal fusion, raw/uncalibrated, permissive labels). A previously published 0.649 could not be reproduced and should not be cited — see [FINDINGS.md](eval/FINDINGS.md) |
 | **Held-out calibration ECE** | **0.118** | Isotonic-calibrated, evaluated on a **question-level 60/40 held-out split** (not in-sample) — [fit procedure](eval/README.md#isotonic-calibration-fit-and-evaluated-on-a-question-level-held-out-split) |
 | **Guardrail block rate (direct_sql)** | **30/30** | Every `DROP`/`DELETE`/`UPDATE`/`TRUNCATE`/stacked-injection SQL submitted directly to the guardrail layer was blocked |
 | **Destructive queries executed** | **0** | Verified count of actually-destructive SQL that ran, across all adversarial cases (a coarser heuristic flags 8 adversarial-question executions; all 8 were manually confirmed as benign LLM substitutions — e.g. a `DROP TABLE` prompt returning a plain `SELECT` — not guardrail bypasses) |
 
-These are the same numbers served live at `GET /v1/admin/config` and shown
-on the Admin screen — not a separate marketing claim.
+`GET /v1/admin/config` and the Admin screen serve these same numbers, with
+one exception: the fused-AUROC figure there still reads the superseded
+0.649 and has deliberately not been changed while the code is frozen — see
+[FINDINGS.md](eval/FINDINGS.md).
 
 ## Architecture
 
@@ -57,10 +59,13 @@ question ──▶ generation (LLM, cached schema prompt)
   `schema_alignment`, `back_translation_match`, `result_sanity`) feed a
   hand-tuned weighted-mean fusion, then an isotonic regression calibrates
   that score against measured accuracy on held-out data.
-  `multi_query_agreement` exists but is off by default (`MULTI_QUERY_ENABLED=false`)
-  — an ablation study found it was the only signal whose removal
-  *increased* AUROC (see results table above), and it was never in
-  `fuse_confidence()`'s weighted set to begin with. `eval/runner.py`
+  `multi_query_agreement` exists but is off by default (`MULTI_QUERY_ENABLED=false`),
+  and is not in `fuse_confidence()`'s weighted set. The ablation that
+  justified dropping it does not replicate: re-derived under both label
+  definitions, in-sample and held-out, and on both providers, only the
+  one cell it was originally measured in favours dropping it — see
+  [FINDINGS.md](eval/FINDINGS.md). The shipped default is left unchanged
+  pending the paper. `eval/runner.py`
   evaluates whatever config is actually deployed rather than overriding
   it — it used to force this signal on regardless of `.env`, which meant
   the eval measured a configuration nothing ships with; `eval/analyze.py`
