@@ -87,23 +87,33 @@ Per-signal AUROC, permissive vs strict:
 | schema_alignment | 0.512 | 0.506 | −0.006 |
 | sql_validity | 0.500 | 0.500 | 0.000 |
 
-**Gemini** (n=120, repeats=1; no `multi_query_agreement` data — `MULTI_QUERY_ENABLED=false`, shipped default for this run):
+**Gemini** (n=120, repeats=1; `multi_query_agreement` backfilled post-hoc
+— see §8 for that caveat):
 
 | signal | permissive | strict | delta |
 |---|---|---|---|
 | back_translation_match | 0.489 | 0.698 | +0.208 |
+| **multi_query_agreement** | **0.568** | **0.783** | **+0.215** |
 | result_sanity | 0.582 | 0.607 | +0.025 |
 | schema_alignment | 0.513 | 0.507 | −0.006 |
 | sql_validity | 0.500 | 0.500 | 0.000 |
 
-## 3. The multi-query ablation inversion (Anthropic only — Gemini has no `multi_query_agreement` data by design)
+`multi_query_agreement`'s permissive→strict inversion **replicates across
+both providers at nearly identical magnitude**: Anthropic +0.202 (0.532 →
+0.734), Gemini +0.215 (0.568 → 0.783). On both providers it is the
+*strongest single signal* under strict labels and among the *weakest*
+under permissive labels.
+
+## 3. The multi-query ablation inversion — measured on both providers
 
 Original claim, documented pre-existing in this repository: dropping
 `multi_query_agreement` from the fused signal set improved AUROC by
 +0.074 (0.575 → 0.649), justifying its removal from production. Re-derived
 with `eval/ablation_multiquery.py`, using the corrected raw scorer, under
 both label definitions, in-sample and held-out (same question-level
-60/40 split, seed=42, as the calibration fits):
+60/40 split, seed=42, as the calibration fits).
+
+**Anthropic** (n=405, repeats=3):
 
 | | in-sample | held-out |
 |---|---|---|
@@ -114,9 +124,38 @@ both label definitions, in-sample and held-out (same question-level
 | Strict: 4-signal (dropped) | 0.717 | 0.729 |
 | **Delta (4 − 5)** | **−0.055 — dropping hurts** | **−0.075 — dropping hurts** |
 
-**Three of four cells say dropping the signal hurts.** Only in-sample/
-permissive — the exact cell the original ablation used — says it helps.
-That was the entire basis for removing it from production.
+**Gemini** (n=120, repeats=1; `multi_query_agreement` backfilled post-hoc,
+see §8):
+
+| | in-sample | held-out |
+|---|---|---|
+| Permissive: 5-signal (with MQ) | 0.578 | 0.587 |
+| Permissive: 4-signal (dropped) | 0.543 | 0.563 |
+| **Delta (4 − 5)** | **−0.034 — dropping hurts** | **−0.024 — dropping hurts** |
+| Strict: 5-signal (with MQ) | 0.816 | 0.772 |
+| Strict: 4-signal (dropped) | 0.742 | 0.795 |
+| **Delta (4 − 5)** | **−0.074 — dropping hurts** | **+0.024 — dropping helps** |
+
+### Does the finding hold on both providers? Yes — and the original justification does not replicate
+
+**Across both providers, 6 of 8 cells say dropping `multi_query_agreement`
+hurts.** Each provider has exactly one dissenting cell, and they are
+*different cells*: Anthropic's is permissive/in-sample (+0.065), Gemini's
+is strict/held-out (+0.024, on only 48 held-out rows). Neither dissent
+reproduces on the other provider.
+
+The single most important observation for the paper: **the exact cell that
+justified the production decision — permissive, in-sample — flips sign
+between providers.** It is +0.065 (dropping helps) on Anthropic and −0.034
+(dropping hurts) on Gemini. The original ablation's conclusion is not
+merely label-definition-dependent; it does not survive a change of model
+either. The decision to remove the signal from production rests on a
+result that replicates on neither axis tested here.
+
+Conversely, the *pro-keeping* evidence is consistent across both axes and
+both providers: strict/in-sample says keep on Anthropic (−0.055) and
+Gemini (−0.074), and permissive/held-out says keep on Anthropic (−0.020)
+and Gemini (−0.024).
 
 ## 4. Mechanism — the disagreement-set numbers
 
@@ -130,10 +169,22 @@ Tested directly, not just theorized. Among the 405 Anthropic rows with
   catches; 10 rows run the other direction).
 - **250 rows** where both scorers agree.
 
-| | n | mean `multi_query_agreement` score | status mix |
+| Anthropic | n | mean `multi_query_agreement` score | status mix |
 |---|---|---|---|
 | Disagreement rows | 155 | **0.303** | 108 FAIL / 47 PASS (70% FAIL) |
 | Agreement rows | 250 | **0.632** | 92 FAIL / 158 PASS (63% PASS) |
+
+**The mechanism replicates on Gemini** (run=1, the 120 rows with
+backfilled `multi_query_agreement` data), at nearly identical magnitude:
+
+| Gemini | n | mean `multi_query_agreement` score | status mix |
+|---|---|---|---|
+| Disagreement rows | 43 | **0.279** | 30 FAIL / 11 PASS / 2 WARN (70% FAIL) |
+| Agreement rows | 77 | **0.656** | 24 FAIL / 48 PASS / 5 WARN (62% PASS) |
+
+Both providers: ~0.28–0.30 mean score and ~70% FAIL on disagreement rows,
+versus ~0.63–0.66 mean score and ~62–63% PASS on agreement rows. The
+effect is not an artifact of one model's generation behavior.
 
 The signal is doing real work: it is disproportionately flagging exactly
 the rows where permissive scoring is being lenient about a genuine
@@ -230,11 +281,57 @@ event surfaces under — Anthropic: `success` + a manual audit note,
 Gemini: `refused` + no audit needed. Worth a sentence in the paper as a
 genuine model-behavior difference, not a defect in either.
 
+## 8. Methodological caveat: Gemini's `multi_query_agreement` was backfilled post-hoc
+
+**Anthropic's `multi_query_agreement` data was collected during the
+original evaluation run**, inline, as part of each question's pipeline
+execution — the signal saw that run's live primary query and its live
+result rows at the moment they were produced.
+
+**Gemini's was not.** That run used the shipped `MULTI_QUERY_ENABLED=false`
+default, so the signal was never computed. It was added afterwards
+(2026-09-05) by `eval/backfill_multiquery_gemini.py`: for each of the 120
+`run=1` `status=success` records, the already-stored `pred_sql` was
+re-executed read-only against the same golden-set database to recover the
+primary result rows (`results_gemini.jsonl` does not persist raw rows),
+and `check_multi_query_agreement()` was then called against that
+reconstructed input — one new LLM call per record, 120 total, zero
+retries, zero failures.
+
+What a reviewer should know about the difference:
+
+- **The variant generation is genuinely fresh, not reconstructed.** The
+  new second-opinion query was generated at backfill time by the same
+  model (`gemini-flash-lite-latest`) against the same prompt-building
+  code. This is the part of the signal that carries the information.
+- **The primary side is reconstructed, not replayed.** The comparison
+  uses the *stored* `pred_sql` re-executed against the *current* database
+  state. The golden-set database is static and was not modified between
+  the original run and the backfill, so the recovered rows should be
+  identical to the originals — but this is an assumption of database
+  stability, not a byte-for-byte replay of recorded output.
+- **Temporal separation.** Variant generation happened ~2 days after the
+  primary generation, against a floating model alias
+  (`gemini-flash-lite-latest`) that could in principle have been
+  repointed in that window (see §2 — its resolution is not observable
+  from a successful response). No evidence it changed, but it cannot be
+  ruled out from the data.
+- **Direction of any resulting bias is not established.** It is not
+  obvious whether post-hoc variant generation would inflate or deflate
+  measured agreement relative to inline collection. The Anthropic result,
+  which has no such caveat, shows the same inversion at the same
+  magnitude — which is the main reason to treat the Gemini replication as
+  corroborating rather than as the primary evidence.
+
+For the paper: cite Anthropic's ablation as the primary result (inline
+collection, repeats=3, n=405) and Gemini's as a replication with this
+caveat attached, not as an independent confirmation of equal standing.
+
 ---
 
 *Reproduction: `eval/analyze.py`, `eval/analyze_strict.py`,
 `eval/fit_calibration.py [--strict]`, `eval/ablation_multiquery.py`,
-`eval/report_strict_ex.py` against `eval/results.jsonl` and
+`eval/report_strict_ex.py`, `eval/backfill_multiquery_gemini.py` against `eval/results.jsonl` and
 `eval/results_gemini.jsonl`. None make LLM calls; all are read-only
 against the golden-set database for re-executing stored SQL where
 needed. `eval/results.jsonl` and `eval/results_gemini.jsonl` are both
