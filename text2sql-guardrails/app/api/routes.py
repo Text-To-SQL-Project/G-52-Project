@@ -83,7 +83,7 @@ def run_query(req: QueryRequest) -> QueryResponse:
       4. app.detection (pre)   -> back-translation, schema alignment [REAL]
       5. app.safety.sandbox    -> read-only execution                [REAL, inline -- no sandbox module yet]
       6. app.detection (post)  -> result sanity, multi-query         [REAL]
-      7. app.detection.confidence -> fuse + calibrate                [fusion REAL; calibration is Phase 5]
+      7. app.detection.confidence -> fuse + calibrate                [REAL]
     """
     query_id = _new_id()
     timestamp = datetime.now(timezone.utc)

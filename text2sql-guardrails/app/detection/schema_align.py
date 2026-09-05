@@ -3,7 +3,8 @@ Schema-alignment detector: confirms that every table/column the generated
 SQL references actually exists in the live database. Feeds the
 'schema_alignment' entry in Confidence.signals (replacing the fixed mock
 value). Pure post-hoc check -- runs after guardrails pass, before execution
-(per the routes.py TODO ordering: "detection (pre)").
+(step 4, "detection (pre)", in the pipeline order documented in
+app/api/routes.py::run_query()'s docstring).
 """
 from __future__ import annotations
 

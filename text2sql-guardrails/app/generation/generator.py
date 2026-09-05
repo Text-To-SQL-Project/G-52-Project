@@ -1,7 +1,8 @@
 """
 Orchestrates schema retrieval + prompt building + the LLM call, and parses
-the model's JSON response into a small internal result type. This is the
-"app.generation" step from routes.py's pipeline TODO.
+the model's JSON response into a small internal result type. This is
+step 2, "app.generation", in the pipeline order documented in
+app/api/routes.py::run_query()'s docstring.
 """
 from __future__ import annotations
 

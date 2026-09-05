@@ -1,7 +1,8 @@
 """
 Static SQL guardrails: AST-level checks that run on generated SQL before it
 is ever executed. Pure logic -- no DB connection, no LLM call, no I/O. This
-is the "may BLOCK here" step in routes.py's TODO, done for real via sqlglot
+is step 3, the "may BLOCK here" step, in the pipeline order documented in
+app/api/routes.py::run_query()'s docstring -- done for real via sqlglot
 instead of keyword string-matching on the question text.
 """
 from __future__ import annotations
