@@ -81,7 +81,7 @@ question ──▶ generation (LLM, cached schema prompt)
 - Frontend: http://localhost:5173
 - API:      http://localhost:8000
 - API docs: http://localhost:8000/docs
-- DB:       Postgres on localhost:5432 (`app`/`app`, db `college_erp`) — schema + all 25 tables' data (~190K rows) load automatically on first boot from `seed/`
+- DB:       Postgres on localhost:5433 (`app`/`app`, db `college_erp`) — host port 5433 maps to the container's 5432, so it doesn't clash with a native Postgres already on 5432; schema + all 25 tables' data (~190K rows) load automatically on first boot from `seed/`
 
 ### Without Docker
 
@@ -173,8 +173,10 @@ after.
 
 ## Testing
 
-    pytest -q     # 31 tests: guardrails, generation (noop detection),
-                  # execution-match criterion, confidence fusion + calibration
+    pytest -q     # 73 tests: guardrails, generation (noop detection),
+                  # execution-match criterion (permissive + strict), confidence
+                  # fusion + calibration, schema-disclosure regression,
+                  # multi-provider LLM client (contract + usage tracking), auth
 
 ## Known limitations
 
