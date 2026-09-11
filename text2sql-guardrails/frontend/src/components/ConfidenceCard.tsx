@@ -1,4 +1,21 @@
-import type { Confidence, SignalStatus } from "../types/api";
+import type { Confidence, ConfidenceSignal, SignalStatus } from "../types/api";
+
+/** A detector that was turned off (e.g. MULTI_QUERY_ENABLED=false) still
+ * comes back in the payload as a neutral 0.5/WARN placeholder, so the
+ * response shape stays uniform -- but it never measured anything and is
+ * excluded from the fused score, so showing it as "50%" reads as a real
+ * middling result when it isn't one. Hidden here rather than dropped from
+ * the payload: the API contract is unchanged, and eval tooling relies on
+ * the field being present to know the signal was unmeasured.
+ *
+ * Mirrors app/detection/confidence.py::_is_disabled()'s convention -- the
+ * marker is the word "disabled" in the detail string. Note that a signal
+ * which was attempted and FAILED (e.g. "Back-translation check could not
+ * run: ...") deliberately does NOT match: that one does feed the fused
+ * score, so it stays visible. */
+function isDisabled(signal: ConfidenceSignal): boolean {
+  return !!signal.detail && signal.detail.toLowerCase().includes("disabled");
+}
 
 const SIGNAL_COLOR: Record<SignalStatus, string> = {
   pass: "bg-emerald-500",
@@ -43,7 +60,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
       </div>
 
       <div className="space-y-2.5">
-        {confidence.signals.map((signal) => (
+        {confidence.signals.filter((signal) => !isDisabled(signal)).map((signal) => (
           <div key={signal.key} title={signal.detail ?? undefined}>
             <div className="mb-1 flex items-center justify-between text-xs">
               <span className="text-white/60">{signal.label}</span>
