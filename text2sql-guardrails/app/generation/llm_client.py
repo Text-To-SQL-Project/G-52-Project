@@ -157,28 +157,36 @@ def _log_rate_limit_headers(headers) -> None:
         logger.info("Rate-limit headers: %s", rl)
 
 
-def _with_backoff(fn):
+def _with_backoff(fn, max_attempts: int | None = None):
     """Retries `fn` on a retryable error (see _is_retryable) up to
-    _MAX_RETRIES total attempts -- 5 HTTP requests, worst case, per
-    complete() call (see the module-level comment on retry layering for
-    why that's an exact bound, not just "bounded"). Exponential backoff
-    from _BACKOFF_BASE_SECONDS, capped at _BACKOFF_MAX_SECONDS, plus up to
+    `max_attempts` total attempts, defaulting to _MAX_RETRIES (5) -- so
+    the default worst case is still exactly 5 HTTP requests per complete()
+    call (see the module-level comment on retry layering for why that's an
+    exact bound, not just "bounded"). Exponential backoff from
+    _BACKOFF_BASE_SECONDS, capped at _BACKOFF_MAX_SECONDS, plus up to
     1s of jitter so multiple callers (e.g. concurrent API requests) don't
     retry in lockstep. A non-retryable error propagates immediately on
     its first occurrence, no wasted attempts.
+
+    `max_attempts` is a per-CALL-SITE cap, deliberately separate from
+    _is_retryable's per-ERROR predicate: which errors are worth retrying
+    is a property of the error, but how long it's worth retrying for is a
+    property of what the caller does when it gives up. See complete()'s
+    docstring for why back-translation caps this and generation doesn't.
 
     Logs wall-clock latency for EVERY attempt, success or failure -- the
     only way to see the actual latency distribution (including how long a
     timeout takes to fire) instead of guessing at it from aggregate
     request counts."""
-    for attempt in range(_MAX_RETRIES):
+    limit = _MAX_RETRIES if max_attempts is None else max_attempts
+    for attempt in range(limit):
         _throttle.wait()
         start = time.monotonic()
         try:
             result = fn()
             logger.info(
                 "LLM call succeeded (attempt %d/%d) in %.2fs",
-                attempt + 1, _MAX_RETRIES, time.monotonic() - start,
+                attempt + 1, limit, time.monotonic() - start,
             )
             return result
         except Exception as e:
@@ -186,19 +194,19 @@ def _with_backoff(fn):
             if not _is_retryable(e):
                 logger.info(
                     "LLM call failed non-retryably (attempt %d/%d) after %.2fs: %s",
-                    attempt + 1, _MAX_RETRIES, elapsed, e,
+                    attempt + 1, limit, elapsed, e,
                 )
                 raise
-            if attempt == _MAX_RETRIES - 1:
+            if attempt == limit - 1:
                 logger.info(
                     "LLM call failed (attempt %d/%d, retries exhausted) after %.2fs: %s",
-                    attempt + 1, _MAX_RETRIES, elapsed, e,
+                    attempt + 1, limit, elapsed, e,
                 )
                 raise
             delay = min(_BACKOFF_MAX_SECONDS, _BACKOFF_BASE_SECONDS * (2**attempt)) + random.uniform(0, 1)
             logger.warning(
                 "Retryable LLM error (attempt %d/%d) after %.2fs: %s -- retrying in %.1fs",
-                attempt + 1, _MAX_RETRIES, elapsed, e, delay,
+                attempt + 1, limit, elapsed, e, delay,
             )
             time.sleep(delay)
     raise AssertionError("unreachable")  # loop always returns or raises
@@ -280,7 +288,7 @@ def _extract_resolved_model(raw, parsed) -> str | None:
     return getattr(parsed, "model", None)
 
 
-def _complete_anthropic(system: str, user: str, cache_system: bool) -> str:
+def _complete_anthropic(system: str, user: str, cache_system: bool, max_attempts: int | None = None) -> str:
     client = get_client()
     system_param = (
         [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
@@ -298,7 +306,7 @@ def _complete_anthropic(system: str, user: str, cache_system: bool) -> str:
         _log_rate_limit_headers(raw.headers)
         return raw.parse()
 
-    response = _with_backoff(_call)
+    response = _with_backoff(_call, max_attempts)
 
     if cache_system:
         global _cache_creation_tokens, _cache_read_tokens
@@ -315,7 +323,7 @@ def _complete_anthropic(system: str, user: str, cache_system: bool) -> str:
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def _complete_openai_compatible(system: str, user: str) -> str:
+def _complete_openai_compatible(system: str, user: str, max_attempts: int | None = None) -> str:
     client = _get_openai_compatible_client(settings.LLM_PROVIDER)
 
     def _call():
@@ -333,7 +341,7 @@ def _complete_openai_compatible(system: str, user: str) -> str:
         _last_resolved_model = _extract_resolved_model(raw, parsed)
         return parsed
 
-    response = _with_backoff(_call)
+    response = _with_backoff(_call, max_attempts)
 
     global _last_usage
     usage = getattr(response, "usage", None)
@@ -345,8 +353,27 @@ def _complete_openai_compatible(system: str, user: str) -> str:
     return response.choices[0].message.content or ""
 
 
-def complete(system: str, user: str, cache_system: bool = False) -> str:
+def complete(
+    system: str, user: str, cache_system: bool = False, max_attempts: int | None = None
+) -> str:
     """Send a single-turn request and return the model's text output.
+
+    max_attempts caps how many total attempts _with_backoff makes for THIS
+    call, defaulting to _MAX_RETRIES (5). It exists because the right
+    amount of retrying depends on what the caller does when it gives up,
+    which _is_retryable (a property of the error, not the caller) can't
+    express:
+
+      - GENERATION (app.generation.generator) must succeed -- there is no
+        degraded answer, a failure is an ERROR response and the user gets
+        nothing. It passes no cap and keeps all 5 attempts.
+      - BACK-TRANSLATION (app.detection.back_translation) degrades
+        gracefully: any failure becomes a neutral WARN 0.5 signal and the
+        query still returns results. Retrying it hard buys a marginal
+        rescue chance at a large latency cost -- observed live, one
+        back-translation call burned 2m25s across 5 timed-out attempts
+        and rescued nothing, on a query whose SQL had already succeeded.
+        It caps at 2 (one retry), bounding that at roughly 52s.
 
     cache_system=True marks `system` as an ephemeral prompt-cache breakpoint
     on the Anthropic path (a content block with cache_control), for callers
@@ -361,9 +388,9 @@ def complete(system: str, user: str, cache_system: bool = False) -> str:
     """
     provider = settings.LLM_PROVIDER
     if provider == "anthropic":
-        return _complete_anthropic(system, user, cache_system)
+        return _complete_anthropic(system, user, cache_system, max_attempts)
     if provider in _PROVIDER_BASE_URLS:
-        return _complete_openai_compatible(system, user)
+        return _complete_openai_compatible(system, user, max_attempts)
     raise ValueError(
         f"Unknown LLM_PROVIDER {provider!r}. Supported: 'anthropic', "
         f"{', '.join(repr(p) for p in _PROVIDER_BASE_URLS)}."

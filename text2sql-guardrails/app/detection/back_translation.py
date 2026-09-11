@@ -48,14 +48,21 @@ def check_back_translation(question: str, sql: str) -> ConfidenceSignal:
         # near the ~1024 token minimum Anthropic requires to actually cache
         # a prefix, so no cache_read/cache_creation tokens are expected here
         # in practice. The real savings are in generate_sql's schema block.
-        back_translated = complete(_BACK_TRANSLATE_SYSTEM, sql, cache_system=True).strip()
+        # max_attempts=2 (one retry): this check degrades to a neutral WARN
+        # 0.5 on any failure, so a long retry chain buys a marginal rescue
+        # chance at a large latency cost on the user-facing query path --
+        # see complete()'s docstring. Generation, which cannot degrade,
+        # keeps the full 5.
+        back_translated = complete(
+            _BACK_TRANSLATE_SYSTEM, sql, cache_system=True, max_attempts=2
+        ).strip()
 
         compare_user = (
             f"Question A: {question}\n"
             f"Question B: {back_translated}\n\n"
             "How semantically equivalent are these two questions?"
         )
-        raw = complete(_COMPARE_SYSTEM, compare_user, cache_system=True)
+        raw = complete(_COMPARE_SYSTEM, compare_user, cache_system=True, max_attempts=2)
         data = parse_llm_json(raw)
         score = max(0.0, min(1.0, float(data["score"])))
         reason = str(data.get("reason", "")).strip()
