@@ -1,4 +1,4 @@
-# Findings — Anthropic/Gemini evaluation, calibration, and scoring methodology
+# Findings — evaluation, calibration, scoring methodology, and verification reliability
 
 Single reference document for writing the paper. Everything here is
 reproducible from files already in this repository (`eval/results.jsonl`,
@@ -326,6 +326,91 @@ What a reviewer should know about the difference:
 For the paper: cite Anthropic's ablation as the primary result (inline
 collection, repeats=3, n=405) and Gemini's as a replication with this
 caveat attached, not as an independent confirmation of equal standing.
+
+## 9. Verification infrastructure passing for the wrong reason — a third instance
+
+Distinct from §6, which is about a *scoring definition* changing a
+conclusion. This one is about a check reporting success while not
+exercising the thing it appeared to exercise. Three instances so far, and
+the newest is not an eval finding at all, which is itself the point: the
+pattern is not confined to the metrics code.
+
+| # | What claimed to be verified | What was actually happening |
+|---|---|---|
+| 1 | `execution_match()` decided predicted-vs-gold correctness | Name-based column projection systematically mislabelled correct aggregate answers as wrong (see `eval/README.md`, "Methodological finding") |
+| 2 | `fit_calibration.py` fit a calibrator on *raw* hand-tuned scores | Those scores had already been through an isotonic curve; a Gemini refit trained on Anthropic-calibrated input (§1) |
+| 3 | The test suite exercised the read-only execution path | Generated SQL in every host-side run executed **as a superuser** |
+
+### The third instance, in detail (2026-09-12)
+
+`app/db.py::get_readonly_engine()` fell back to `DATABASE_URL` whenever
+`READONLY_DATABASE_URL` was unset. That variable is set for the API
+container by `docker-compose.yml`, but it was unset on the host, and the
+`readonly_app` role had never been created on the host's PostgreSQL
+instance at all. Every host-side test run therefore executed generated SQL
+with full privileges.
+
+The five affected tests — four schema-disclosure tests in
+`tests/test_safety.py` and one in `tests/test_llm_provider_contract.py` —
+were not wrong about what they assert. They assert that no schema
+identifier leaks into a CLARIFICATION, REFUSED, BLOCKED or ERROR response,
+and that held. But the read-only layer, described in `app/db.py` as "the
+second line of defence behind the guardrails: even a guardrail miss cannot
+write", had **no local coverage whatsoever** while appearing to sit behind
+a passing end-to-end test.
+
+**Why it was invisible.** A privileged connection is indistinguishable
+from a constrained one on the happy path: same rows, same timing, same
+response shape. The only observable difference is in what gets *refused*,
+and nothing in the suite was asking for anything that should be refused.
+
+**How it was caught.** Not by a failing test. It surfaced during Phase 0
+diagnosis for Row Level Security, when "which DB role does each component
+connect as?" was put to the live databases instead of inferred from the
+configuration files. The answer — eval, the API and the test suite
+resolving to three different roles across two different PostgreSQL
+instances — matched none of the configuration.
+
+**What makes it loud now.** `get_readonly_engine()` raises instead of
+defaulting, naming the missing variable. `app/startup_checks.py` refuses to
+boot the API if the executing role is a superuser or holds `BYPASSRLS`, and
+logs the role it actually resolved to on every start. `readonly_app` now
+exists on both instances. The test-only fallback that remains for
+unprovisioned machines is named `_insecure_readonly_fallback_for_tests`,
+warns when it fires, and hard-fails any test marked `isolation` — so a
+future RLS isolation test cannot silently acquire superuser and then pass.
+
+### Why this belongs in the paper
+
+All three instances share a shape:
+
+1. **The check was green, and honest about its own assertion.** None of the
+   three tests was buggy. Each verified exactly what it said. The gap was
+   between what was asserted and what a reader would reasonably conclude
+   had been verified.
+2. **The failure was invisible on the happy path.** A mislabelled-correct
+   query, a double-calibrated score and a privileged connection all produce
+   output indistinguishable from the intended behaviour.
+3. **None was found by running more tests.** One by refusing to believe an
+   implausible metric, one by tracing what "raw" actually meant, one by
+   asking the live system a question its configuration could not answer.
+4. **The fix each time was to make the invisible thing assert itself** — a
+   documented matching criterion, an extracted `compute_raw_score()`, a
+   startup check that names the role it got. Not more happy-path coverage.
+
+For a project whose contribution is *guardrails plus calibrated
+confidence*, this is the same argument applied reflexively. The system's
+own thesis is that you should not report a query as high-confidence merely
+because the pipeline noticed nothing wrong. The evaluation apparatus
+deserves the same scepticism: **absence of a failing test is not evidence
+that a control is present.**
+
+A fourth instance was caught prospectively rather than retrospectively.
+`eval/db_guard.py` exists because Row Level Security, once enabled, would
+filter an eval run's rows without raising anything — execution accuracy
+would drift to a new, entirely plausible number with nothing in the output
+to say why. That guard aborts the run instead. Same lesson, applied before
+it could cost anything.
 
 ---
 
