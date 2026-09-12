@@ -15,6 +15,35 @@ from app.api.models import ColumnInfo, SchemaResponse, TableInfo
 from app.db import get_engine
 
 
+# Columns the query-execution role cannot read, because they were removed
+# from its grants rather than merely policy-filtered (see
+# seed/31_rls_policies.sql). RLS filters rows; a column that must never be
+# reachable by a natural-language query has to come out of the grant.
+#
+# Two different treatments follow from that, and the distinction matters:
+#
+#   GENERATION  -- the column is omitted entirely. If the model cannot see
+#                  it, it does not write SQL that names it, and the user
+#                  never meets an error that looks like a bug. Fixing the
+#                  cause rather than the symptom.
+#   SCHEMA EXPLORER -- the column is still LISTED, because structure is not
+#                  data and an operator is entitled to know the column
+#                  exists. Its sample values are suppressed, because those
+#                  are data.
+#
+# Sample suppression is unconditional, not tied to the caller: introspection
+# runs on the OWNING connection, which can read anything, so without this
+# the Schema Explorer would hand every authenticated user five real
+# salaries -- a leak the RLS policies have no opportunity to prevent.
+RESTRICTED_COLUMNS: dict[str, set[str]] = {
+    "faculty": {"salary"},
+}
+
+
+def _is_restricted(table: str, column: str) -> bool:
+    return column in RESTRICTED_COLUMNS.get(table, ())
+
+
 def _sample_values(conn, table: str, column: str, limit: int = 5) -> list[str]:
     """Best-effort distinct sample values for a column (for disambiguation)."""
     try:
@@ -36,8 +65,18 @@ def _row_estimate(conn, table: str) -> int | None:
         return None
 
 
-def introspect_schema(include_samples: bool = True) -> SchemaResponse:
-    """Return the live schema of the connected database."""
+def introspect_schema(
+    include_samples: bool = True,
+    omit_restricted: bool = False,
+) -> SchemaResponse:
+    """Return the live schema of the connected database.
+
+    `omit_restricted=True` drops RESTRICTED_COLUMNS from the output
+    entirely. Used for the generation prompt so the model never learns
+    those columns exist and never writes SQL that would be refused at
+    execution. Left False for the Schema Explorer, which lists the column
+    but never its values.
+    """
     engine = get_engine()
     inspector = inspect(engine)
 
@@ -61,6 +100,9 @@ def introspect_schema(include_samples: bool = True) -> SchemaResponse:
             columns: list[ColumnInfo] = []
             for col in inspector.get_columns(table_name):
                 name = col["name"]
+                restricted = _is_restricted(table_name, name)
+                if restricted and omit_restricted:
+                    continue
                 columns.append(
                     ColumnInfo(
                         name=name,
@@ -69,9 +111,11 @@ def introspect_schema(include_samples: bool = True) -> SchemaResponse:
                         is_primary_key=name in pk_cols,
                         is_foreign_key=name in fk_map,
                         references=fk_map.get(name),
+                        # Restricted columns never carry samples, whoever is
+                        # asking -- this runs on the owning connection.
                         sample_values=(
                             _sample_values(conn, table_name, name)
-                            if include_samples else []
+                            if (include_samples and not restricted) else []
                         ),
                     )
                 )

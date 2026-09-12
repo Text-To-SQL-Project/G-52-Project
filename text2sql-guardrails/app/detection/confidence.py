@@ -102,7 +102,31 @@ def compute_raw_score(
     return max(0.0, min(1.0, score)), is_fail_capped
 
 
-def fuse_confidence(signals: list[ConfidenceSignal]) -> Confidence:
+def fuse_confidence(
+    signals: list[ConfidenceSignal],
+    row_scoped: bool = False,
+) -> Confidence:
+    """`row_scoped` marks a request that ran under per-user RLS.
+
+    Such a request is scored from FEWER signals than the calibrator was fit
+    on: result_sanity reports itself unmeasured when the row-count-sensitive
+    checks are suppressed (see app/detection/result_sanity.py), so the
+    weighted mean is renormalised over what remains. The isotonic curve in
+    app/detection/calibration.py was fit on unscoped eval runs, where every
+    signal was present, and it has no claim to map this different input
+    distribution onto P(correct).
+
+    So the score is still reported -- it is a useful ordering -- but
+    `calibrated` is forced False, which is what the "uncalibrated" chip in
+    the UI already exists to say. Claiming calibration here would be the
+    same overreach this project criticises elsewhere: a number that looks
+    principled because it went through a fitted curve, on data that curve
+    never saw.
+
+    Fixing it properly means fitting a second calibrator on row-scoped runs.
+    That is future work, and it is honest to say so rather than to quietly
+    reuse the wrong one.
+    """
     score, is_fail_capped = compute_raw_score(signals)
 
     # eval/fit_calibration.py fits an isotonic regression mapping this raw
@@ -114,6 +138,8 @@ def fuse_confidence(signals: list[ConfidenceSignal]) -> Confidence:
     # calibrator was loaded -- a missing artifact degrades to the raw score
     # with calibrated=False, exactly as before this existed.
     score, calibrated = calibrate(score)
+    if row_scoped:
+        calibrated = False
     # Re-apply the FAIL cap after calibration: it's a hard safety invariant
     # ("a definite hallucination must never be reported as high
     # confidence"), not a statistical property the calibration curve should

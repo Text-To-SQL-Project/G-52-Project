@@ -451,7 +451,13 @@ def run_query(
     # 6. app.detection (post) -- result sanity + multi-query agreement,
     # both real; both need the rows so they can only run here, after
     # execution.
-    result_sanity_signal = check_result_sanity(safe_sql, result_columns, result_rows, req.question)
+    # From the PRINCIPAL, never inferred from the result. An admin is not
+    # row-scoped; everyone else is, because every policy in
+    # seed/31_rls_policies.sql filters for them.
+    row_scoped = not principal.is_admin
+    result_sanity_signal = check_result_sanity(
+        safe_sql, result_columns, result_rows, req.question, row_scoped=row_scoped
+    )
     multi_query_signal = check_multi_query_agreement(
         req.question, safe_sql, result_rows, principal=principal
     )
@@ -466,7 +472,7 @@ def run_query(
     # overall score (weighted mean + hard fail-override; see
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
-    confidence = fuse_confidence(signals)
+    confidence = fuse_confidence(signals, row_scoped=row_scoped)
     write_history_row(
         query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
                 question=req.question,

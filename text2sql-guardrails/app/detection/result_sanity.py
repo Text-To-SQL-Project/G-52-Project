@@ -34,6 +34,27 @@ PENALTIES: dict[str, float] = {
 # Issues at this severity force status to FAIL regardless of score.
 _FAIL_ISSUES = {"all_null_column", "null_aggregate"}
 
+# Checks whose evidence is "the result set is small or empty". Under
+# per-user Row Level Security that is no longer evidence of a bad query --
+# it is what a correctly scoped query looks like for a user who owns few
+# rows. All three are skipped when the request is row-scoped.
+#
+#   empty_result     a student with no marks yet
+#   all_null_column  a LEFT JOIN onto a table this user can see no rows of
+#   null_aggregate   AVG over a set the policy filtered to empty
+#
+# The latter two are in _FAIL_ISSUES, so leaving them enabled would force
+# status=FAIL and, via FAIL_SCORE_CAP in app/detection/confidence.py, clamp
+# the fused score to 0.40 for a query that was correct and correctly
+# scoped. The confidence system would be punishing the security model for
+# working.
+#
+# The remaining three checks stay on, because filtering does not cause what
+# they detect: RLS does not turn values into zeros (all_zero_numeric), does
+# not manufacture fan-out duplicates (duplicate_agg_rows), and makes hitting
+# the row cap strictly less likely rather than more (row_cap_hit).
+_ROW_COUNT_SENSITIVE = {"empty_result", "all_null_column", "null_aggregate"}
+
 # If the question contains one of these, an empty result is plausibly
 # expected rather than a bug, so the empty_result check is skipped.
 _EMPTY_OK_HINTS = ("if any", "if there are", "if there is", "optional")
@@ -81,10 +102,20 @@ def check_result_sanity(
     columns: list[str],
     rows: list[list],
     question: str = "",
+    row_scoped: bool = False,
 ) -> ConfidenceSignal:
     """Never raises -- each check is independently guarded so a malformed
     SQL string or an unexpected value type degrades that one check rather
-    than the whole signal."""
+    than the whole signal.
+
+    `row_scoped` says this request ran under a per-user RLS policy, so the
+    result set is a subset of the table by design. It MUST come from the
+    authenticated principal and never be inferred from the data -- deducing
+    it from "the result looks small" would let an attacker suppress the
+    detector by crafting a small result. app/api/routes.py passes
+    `not principal.is_admin`; eval/ leaves it False, which is why published
+    baselines are unaffected by any of this.
+    """
     stmt = _parse(sql)
     has_agg = _has_aggregate(stmt)
     has_group = _has_group_by(stmt)
@@ -175,6 +206,43 @@ def check_result_sanity(
             f"Result set exactly hits the row cap ({cap}) -- more matching "
             "rows may exist beyond it.",
         ))
+
+    if row_scoped:
+        # Drop the findings that filtering can manufacture. Kept as a
+        # post-filter rather than guarding each check at its source so the
+        # check bodies stay readable and the suppressed set stays visible
+        # in one place.
+        suppressed = sorted({k for k, _ in issues if k in _ROW_COUNT_SENSITIVE})
+        issues = [(k, r) for k, r in issues if k not in _ROW_COUNT_SENSITIVE]
+
+        if not issues:
+            # Nothing left to report -- and "no anomalies" would be an
+            # unearned PASS, because the checks most likely to have caught a
+            # problem are exactly the ones that could not run. Report the
+            # signal as unmeasured instead.
+            #
+            # "disabled" in the detail is the project-wide convention that
+            # app/detection/confidence.py::_is_disabled() reads: such a
+            # signal is excluded from the weighted mean AND from the
+            # fail-override, rather than dragging the average toward a
+            # placeholder. Same mechanism BACK_TRANSLATION_ENABLED=false
+            # already uses.
+            note = (
+                f" Suppressed under row scoping: {', '.join(suppressed)}."
+                if suppressed else ""
+            )
+            return ConfidenceSignal(
+                key="result_sanity",
+                label="Result Sanity",
+                score=0.5,
+                status=SignalStatus.WARN,
+                detail=(
+                    "Result-sanity checks disabled for this request: access is "
+                    "row-scoped, so an empty or sparse result is expected rather "
+                    "than anomalous and cannot be distinguished from a genuine "
+                    f"fault.{note}"
+                ),
+            )
 
     if not issues:
         return ConfidenceSignal(
