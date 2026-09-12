@@ -119,3 +119,61 @@ def test_env_example_does_not_reroute_eval():
             "docker-compose sets it for the API container, and an active "
             "line here only affects host-side processes such as eval/"
         )
+
+
+# --- the test-only privilege escalation is fenced, not just documented ----
+
+def test_isolation_marker_is_registered():
+    """The marker has to exist for the guard to be attachable at all."""
+    src = _source("tests/conftest.py")
+    assert 'config.addinivalue_line' in src and '_ISOLATION_MARKER' in src
+
+
+def test_insecure_fallback_is_inactive_in_this_run():
+    """On a correctly provisioned machine the fallback never fires. If this
+    fails, the suite is running privileged and every role-separation claim
+    in it is void."""
+    from tests import conftest
+    assert conftest.INSECURE_FALLBACK_ACTIVE is False, (
+        "generated SQL in this run executes as DATABASE_URL's role; set "
+        "READONLY_DATABASE_URL to readonly_app"
+    )
+
+
+def test_isolation_marked_tests_refuse_a_privileged_connection(pytester_like=None):
+    """The guard fixture fails an isolation-marked test when the escalation
+    is active. Exercised by flipping the module flag rather than by
+    spawning a subprocess, so the assertion stays fast and hermetic."""
+    from tests import conftest
+
+    class _Marker:
+        pass
+
+    class _Node:
+        def get_closest_marker(self, name):
+            return _Marker() if name == conftest._ISOLATION_MARKER else None
+
+    class _Request:
+        node = _Node()
+
+    gen = conftest._reject_isolation_tests_on_a_privileged_connection.__wrapped__
+
+    original = conftest.INSECURE_FALLBACK_ACTIVE
+    try:
+        conftest.INSECURE_FALLBACK_ACTIVE = True
+        # pytest.fail() raises Failed, which derives from BaseException, not
+        # Exception -- catching Exception here would let the refusal sail
+        # straight through and fail this test instead of satisfying it.
+        raised = None
+        try:
+            gen(_Request())
+        except BaseException as e:
+            raised = e
+        assert raised is not None, "guard did not fire on a privileged connection"
+        assert "Isolation test refused" in str(raised)
+    finally:
+        conftest.INSECURE_FALLBACK_ACTIVE = original
+
+    # And it stays out of the way when the connection is properly constrained.
+    conftest.INSECURE_FALLBACK_ACTIVE = False
+    assert gen(_Request()) is None
