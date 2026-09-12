@@ -135,9 +135,15 @@ def assert_bypasses_rls(engine: Engine, *, schema: str | None = None) -> dict:
 
     info = describe_connection(engine)
 
-    if is_immune(is_superuser=info["is_superuser"],
-                 has_bypassrls=info["has_bypassrls"],
-                 problem_tables=[]):
+    # Cheap exits first, checked DIRECTLY rather than through is_immune().
+    #
+    # This used to call is_immune(..., problem_tables=[]) as a shorthand for
+    # "superuser or bypassrls". That is wrong: is_immune treats an EMPTY
+    # problem list as ownership-based immunity, so the call returned True
+    # unconditionally and every connection passed. The guard was a no-op
+    # from the refactor in d1a89eb until this fix. Never pass a placeholder
+    # argument to a predicate whose meaning depends on it.
+    if info["is_superuser"] or info["has_bypassrls"]:
         return info
 
     filtered = _tables_that_would_filter(engine, schema)

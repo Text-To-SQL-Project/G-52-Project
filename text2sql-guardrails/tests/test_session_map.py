@@ -225,3 +225,38 @@ def test_unreadable_backend_identity_raises():
 
     with pytest.raises(SessionBindingError):
         read_backend_identity(_Conn())
+
+
+# --- the eval guard, end to end -------------------------------------------
+
+def test_eval_guard_actually_aborts_on_a_constrained_role():
+    """Behavioural, not structural.
+
+    The existing guard tests exercise is_immune() directly and inspect
+    source text. Both passed while assert_bypasses_rls() was returning
+    early for EVERY connection, because it called
+    is_immune(..., problem_tables=[]) as a shorthand for "superuser or
+    bypassrls" -- and an empty problem list means ownership-based immunity,
+    so the call was unconditionally True.
+
+    The guard was therefore a no-op from d1a89eb until it was fixed. That
+    is a fifth instance of this project's recurring pattern: a check that
+    passed for the wrong reason, caught only by asking what it DOES rather
+    than what it says. This test asks what it does.
+    """
+    from eval.db_guard import RlsGuardError, assert_bypasses_rls
+
+    constrained = get_readonly_engine()   # readonly_app: no superuser, no BYPASSRLS
+    with pytest.raises(RlsGuardError) as exc:
+        assert_bypasses_rls(constrained)
+    assert "readonly_app" in str(exc.value)
+
+
+def test_eval_guard_admits_the_real_eval_connection():
+    """The other direction: the fix must not have made it refuse
+    everything, which would be equally useless and far more visible."""
+    from app.db import get_eval_engine
+    from eval.db_guard import assert_bypasses_rls
+
+    info = assert_bypasses_rls(get_eval_engine())
+    assert info["is_superuser"] or info["has_bypassrls"]
