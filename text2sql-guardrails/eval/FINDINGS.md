@@ -405,12 +405,133 @@ because the pipeline noticed nothing wrong. The evaluation apparatus
 deserves the same scepticism: **absence of a failing test is not evidence
 that a control is present.**
 
-A fourth instance was caught prospectively rather than retrospectively.
+A fourth instance is recorded in §10, and it is the sharpest of the set:
+the first version of that finding used `count(*)` on a table where the
+principal and the victim happened to own the same number of rows, so a
+complete data leak read as "no leak". It was committed while writing this
+very section. The lesson is apparently not learnable once.
+
+A fifth was caught prospectively rather than retrospectively.
 `eval/db_guard.py` exists because Row Level Security, once enabled, would
 filter an eval run's rows without raising anything — execution accuracy
 would drift to a new, entirely plausible number with nothing in the output
 to say why. That guard aborts the run instead. Same lesson, applied before
 it could cost anything.
+
+## 10. Generated SQL can rewrite the RLS session variable (2026-09-13)
+
+**Status: found during Phase 2 planning, before any policy was written.
+No policy exists in this repository yet; this is a design input, not a
+live vulnerability.**
+
+This one generalises past this project. The textbook pattern for
+multi-tenant Row Level Security in PostgreSQL is:
+
+```sql
+-- application, per request, inside a transaction
+SELECT set_config('app.student_id', '32', true);
+
+-- policy
+CREATE POLICY p ON marks FOR SELECT
+  USING (student_id = current_setting('app.student_id', true)::int);
+```
+
+That pattern assumes the SQL running in the session is trusted to not
+touch `app.student_id`. **In a text-to-SQL system the SQL is written by a
+language model, and that assumption does not hold.** `set_config` is an
+ordinary, `VOLATILE` function returning `text`. A statement that calls it
+is still a plain `SELECT`, so it passes every read-only check: no DDL, no
+DML, single statement, `sqlglot` parses it as `exp.Select`.
+
+### The exploit
+
+Probe table, policy as above. Principal is student 32, owning ids 1 and 2.
+Victim is student 87, owning ids 3, 4 and 5. Row counts are deliberately
+**unequal** — see the correction below for why that matters. Any id in
+{3,4,5} reaching the client is a policy bypass.
+
+| Shape | ids returned | |
+|---|---|---|
+| baseline, no attack | 1,2 | correct |
+| `set_config` in a subquery target list | 1,3,4,5 | **leak** |
+| CTE, then join | 3,4,5 | **leak** |
+| CTE `MATERIALIZED`, then join | 3,4,5 | **leak** |
+| scalar subquery in target list | 1,3,4,5 | **leak** |
+| `WHERE set_config(...) IS NOT NULL` | 3,4,5 | **leak** |
+| `LATERAL` | 3,4,5 | **leak** |
+| window function `ORDER BY set_config(...)` | 1,3,4,5 | **leak** |
+| `UNION` arm | 1,2,3,4,5 | **leak** |
+| top-level `ORDER BY` | 1,3,4,5 | **leak** |
+| `CASE` expression in `WHERE` | 3,4,5 | **leak** |
+| `EXISTS (SELECT set_config(...))` | 1,2 | did not leak here |
+
+Nine of ten attack shapes bypass the policy. The working exploit, as a
+single statement no guardrail currently blocks:
+
+```sql
+SELECT id FROM (SELECT set_config('app.student_id','87',true), id FROM marks) z
+```
+
+Two distinct leak signatures appear, and both matter. Where the principal's
+own rows come back *alongside* the victim's (`1,3,4,5`), the GUC changed
+partway through the scan, so visibility differs row to row. Where only the
+victim's rows come back (`3,4,5`), the GUC changed before the scan began.
+The split depends on plan shape, which means **the exploitability of any
+given query is a planner decision**, not a property of the SQL text. An
+audit that checks one query shape establishes nothing about another.
+
+`EXISTS` did not leak in this configuration. That is recorded as an
+observation, not as a safe shape — see the correction immediately below
+for why a single negative result here should not be trusted.
+
+### Correction: the first version of this finding was wrong
+
+The initial probe used a table where **both** the principal and the victim
+owned exactly two rows, and checked the attack with `count(*)`. The CTE
+shape returned 2, which was read as "did not leak". It had leaked
+completely: it returned the victim's two rows instead of the principal's
+two rows, and the count could not tell the difference.
+
+This is the same failure documented in §9 — a check passing for the wrong
+reason — committed while writing up §9. It was caught only by re-running
+with unequal row counts and comparing row identities instead of
+cardinality. The lesson transfers directly into the test design: **an
+isolation test must assert on row identity, never on row count.**
+
+### Why the obvious mitigations are insufficient
+
+- **Denylisting `set_config` in the AST guardrail** stops the literal
+  cases above. It is a denylist against a language with `format`,
+  dynamic dispatch, operator syntax and functions that may gain
+  GUC-writing behaviour in future PostgreSQL versions. Useful as noise
+  reduction; not a control.
+- **Marking the GUC read-only** is not possible. PostgreSQL has no
+  mechanism to make a custom `SET LOCAL` setting immutable for the rest
+  of a transaction.
+- **Comparing filtered against unfiltered results** to detect tampering
+  requires running the user's SQL with a bypass role, which defeats the
+  policy and creates a counting oracle for rows outside the user's scope.
+
+### The design this project adopts
+
+Three layers, on the explicit understanding that only the third is
+structural:
+
+1. AST denylist for `set_config`, `current_setting` write-forms and
+   `pg_catalog` write-forms. Noise reduction.
+2. **Post-execution re-assertion**: read the GUC back after the statement
+   and discard the result set if it changed. Fails closed, logs the
+   discard server-side with the offending SQL, returns the existing
+   generic client message. Catches shapes the denylist misses, including
+   ones that do not exist yet.
+3. **GUC-free policies wherever the schema allows it.** The only layer
+   that does not depend on enumerating attacks. Tables that cannot avoid
+   reading a mutable GUC are enumerated as a stated limitation rather
+   than left implicit.
+
+For anyone implementing RLS under generated SQL: layer 2 is the one to
+build first. It is cheap, and it is the only one that holds against an
+attack shape nobody has thought of yet.
 
 ---
 
