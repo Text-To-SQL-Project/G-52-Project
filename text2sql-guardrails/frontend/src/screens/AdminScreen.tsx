@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ApiError, getAdminConfig, getBlockedQueries } from "../api/client";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { LoadingStatus, SkeletonLine, SkeletonList } from "../components/Skeleton";
+import { ForbiddenPanel } from "../components/ForbiddenPanel";
 import type { AdminConfigResponse, BlockedQueryItem } from "../types/api";
 
 function SectionLabel({ children }: { children: string }) {
@@ -45,11 +46,18 @@ function ConfigRow({ label, value }: { label: string; value: string }) {
 function BlockedQueriesSection() {
   const [items, setItems] = useState<BlockedQueryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     getBlockedQueries()
       .then((resp) => setItems(resp.items))
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load blocked queries."));
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 403) {
+          setForbidden(true);
+          return;
+        }
+        setError(e instanceof ApiError ? e.message : "Failed to load blocked queries.");
+      });
   }, []);
 
   return (
@@ -60,8 +68,9 @@ function BlockedQueriesSection() {
         response body (see Task 1). Across all sessions.
       </p>
 
+      {forbidden && <ForbiddenPanel what="the blocked-query log" />}
       {error && <ErrorPanel message={error} />}
-      {!error && items === null && (
+      {!forbidden && !error && items === null && (
         <>
           <LoadingStatus label="Loading blocked queries" />
           <SkeletonList count={3} lines={2} />
@@ -102,12 +111,31 @@ function BlockedQueriesSection() {
 export function AdminScreen() {
   const [config, setConfig] = useState<AdminConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     getAdminConfig()
       .then(setConfig)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load admin config."));
+      .catch((e) => {
+        // 403 is not a failure to report as one: the caller authenticated
+        // fine and is simply not an administrator, which happens legitimately
+        // when a role changes mid-session. It gets its own state rather than
+        // a red error box, and never a blank screen.
+        if (e instanceof ApiError && e.status === 403) {
+          setForbidden(true);
+          return;
+        }
+        setError(e instanceof ApiError ? e.message : "Failed to load admin config.");
+      });
   }, []);
+
+  if (forbidden) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-8 md:px-8">
+        <ForbiddenPanel what="the Admin screen" />
+      </div>
+    );
+  }
 
   if (error) {
     return (

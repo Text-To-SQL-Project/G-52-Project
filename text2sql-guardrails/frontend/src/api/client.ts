@@ -5,6 +5,7 @@ import type {
   HistoryResponse,
   LoginRequest,
   LoginResponse,
+  MeResponse,
   QueryRequest,
   QueryResponse,
   SchemaResponse,
@@ -59,6 +60,14 @@ export function login(req: LoginRequest): Promise<LoginResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
+}
+
+/** The caller's identity as the server sees it right now. Called on mount
+ * whenever a token exists: the token carries only a user id, so role and
+ * active status cannot be recovered from it and must be asked for. A 401
+ * here flows through request()'s existing handling and drops the session. */
+export function getMe(): Promise<MeResponse> {
+  return request<MeResponse>("/auth/me");
 }
 
 export function postQuery(req: QueryRequest): Promise<QueryResponse> {

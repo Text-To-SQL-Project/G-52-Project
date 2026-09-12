@@ -61,7 +61,7 @@ export function HistoryScreen() {
     <div className="mx-auto max-w-5xl space-y-4 px-6 py-8 md:px-8">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-white/45">
-          Query history
+          Your query history
         </h2>
         {items && items.length > 0 && (
           <span className="text-xs tabular-nums text-white/35">
@@ -81,7 +81,8 @@ export function HistoryScreen() {
 
       {items && items.length === 0 && (
         <p className="animate-fade rounded-2xl border border-white/[0.07] bg-[#0f1728]/70 py-12 text-center text-sm text-white/35">
-          No queries yet — run something in the Workspace tab.
+          No queries yet. History shows only the queries you have run — ask
+          something in the Workspace tab and it will appear here.
         </p>
       )}
 

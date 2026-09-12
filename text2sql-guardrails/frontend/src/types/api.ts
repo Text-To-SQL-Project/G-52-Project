@@ -194,10 +194,30 @@ export interface BlockedQueriesResponse {
 // ---------------------------------------------------------------------------
 
 export interface LoginRequest {
+  username: string;
   password: string;
 }
 
 export interface LoginResponse {
   token: string;
   expires_in: number;
+  /** Display convenience only. Never treated as an authorisation input --
+   * the server re-reads role on every request and enforces independently,
+   * so hiding UI based on this is presentation, not access control. */
+  username: string;
+  role: UserRole;
+}
+
+export type UserRole = "student" | "faculty" | "admin";
+
+/** GET /auth/me -- the caller as the SERVER currently sees them.
+ * Fetched on mount rather than persisted, because role is deliberately not
+ * a token claim: it is re-read per request server-side, so the client must
+ * ask rather than remember. */
+export interface MeResponse {
+  user_id: number;
+  username: string;
+  role: UserRole;
+  student_id?: number | null;
+  faculty_id?: number | null;
 }

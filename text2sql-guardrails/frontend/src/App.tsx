@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, getMe } from "./api/client";
 import { LiveBackground } from "./components/LiveBackground";
 import { NavBar, type Screen } from "./components/NavBar";
 import { AUTH_CHANGED_EVENT, getToken } from "./hooks/useAuthToken";
@@ -7,10 +8,18 @@ import { HistoryScreen } from "./screens/HistoryScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { SchemaScreen } from "./screens/SchemaScreen";
 import { WorkspaceScreen } from "./screens/WorkspaceScreen";
+import type { MeResponse } from "./types/api";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("workspace");
   const [token, setTokenState] = useState<string | null>(() => getToken());
+  // Identity is FETCHED, never persisted. The token carries only a user id
+  // (role and active status are deliberately not claims, because a claim is
+  // frozen at issue time), so after a reload the client genuinely does not
+  // know who it is until it asks. Keeping this out of localStorage also
+  // means there is no stale role for the UI to trust.
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [meLoading, setMeLoading] = useState(false);
 
   useEffect(() => {
     // Fires on login, logout, and a 401 forcing logout mid-session (see
@@ -20,6 +29,48 @@ export default function App() {
     window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
+
+  const refreshMe = useCallback(() => {
+    if (!getToken()) {
+      setMe(null);
+      return;
+    }
+    setMeLoading(true);
+    getMe()
+      .then(setMe)
+      .catch((e) => {
+        // A 401 has already cleared the token inside request(), which fires
+        // AUTH_CHANGED_EVENT and drops us back to the login screen. Anything
+        // else leaves identity unknown; the nav degrades rather than guessing.
+        if (!(e instanceof ApiError && e.status === 401)) {
+          setMe(null);
+        }
+      })
+      .finally(() => setMeLoading(false));
+  }, []);
+
+  useEffect(() => {
+    refreshMe();
+  }, [token, refreshMe]);
+
+  // A role can change mid-session -- the server re-reads it per request, so
+  // the UI should not be the last to know. Re-asking when the tab regains
+  // focus keeps a long-open window roughly honest without polling.
+  useEffect(() => {
+    const onFocus = () => refreshMe();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshMe]);
+
+  const isAdmin = me?.role === "admin";
+
+  // Demoted while sitting on the Admin tab: fall back to the Workspace
+  // rather than leaving a screen visible that every request will 403.
+  useEffect(() => {
+    if (screen === "admin" && me !== null && !isAdmin) {
+      setScreen("workspace");
+    }
+  }, [screen, me, isAdmin]);
 
   return (
     /* The wallpaper is mounted outside the auth gate so it is continuous
@@ -31,7 +82,7 @@ export default function App() {
         <LoginScreen />
       ) : (
         <div className="relative z-[1] min-h-screen">
-          <NavBar active={screen} onChange={setScreen} />
+          <NavBar active={screen} onChange={setScreen} me={me} meLoading={meLoading} />
           <main>
             {/* Workspace alone stays mounted and is hidden with `display:none`
                 rather than unmounted, because it is the only screen that owns

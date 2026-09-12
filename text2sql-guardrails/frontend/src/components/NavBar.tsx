@@ -1,20 +1,43 @@
 import { clearToken } from "../hooks/useAuthToken";
+import type { MeResponse, UserRole } from "../types/api";
 
 export type Screen = "workspace" | "history" | "schema" | "admin";
 
-const TABS: { key: Screen; label: string }[] = [
+interface Tab {
+  key: Screen;
+  label: string;
+  /** Roles allowed to SEE this tab. Visibility only -- the API gates the
+   * routes independently (require_admin), so hiding a tab is a courtesy to
+   * the user, never the access control. */
+  visibleTo?: UserRole[];
+}
+
+const TABS: Tab[] = [
   { key: "workspace", label: "Workspace" },
   { key: "history", label: "History" },
   { key: "schema", label: "Schema Explorer" },
-  { key: "admin", label: "Admin" },
+  { key: "admin", label: "Admin", visibleTo: ["admin"] },
 ];
+
+const ROLE_LABEL: Record<UserRole, string> = {
+  student: "Student",
+  faculty: "Faculty",
+  admin: "Administrator",
+};
 
 interface Props {
   active: Screen;
   onChange: (screen: Screen) => void;
+  me: MeResponse | null;
+  meLoading?: boolean;
 }
 
-export function NavBar({ active, onChange }: Props) {
+export function NavBar({ active, onChange, me, meLoading }: Props) {
+  // Until identity resolves, show only the tabs everyone has. Rendering the
+  // Admin tab optimistically and pulling it away a moment later is worse
+  // than showing it a moment late.
+  const tabs = TABS.filter((t) => !t.visibleTo || (me && t.visibleTo.includes(me.role)));
+
   return (
     /* Sticky so the active tab and the database name stay on screen while a
        long results table is scrolled -- during a demo the audience loses track
@@ -33,7 +56,7 @@ export function NavBar({ active, onChange }: Props) {
 
         <div className="flex items-center gap-2">
           <nav className="flex gap-0.5 rounded-xl border border-white/[0.07] bg-white/[0.03] p-1">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => onChange(tab.key)}
@@ -48,13 +71,35 @@ export function NavBar({ active, onChange }: Props) {
               </button>
             ))}
           </nav>
-          <button
-            onClick={clearToken}
-            className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-white/40 transition hover:bg-white/[0.06] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-            title="Log out"
-          >
-            Log out
-          </button>
+
+          {/* Who is signed in. Fetched from /auth/me, not read out of the
+              token -- the token carries no role, by design. */}
+          <div className="flex items-center gap-2 border-l border-white/[0.08] pl-3">
+            {me ? (
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-[13px] font-medium text-white/80">
+                  {me.username}
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-white/35">
+                  {ROLE_LABEL[me.role]}
+                </span>
+              </span>
+            ) : (
+              <span
+                className={`text-[13px] text-white/30 ${meLoading ? "animate-pulse" : ""}`}
+                title={meLoading ? "Loading account" : "Account details unavailable"}
+              >
+                {meLoading ? "…" : "unknown"}
+              </span>
+            )}
+            <button
+              onClick={clearToken}
+              className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-white/40 transition hover:bg-white/[0.06] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+              title="Log out"
+            >
+              Log out
+            </button>
+          </div>
         </div>
       </div>
       {/* Gradient seam instead of a flat border: brightest under the centre
