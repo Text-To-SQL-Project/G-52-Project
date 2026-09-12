@@ -118,7 +118,9 @@ def _generate(question: str, extra_instructions: str | None) -> GenerationResult
     # omit_restricted: the model never sees columns the execution role
     # cannot read, so it never writes SQL that would be refused at
     # execution and surface to the user as a generic error.
-    schema = introspect_schema(include_samples=False, omit_restricted=True)
+    schema = introspect_schema(
+        include_samples=False, omit_restricted=True, include_row_estimates=False
+    )
     system = build_system_prompt(schema, extra_instructions=extra_instructions)
     user = build_user_prompt(question)
 

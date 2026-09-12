@@ -73,6 +73,7 @@ def _row_estimate(conn, table: str) -> int | None:
 def introspect_schema(
     include_samples: bool = True,
     omit_restricted: bool = False,
+    include_row_estimates: bool = True,
 ) -> SchemaResponse:
     """Return the live schema of the connected database.
 
@@ -81,6 +82,19 @@ def introspect_schema(
     those columns exist and never writes SQL that would be refused at
     execution. Left False for the Schema Explorer, which lists the column
     but never its values.
+
+    `include_samples` and `include_row_estimates` are separate switches
+    because they are separate disclosures, and because both are DATA while
+    everything else here is structure. This function runs on the OWNING
+    connection -- it has to, to read catalogs completely -- so it bypasses
+    Row Level Security entirely and no policy can moderate what these two
+    return. See eval/FINDINGS.md section 13.
+
+    Both are also the only expensive part: sampling is a DISTINCT per
+    column and an estimate is a COUNT(*) per table, which on this schema
+    means scanning 150,000 attendance rows. Callers that need only
+    structure (generation, schema_align) should turn both off, which is
+    both a disclosure decision and a latency one.
     """
     engine = get_engine()
     inspector = inspect(engine)
@@ -129,7 +143,12 @@ def introspect_schema(
                 TableInfo(
                     name=table_name,
                     columns=columns,
-                    row_estimate=_row_estimate(conn, table_name),
+                    # None, not 0, when withheld: the contract already
+                    # allows null and it must not read as "empty table".
+                    row_estimate=(
+                        _row_estimate(conn, table_name)
+                        if include_row_estimates else None
+                    ),
                 )
             )
 

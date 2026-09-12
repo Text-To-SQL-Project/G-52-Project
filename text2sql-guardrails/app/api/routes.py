@@ -502,7 +502,7 @@ def run_query(
 
 
 @router.get("/schema", response_model=SchemaResponse)
-def get_schema() -> SchemaResponse:
+def get_schema(principal: Principal = Depends(require_auth)) -> SchemaResponse:
     """Return the LIVE database schema for the Schema Explorer screen.
 
     No fallback to fake data: a plausible-but-wrong schema (the old
@@ -518,7 +518,24 @@ def get_schema() -> SchemaResponse:
     """
     try:
         from app.schema.introspect import introspect_schema
-        return introspect_schema()
+
+        # Structure for everyone; DATA for administrators only.
+        #
+        # Every table and column stays listed whoever is asking -- an
+        # operator is entitled to know the shape of the database, and
+        # hiding a column name protects nothing.
+        #
+        # Sample values and row estimates are different in kind. A sample
+        # is five real values out of a column; an estimate is an exact row
+        # count. Both are derived from row contents, and this endpoint runs
+        # on the OWNING connection, so Row Level Security cannot moderate
+        # either -- a student would otherwise read five real values from
+        # every column of every table through an API called "schema".
+        # See eval/FINDINGS.md section 13.
+        return introspect_schema(
+            include_samples=principal.is_admin,
+            include_row_estimates=principal.is_admin,
+        )
     except Exception as e:
         logger.error("Schema introspection failed: %s", e)
         raise HTTPException(status_code=503, detail="Schema unavailable — could not reach the database.")

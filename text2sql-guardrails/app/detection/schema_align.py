@@ -75,7 +75,10 @@ def check_schema_alignment(sql: str) -> ConfidenceSignal:
         )
 
     # --- live schema universe -------------------------------------------
-    live = introspect_schema(include_samples=False)
+    # Structure only. This runs on EVERY query, and a COUNT(*) per table
+    # over 25 tables is pure latency for a check that only compares
+    # identifiers.
+    live = introspect_schema(include_samples=False, include_row_estimates=False)
     live_tables = {t.name.lower(): {c.name.lower() for c in t.columns} for t in live.tables}
 
     missing_tables = [t for t in referenced_tables if t.lower() not in live_tables]
