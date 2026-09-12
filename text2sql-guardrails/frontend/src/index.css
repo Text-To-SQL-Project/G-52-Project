@@ -1,28 +1,336 @@
 @import "tailwindcss";
 
+/* Typography tokens. Overriding Tailwind's theme vars (rather than setting
+   font-family on body) means the `font-sans` / `font-mono` utilities and the
+   preflight default all resolve to the same stacks -- no panel can drift onto
+   a different mono face than the SQL block next to it. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono",
+    Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Motion system.
+   *
+   * One rule governs all of it: every terminal state animates identically.
+   * SUCCESS does not get a celebratory pop and BLOCKED does not get an alarmed
+   * shake, because motion energy would then become a sixth status signal --
+   * one that carries a verdict before the viewer has read the label. Which
+   * state a query reached is told by colour, badge silhouette and text, and
+   * never by how eagerly the panel arrives.
+   *
+   * Durations stay under ~420ms for anything gating a read. The only looping
+   * animations are the ambient background and the indeterminate loading sweep;
+   * both are suppressed under prefers-reduced-motion at the bottom of this
+   * file. Each keyframe declares only `from`, so the implicit `to` is the
+   * element's own computed style -- an entrance can never fight an inline
+   * width or a utility class for the final value. */
+  --animate-rise: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade: fade 300ms ease-out both;
+  --animate-chip: chip 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-bar: bar 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-sweep: sweep 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes chip {
+    from {
+      opacity: 0;
+      transform: translateY(5px) scale(0.97);
+    }
+  }
+
+  /* Confidence bars grow from nothing to whatever inline width the score sets. */
+  @keyframes bar {
+    from {
+      width: 0;
+    }
+  }
+
+  /* Sweeps a highlight across a skeleton placeholder. This is the app's one
+     signature live animation, and it is the same on all five screens. */
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Indeterminate: deliberately not a progress bar. The backend reports no
+     progress during generation, so nothing here should imply a fraction done. */
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(320%);
+    }
+  }
+}
+
 body {
   background: #0b1120;
   color: #e6e8eb;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* Ambient background glow (Gemini-style): fixed, non-interactive, sits
-   behind all app content (see App.tsx's root `relative z-[1]`). Kept
-   subtle -- data-heavy panels (SQL, results table, confidence card) must
-   stay fully legible; tune alpha here, not layout, if that ever slips. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
+/* ---------------------------------------------------------------------------
+   Live wallpaper. Markup in components/LiveBackground.tsx, which documents the
+   layer stack and the constraints; this file holds the paint and the motion.
+
+   Every animation below moves `transform` only. Nothing is blurred with a
+   filter, nothing animates a colour, and nothing animates a size -- so the
+   compositor can hand the whole wallpaper to the GPU and leave the main
+   thread free for the results table. All of it stops under the
+   prefers-reduced-motion block at the foot of this file.
+   --------------------------------------------------------------------------- */
+
+/* 2. Depth: sinks the page toward the bottom so panels feel lit from above. */
+.bg-depth {
   background:
-    radial-gradient(60% 45% at 50% 78%, rgba(99, 102, 241, 0.28) 0%, rgba(99, 102, 241, 0) 70%),
-    radial-gradient(45% 35% at 30% 88%, rgba(139, 92, 246, 0.20) 0%, rgba(139, 92, 246, 0) 70%),
-    radial-gradient(50% 40% at 72% 92%, rgba(34, 211, 238, 0.10) 0%, rgba(34, 211, 238, 0) 70%);
-  filter: blur(20px);
+    linear-gradient(to bottom, rgba(2, 6, 23, 0) 0%, rgba(2, 6, 23, 0.55) 100%),
+    radial-gradient(120% 80% at 50% -10%, rgba(30, 41, 82, 0.55) 0%, rgba(11, 17, 32, 0) 60%);
+}
+
+/* 3. Grid: the technical lattice. Drifts exactly one 56px tile per cycle, so
+      the loop is seamless, and is masked to nothing well before the viewport
+      edge so it never terminates in a visible hard line. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 58% at 50% 38%, #000 15%, transparent 72%);
+  mask-image: radial-gradient(ellipse 75% 58% at 50% 38%, #000 15%, transparent 72%);
+  will-change: transform;
+  animation: grid-drift 44s linear infinite;
+}
+
+@keyframes grid-drift {
+  to {
+    transform: translate3d(56px, 56px, 0);
+  }
+}
+
+/* 4. Blooms: soft colour fields. Soft because the gradient stops are long, not
+      because of `filter: blur()` -- a blurred element that moves has to be
+      re-rasterised, one that is merely a gradient does not.
+
+      Indigo, violet and blue only. No green anywhere in the wallpaper: green
+      means SUCCESS and PASS, and a wash of it behind a REFUSED chip would
+      undercut the most important thing this interface says.
+
+      The three periods (37s / 43s / 53s) share no common factor, so the
+      composition takes over half an hour to repeat itself exactly. */
+.bg-bloom {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+}
+
+.bg-bloom-a {
+  width: 60rem;
+  height: 46rem;
+  left: -14rem;
+  bottom: -18rem;
+  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.30), rgba(99, 102, 241, 0) 100%);
+  animation: bloom-a 37s ease-in-out infinite alternate;
+}
+
+.bg-bloom-b {
+  width: 52rem;
+  height: 42rem;
+  right: -12rem;
+  bottom: -14rem;
+  background: radial-gradient(closest-side, rgba(139, 92, 246, 0.26), rgba(139, 92, 246, 0) 100%);
+  animation: bloom-b 43s ease-in-out infinite alternate;
+}
+
+.bg-bloom-c {
+  width: 46rem;
+  height: 36rem;
+  left: 32%;
+  top: -14rem;
+  background: radial-gradient(closest-side, rgba(37, 99, 235, 0.22), rgba(37, 99, 235, 0) 100%);
+  animation: bloom-c 53s ease-in-out infinite alternate;
+}
+
+@keyframes bloom-a {
+  from {
+    transform: translate3d(-3%, 2%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(8%, -5%, 0) scale(1.12);
+  }
+}
+
+@keyframes bloom-b {
+  from {
+    transform: translate3d(4%, 0, 0) scale(1.08);
+  }
+  to {
+    transform: translate3d(-6%, -6%, 0) scale(1);
+  }
+}
+
+@keyframes bloom-c {
+  from {
+    transform: translate3d(-5%, -2%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(6%, 6%, 0) scale(1.15);
+  }
+}
+
+/* 5. Scan: one faint band easing down the page. Alpha is deliberately near the
+      floor -- it should register as the surface breathing, not as an object
+      crossing the screen, and it passes under semi-opaque panels. */
+.bg-scan {
+  top: 0;
+  height: 45vh;
+  background: linear-gradient(
+    to bottom,
+    rgba(96, 165, 250, 0) 0%,
+    rgba(96, 165, 250, 0.05) 50%,
+    rgba(96, 165, 250, 0) 100%
+  );
+  will-change: transform;
+  animation: scan 19s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes scan {
+  from {
+    transform: translate3d(0, -50vh, 0);
+  }
+  to {
+    transform: translate3d(0, 145vh, 0);
+  }
+}
+
+/* 6. Grain: static, and the only layer that never moves. Wide dark gradients
+      band badly on projectors and cheap panels; a little noise breaks the
+      bands up and reads as texture rather than as a defect. */
+.bg-grain {
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Staggered entrance for the response stack on the Workspace screen. Keyed to
+   position rather than passed down as a prop, so no panel needs to know where
+   it sits -- and because which panels render at all depends on the status, the
+   stagger stays contiguous whatever combination appears. Every step is the
+   same length for every state: a BLOCKED response arrives at exactly the pace
+   a SUCCESS one does. */
+.response-stack > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.response-stack > *:nth-child(2) {
+  animation-delay: 70ms;
+}
+.response-stack > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+.response-stack > *:nth-child(4) {
+  animation-delay: 210ms;
+}
+.response-stack > *:nth-child(5) {
+  animation-delay: 280ms;
+}
+.response-stack > *:nth-child(n + 6) {
+  animation-delay: 350ms;
+}
+
+/* Loading placeholder. Size and round it with ordinary utilities
+   (`h-4 w-32 rounded-md skeleton`); do not pass a `bg-*` class, since the base
+   tint is set here and would win on source order.
+
+   The highlight is a transform on a pseudo-element, so it composites rather
+   than repainting -- a History screen showing eight placeholder rows is still
+   one cheap animation per row. Suppressed wholesale under the
+   prefers-reduced-motion block at the foot of this file, which leaves the
+   static tinted block as a perfectly readable "not loaded yet". */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.055);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.09),
+    transparent
+  );
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 
 ::selection {
   background-color: #3b82f6;
   color: white;
+}
+
+/* Results tables and the SQL block scroll horizontally on narrow viewports.
+   The default Chrome scrollbar is an opaque light slab on this palette, which
+   reads as a UI element rather than an affordance -- this tones it down. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.16);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+/* Honour the OS setting rather than animating through a presentation. The
+   delay reset matters as much as the duration one: entrance animations are
+   staggered with animation-delay, and a delay left standing would hold a
+   panel at its invisible `from` keyframe for the length of the stagger. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

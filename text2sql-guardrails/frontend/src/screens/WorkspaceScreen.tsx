@@ -12,6 +12,25 @@ import { WarningsList } from "../components/WarningsList";
 import { getSessionId } from "../hooks/useSessionId";
 import type { QueryResponse } from "../types/api";
 
+/** Shown while the query is in flight. The sweep is indeterminate on purpose:
+ * the backend reports no progress through generation, guardrails and execution,
+ * so a filling bar would be inventing a number. Nothing here previews the
+ * shape of the answer either -- a skeleton results table would promise rows to
+ * a question that may be about to come back BLOCKED. */
+function RunningPanel() {
+  return (
+    <div className="animate-rise overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0f1728]/85">
+      <div className="flex items-center gap-3 px-5 py-4 text-sm text-white/55">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-blue-400" />
+        Generating and checking SQL…
+      </div>
+      <div className="relative h-[2px] overflow-hidden bg-white/[0.06]">
+        <div className="animate-sweep absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceScreen() {
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,27 +56,32 @@ export function WorkspaceScreen() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 px-6 py-6">
+    <div className="mx-auto max-w-5xl space-y-6 px-6 py-8 md:px-8">
       <QuestionInput onSubmit={(q) => run(q)} loading={loading} />
 
       {clientError && <ErrorPanel message={clientError} />}
 
-      {loading && (
-        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/50">
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-          Generating and checking SQL…
-        </div>
-      )}
+      {loading && <RunningPanel />}
 
       {response && !loading && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        /* The status chip is the heading of the response, not one card among
+           several: it sits outside the panel stack, at the largest type on the
+           page after the question itself, because on this project the state of
+           a query matters more than its output.
+
+           `response-stack` staggers the entrance of the direct children below
+           (see index.css). The stack unmounts whenever a query is in flight, so
+           each new response replays its entrance without needing a key. */
+        <div className="response-stack space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
             <StatusBanner
               status={response.status}
               reason={response.status === "clarification" ? null : response.status_reason}
             />
             {response.execution_time_ms != null && (
-              <span className="text-xs text-white/30">{response.execution_time_ms.toFixed(0)} ms</span>
+              <span className="animate-fade shrink-0 pt-1.5 text-xs tabular-nums text-white/35 [animation-delay:200ms]">
+                {response.execution_time_ms.toFixed(0)} ms
+              </span>
             )}
           </div>
 
