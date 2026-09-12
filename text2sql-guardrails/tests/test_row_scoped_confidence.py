@@ -107,8 +107,32 @@ def test_row_scoped_requests_report_uncalibrated():
 
 # --- restricted columns ----------------------------------------------------
 
-def test_salary_is_the_declared_restricted_column():
+def test_declared_restricted_columns():
+    """Protected attributes and health data, plus compensation. A student
+    sees only their own row, so these matter because a faculty member sees
+    every student in their department."""
     assert RESTRICTED_COLUMNS.get("faculty") == {"salary"}
+    assert RESTRICTED_COLUMNS.get("students") == {"category", "blood_group"}
+
+
+@pytest.mark.parametrize("table, column", [
+    ("faculty", "salary"),
+    ("students", "category"),
+    ("students", "blood_group"),
+])
+def test_every_restricted_column_is_hidden_from_generation_and_sample_free(table, column):
+    gen = introspect_schema(include_samples=False, omit_restricted=True)
+    exp = introspect_schema(include_samples=True)
+
+    gen_cols = [c.name for c in next(t for t in gen.tables if t.name == table).columns]
+    assert column not in gen_cols, f"{table}.{column} reached the generation schema"
+
+    exp_col = next(c for c in next(t for t in exp.tables if t.name == table).columns
+                   if c.name == column)
+    assert exp_col.sample_values == [], (
+        f"{table}.{column} exposed sample values -- introspection runs as the "
+        "owner, so no row policy can prevent this (findings section 13)"
+    )
 
 
 def test_generation_schema_omits_restricted_columns():

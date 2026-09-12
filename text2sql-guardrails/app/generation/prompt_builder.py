@@ -34,6 +34,14 @@ def build_system_prompt(schema: SchemaResponse, extra_instructions: str | None =
         "Rules:",
         "- Output a single SELECT statement only (no DDL, no DML, no "
         "multiple statements).",
+        # Some columns are withheld from the schema below because the
+        # executing role has no privilege on them (see
+        # app/schema/introspect.py::RESTRICTED_COLUMNS). A wildcard expands
+        # to include them and the statement is then refused at execution,
+        # which reaches the user as a generic error and looks like a bug.
+        # Listing columns explicitly avoids that entirely.
+        "- Never use SELECT * -- list the columns you need explicitly, "
+        "choosing only from the columns listed below.",
         "- Do NOT add a LIMIT clause unless the question explicitly asks "
         "for a top-N or a specific number of rows. The system enforces "
         "its own row cap.",

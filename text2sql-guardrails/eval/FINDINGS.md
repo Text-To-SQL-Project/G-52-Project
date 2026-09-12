@@ -740,6 +740,95 @@ found, limitation stated precisely, cost measured, control built — is more
 useful than the endpoint alone, and a limitation that was closed is a
 better result than one that was merely disclosed.
 
+## 13. A schema browser bypasses Row Level Security entirely
+
+This one generalises past this project, and it is worth stating plainly
+because **a policy audit will not find it**. It is not a policy failure.
+Every policy can be perfect and the hole is still open.
+
+### The mechanism
+
+`app/schema/introspect.py` runs on the **owning** connection, because it
+has to: reading `pg_catalog`, foreign keys and column types is structural
+work, and the read-only role would give a partial answer. Owners bypass
+RLS unconditionally unless `FORCE ROW LEVEL SECURITY` is set, which it
+deliberately is not here.
+
+But `introspect_schema()` does not only read structure. Two of the things
+it returns are **data**:
+
+- `_sample_values()` runs `SELECT DISTINCT <column> FROM <table> LIMIT 5`
+- `_row_estimate()` runs `SELECT COUNT(*) FROM <table>`
+
+Both reach the client through `GET /v1/schema`, which any authenticated
+user can call. So before the fix below, a student could open the Schema
+Explorer and read five real values from **every column of every table** —
+including columns their row policy was carefully written to hide, and
+including exact row counts for tables they can see one row of.
+
+No row policy gets an opportunity to intervene, because the query never
+executes as the row-scoped role.
+
+### Why an audit misses it
+
+Every instinct for verifying RLS points at the wrong place:
+
+- `pg_policies` is complete and correct. Eleven tables, eleven policies.
+- Testing the query path proves nothing about this path — different role,
+  different connection, different endpoint.
+- The endpoint is called "schema", and schema is structure, and structure
+  is not supposed to be data. The name actively misleads.
+
+The leak arrives through an API whose entire purpose is to expose
+structure. It looks like metadata. Five sample values from
+`students.blood_group` are not metadata.
+
+### The distinction that fixes it
+
+**Structure is not data, but a sample value is data wearing structure's
+clothes.** Once stated that way the fix is obvious and narrow:
+
+| returned by `/v1/schema` | is it | treatment |
+|---|---|---|
+| table and column names, types, nullability | structure | shown to everyone |
+| primary and foreign keys | structure | shown to everyone |
+| sample values | **data** | suppressed for restricted columns; role-gated otherwise |
+| row estimates | **data** | role-gated |
+
+Column *existence* stays visible to every user. An operator is entitled to
+know a column exists, and hiding the name buys nothing — the model is not
+the attacker, and a curious user learns the same from any ER diagram.
+
+### What this project does now
+
+`RESTRICTED_COLUMNS` in `app/schema/introspect.py` names the columns the
+query role has no grant on: `faculty.salary`, `students.category`,
+`students.blood_group`. They receive two different treatments, and the
+split is the point:
+
+- **omitted entirely from the generation prompt**, so the model never
+  learns they exist and never writes SQL that execution would refuse —
+  fixing the cause, not the symptom;
+- **listed but sample-free in the Schema Explorer**, unconditionally, not
+  gated on who is asking, because introspection runs as the owner and
+  there is no role to gate on at that layer.
+
+Row estimates remain role-gated work (W5), not yet done at the time of
+writing this section.
+
+### The general statement
+
+> Any text-to-SQL system that exposes a schema browser over a row-scoped
+> database has this hole. Introspection must run privileged to be
+> complete; anything it returns that is derived from row contents —
+> samples, counts, min/max, histograms, "top values" — bypasses every row
+> policy in the database, and no amount of policy review will surface it,
+> because the policies are not involved.
+
+The general defence is equally short: **audit the introspection endpoint's
+response fields, not its queries.** Ask of each field whether it could
+differ between two users of the same schema. If it could, it is data.
+
 ---
 
 *Reproduction: `eval/analyze.py`, `eval/analyze_strict.py`,

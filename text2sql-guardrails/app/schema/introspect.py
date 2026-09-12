@@ -37,6 +37,11 @@ from app.db import get_engine
 # salaries -- a leak the RLS policies have no opportunity to prevent.
 RESTRICTED_COLUMNS: dict[str, set[str]] = {
     "faculty": {"salary"},
+    # A faculty member sees every student in their department, so these two
+    # are not protected by the row policy. A protected social attribute and
+    # health data, neither with any teaching necessity. Date of birth and
+    # contact details stay readable on purpose -- see seed/32.
+    "students": {"category", "blood_group"},
 }
 
 
