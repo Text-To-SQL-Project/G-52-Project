@@ -36,15 +36,72 @@ a loop, read the reason rather than restarting blindly:
     docker compose logs db --tail 40
     docker compose logs api --tail 40
 
-## 2. Login password
+## 2. Accounts
 
-The password is `OPERATOR_PASSWORD` in the repo-root **`.env`** file (not
-committed; `.env.example` carries only a placeholder). Read it with:
+There is no longer a shared operator password. Five accounts live in
+`app.users`, created by `scripts/seed_users.py`, and their passwords are
+in the repo-root **`.env`** (not committed):
 
-    grep OPERATOR_PASSWORD .env
+    grep SEED_ .env
 
-There is one shared operator password and no users table — see the Auth
-section of the top-level README for why that is deliberate.
+| username | role | ERP identity | what it demonstrates |
+|---|---|---|---|
+| `student1` | student | student_id 32 | the isolation story — sees one student row, 19 marks |
+| `student2` | student | student_id 87 | the peer: same section as student1, so their data genuinely overlaps in the schema |
+| `student3` | student | student_id 3 | a different section entirely — useful for "no overlap at all" |
+| `faculty1` | faculty | faculty_id 25 | departmental scope: 311 students, and the attendance they recorded |
+| `admin` | admin | — | sees everything, and is the only role with the Admin tab |
+
+`student1` and `student2` are picked deterministically as two students
+**in the same section**, and `faculty1` teaches their programme. That
+matters: two randomly chosen students would share no section, no subject
+and no exam, and every isolation claim would hold trivially without
+proving anything.
+
+To re-seed after a database reset:
+
+    python -m scripts.seed_users          # writes accounts
+    python -m scripts.seed_users --show   # prints the plan, writes nothing
+
+## 2a. The scripted demo moment
+
+This is the clearest single thing to show. Run the **same query** as two
+different users. Nothing about the application changes between them —
+same request, same SQL, same database role. Only the row policies decide.
+
+Log in as `student1`, ask for the SQL directly if you want it verbatim,
+or just use the question. Then log out, log in as `admin`, and run it
+again.
+
+| query | student1 | faculty1 | admin |
+|---|---|---|---|
+| `SELECT count(*) FROM students` | **1** | 311 | 2000 |
+| `SELECT count(*) FROM marks` | **19** | 0 | 40000 |
+| `SELECT count(*) FROM attendance` | **79** | 2410 | 150000 |
+| `SELECT count(*) FROM fee_payments` | **4** | 0 | 8000 |
+
+Before Row Level Security, `student1` saw 2000 / 40000 / 150000 — every
+row in the database.
+
+**Say the caution out loud if anyone is reading closely:** `student1` and
+`student2` each see exactly 79 attendance rows. That is a coincidence of
+the seeded data, and it is why the test suite asserts on row *identity*
+rather than row counts. A count comparison would pass even if the two
+students' records had been completely swapped.
+
+Two follow-ups worth having ready:
+
+- **The attack.** Paste this as a query and it comes back BLOCKED, naming
+  `set_config`:
+  `SELECT set_config('app.student_id','87',true), student_id FROM marks`
+  It is a plain read-only SELECT, and before the guardrail existed it
+  bypassed the row policy in nine of ten query shapes tested. The
+  enforcement does not depend on catching it, though — identity comes
+  from the backend's pid and start time, which SQL cannot set.
+- **A restricted column.** `SELECT blood_group FROM students` fails
+  closed with the generic message. Row Level Security filters rows; a
+  column that must never be reachable has to come out of the role's
+  grants entirely.
 
 ## 3. The five demo queries, in order
 
@@ -115,6 +172,24 @@ and the entire safety story. Only generation is lost.
   misleading 50%. Four signals feed the score, not five.
 - **First query after a cold start is slower** — no warm connection pool,
   no prompt cache.
+- **Confidence reads `uncalibrated` for every non-admin query.** This is
+  correct and deliberate. Under row scoping the three row-count-sensitive
+  result-sanity checks cannot distinguish "empty because wrong" from
+  "empty because correctly scoped", so they report themselves unmeasured
+  and the score is fused from fewer signals. The isotonic calibrator was
+  fit on unscoped runs, so claiming calibration over a different input
+  distribution would be an overreach. Admin queries stay calibrated.
+- **A student with no rows for a question is no longer marked low
+  confidence.** That used to force a FAIL and clamp the score to 0.40 —
+  the confidence system penalising the security model for working.
+- **Schema Explorer shows no sample values or row counts unless you are
+  admin.** Every table and column is still listed for everyone. Samples
+  and counts are data, and introspection runs on the owning connection,
+  so no row policy can moderate them.
+- **`SELECT *` on `students` or `faculty` fails.** Both have columns the
+  query role has no grant on. The model is told not to use a wildcard and
+  is not shown those columns, so generated SQL should not hit it; a
+  hand-written override will.
 
 ## 6. Changing anything
 
