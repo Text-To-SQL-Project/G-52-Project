@@ -1,18 +1,22 @@
 """
-Database engine. Reads DATABASE_URL from config.
+Database engines. Reads URLs from config.
 
-Two supported setups for your project:
+Three connections, deliberately distinct, because they sit at different
+privilege levels and conflating any two of them removes a security layer
+without producing a visible symptom:
 
-  A) SQLite file (simplest — no Docker):
-       set DATABASE_URL=sqlite:///C:/Users/dell/Desktop/Text-to-SQL/your.db
-       (Windows: three slashes, then forward-slash path.)
+  get_engine()          owning role. Introspection, query history, user
+                        accounts. Generated SQL must never run through it.
+  get_readonly_engine() the role GENERATED SQL executes as. SELECT-only,
+                        non-owner, and from Phase 2 subject to Row Level
+                        Security. Required, never defaulted -- see below.
+  get_eval_engine()     eval/ only. Must BYPASS RLS so gold/predicted row
+                        comparisons stay reproducible.
 
-  B) Postgres (via docker-compose):
-       DATABASE_URL=postgresql+psycopg://app:app@db:5432/sample_shop
-
-The read-only engine is the second line of defence behind the guardrails:
-in the real execution path, run generated SQL through this engine so even a
-guardrail miss cannot write.
+Postgres via docker-compose is the supported setup:
+    DATABASE_URL=postgresql+psycopg://app:app@db:5432/college_erp
+SQLite is still accepted by get_engine() for a no-Docker smoke test
+(Windows: three slashes, then a forward-slash path).
 """
 from __future__ import annotations
 
@@ -23,9 +27,33 @@ from sqlalchemy import Engine, create_engine
 from app.config import settings
 
 
+class ReadOnlyEngineNotConfigured(RuntimeError):
+    """READONLY_DATABASE_URL is required and was not set."""
+
+
+_READONLY_MISSING_MESSAGE = """READONLY_DATABASE_URL is not set.
+
+This is the connection generated SQL executes as, and it must be a
+SELECT-only, non-owner role. It is intentionally NOT defaulted: the
+previous fallback to DATABASE_URL ran generated SQL as the owning
+superuser, which silently disabled read-only enforcement and would
+silently disable Row Level Security too.
+
+  docker compose      : already set in docker-compose.yml, nothing to do
+  host / bare uvicorn : set it in .env, for example
+    READONLY_DATABASE_URL=postgresql+psycopg://readonly_app:readonly_app@localhost:5433/college_erp
+
+Do not point it at DATABASE_URL's role. See .env.example, and
+app/startup_checks.py, which additionally verifies that whatever this
+resolves to is actually a constrained role."""
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    """Primary engine (used for introspection and, later, execution)."""
+    """Primary engine: introspection, query history, user accounts.
+
+    This is the owning role. Generated SQL must never run through it.
+    """
     connect_args = {}
     if settings.DATABASE_URL.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
@@ -38,12 +66,29 @@ def get_engine() -> Engine:
 
 @lru_cache(maxsize=1)
 def get_readonly_engine() -> Engine:
-    """Engine that should map to a SELECT-only DB role in production.
+    """Engine that runs generated SQL. Must map to a SELECT-only DB role.
 
-    For Postgres, point READONLY_DATABASE_URL at the readonly_app role.
-    For SQLite, open the file in read-only mode.
+    FAILS CLOSED. This used to fall back to DATABASE_URL when
+    READONLY_DATABASE_URL was unset, which looks harmless and is not:
+    DATABASE_URL is the owning/superuser role, so the fallback executed
+    generated SQL with full privileges. Read-only enforcement -- the
+    second line of defence behind the guardrails, so that even a guardrail
+    miss cannot write -- simply was not there, and from Phase 2 onward Row
+    Level Security would not be either, since owners and superusers bypass
+    policies unconditionally.
+
+    That combination is invisible at runtime. Every query still returns
+    the right answer; two security layers are just absent. Inside
+    docker-compose the variable is always set, so the gap only opened when
+    the API was run on the host, which is exactly the ad-hoc setup where
+    nobody is checking.
+
+    Refusing to construct the engine turns a silent downgrade into a
+    startup failure that names the missing variable.
     """
-    url = getattr(settings, "READONLY_DATABASE_URL", None) or settings.DATABASE_URL
+    url = (getattr(settings, "READONLY_DATABASE_URL", "") or "").strip()
+    if not url:
+        raise ReadOnlyEngineNotConfigured(_READONLY_MISSING_MESSAGE)
     connect_args = {}
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}

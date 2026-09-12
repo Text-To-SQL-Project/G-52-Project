@@ -57,6 +57,7 @@ def write_history_row(
     *,
     query_id: str,
     session_id: str | None,
+    user_id: int | None = None,
     question: str,
     status: QueryStatus,
     sql: str | None,
@@ -73,14 +74,16 @@ def write_history_row(
             conn.execute(
                 text(
                     "INSERT INTO app.query_history "
-                    "(query_id, session_id, question, sql_preview, status, "
-                    "status_reason, confidence_score, row_count) "
-                    "VALUES (:query_id, :session_id, :question, :sql_preview, "
-                    ":status, :status_reason, :confidence_score, :row_count)"
+                    "(query_id, session_id, user_id, question, sql_preview, "
+                    "status, status_reason, confidence_score, row_count) "
+                    "VALUES (:query_id, :session_id, :user_id, :question, "
+                    ":sql_preview, :status, :status_reason, :confidence_score, "
+                    ":row_count)"
                 ),
                 {
                     "query_id": query_id,
                     "session_id": session_id,
+                    "user_id": user_id,
                     "question": question,
                     "sql_preview": _truncate(sql) if sql else None,
                     "status": status.value,
@@ -95,21 +98,44 @@ def write_history_row(
         logger.error("Failed to write history row for query_id=%r: %s", query_id, e)
 
 
-def read_history(session_id: str | None, limit: int = 50) -> list[HistoryItem]:
-    if not session_id:
-        return []
+def read_history(
+    *,
+    user_id: int,
+    is_admin: bool = False,
+    session_id: str | None = None,
+    limit: int = 50,
+) -> list[HistoryItem]:
+    """History for ONE user, or for everyone if the caller is an admin.
+
+    user_id is the authorisation boundary and is not optional. session_id
+    used to be that boundary, which made history readable by anyone who
+    could guess or replay a session id -- it is now only an optional
+    narrowing filter for "this browser's queries", applied on top of
+    ownership rather than instead of it.
+
+    Rows with a NULL user_id predate accounts (see seed/29_users.sql: they
+    were written under the shared operator password and were deliberately
+    not backfilled, because inventing an owner would fabricate audit data).
+    They are visible to admins only, and never attributed to anyone.
+    """
+    clauses = ["1=1"] if is_admin else ["user_id = :user_id"]
+    params: dict = {"limit": limit, "user_id": user_id}
+    if session_id:
+        clauses.append("session_id = :session_id")
+        params["session_id"] = session_id
+
     engine = get_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             text(
                 "SELECT query_id, question, sql_preview, status, status_reason, "
-                "confidence_score, row_count, created_at "
+                "confidence_score, row_count, created_at, user_id "
                 "FROM app.query_history "
-                "WHERE session_id = :session_id "
+                "WHERE " + " AND ".join(clauses) + " "
                 "ORDER BY created_at DESC "
                 "LIMIT :limit"
             ),
-            {"session_id": session_id, "limit": limit},
+            params,
         ).fetchall()
 
     items = []

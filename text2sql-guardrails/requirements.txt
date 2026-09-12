@@ -13,4 +13,10 @@ openai==3.7.0
 matplotlib==3.11.1
 scikit-learn==1.9.0
 joblib==1.5.3
+# Password hashing for per-user auth (app/auth.py). Argon2id with the
+# RFC 9106 second-recommended parameter set, pinned explicitly in code
+# rather than inherited from the library defaults -- see
+# app/auth.py::ARGON2_* so the paper can cite fixed numbers that a
+# dependency upgrade cannot silently change underneath it.
+argon2-cffi==25.1.0
 tiktoken==0.14.0  # dev-only: eval token-budget estimation, not imported by app/

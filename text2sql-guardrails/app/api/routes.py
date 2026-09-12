@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from app.api import client_messages
@@ -42,6 +42,7 @@ from app.api.models import (
     WarningLevel,
 )
 from app.config import settings
+from app.auth import require_admin, require_auth
 from app.db import get_readonly_engine
 from app.detection import calibration
 from app.detection.back_translation import check_back_translation
@@ -50,6 +51,7 @@ from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import generate_sql, is_noop_sql
+from app.users import Principal
 from app.history import read_blocked_queries, read_history, write_history_row
 from app.safety.guardrails import check_guardrails
 
@@ -72,7 +74,10 @@ def _new_id() -> str:
 
 
 @router.post("/query", response_model=QueryResponse)
-def run_query(req: QueryRequest) -> QueryResponse:
+def run_query(
+    req: QueryRequest,
+    principal: Principal = Depends(require_auth),
+) -> QueryResponse:
     """Translate a natural-language question to SQL, run it safely, and
     return results + calibrated confidence.
 
@@ -103,7 +108,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
         except Exception as e:
             logger.error("SQL generation failed for question=%r: %s", req.question, e)
             write_history_row(
-                query_id=query_id, session_id=req.session_id, question=req.question,
+                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
                 status=QueryStatus.ERROR, sql=None, status_reason=f"SQL generation failed: {e}",
             )
             return QueryResponse(
@@ -131,7 +137,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
             if gen.refusal_kind == "ambiguous":
                 logger.info("CLARIFICATION_NEEDED for question=%r reason=%r", req.question, reason)
                 write_history_row(
-                    query_id=query_id, session_id=req.session_id, question=req.question,
+                    query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
                     status=QueryStatus.CLARIFICATION_NEEDED, sql=None, status_reason=reason,
                 )
                 return QueryResponse(
@@ -145,7 +152,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
                 )
             logger.info("REFUSED (unsafe) for question=%r reason=%r", req.question, reason)
             write_history_row(
-                query_id=query_id, session_id=req.session_id, question=req.question,
+                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
                 status=QueryStatus.REFUSED, sql=None, status_reason=reason,
             )
             return QueryResponse(
@@ -175,7 +183,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
                 req.question, sql,
             )
             write_history_row(
-                query_id=query_id, session_id=req.session_id, question=req.question,
+                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
                 status=QueryStatus.REFUSED, sql=sql,
                 status_reason="Disguised refusal (empty/no-op SQL) despite refusal=false.",
             )
@@ -207,7 +216,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
         )
         blocked_reason_text = "; ".join(result.blocked_reasons) or "Blocked by guardrails."
         write_history_row(
-            query_id=query_id, session_id=req.session_id, question=req.question,
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
             status=QueryStatus.BLOCKED, sql=sql, status_reason=blocked_reason_text,
         )
         return QueryResponse(
@@ -283,7 +293,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
         # _EXECUTION_ERROR_CLIENT_MESSAGE's comment above.
         logger.error("Execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
         write_history_row(
-            query_id=query_id, session_id=req.session_id, question=req.question,
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
             status=QueryStatus.ERROR, sql=safe_sql, status_reason=f"Execution failed: {e}",
         )
         return QueryResponse(
@@ -319,7 +330,8 @@ def run_query(req: QueryRequest) -> QueryResponse:
     # Confidence.calibrated / fuse_confidence's own comment.
     confidence = fuse_confidence(signals)
     write_history_row(
-        query_id=query_id, session_id=req.session_id, question=req.question,
+        query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+                question=req.question,
         status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
         confidence_score=confidence.score, row_count=len(result_rows),
     )
@@ -370,8 +382,9 @@ def get_schema() -> SchemaResponse:
 
 @router.get("/history", response_model=HistoryResponse)
 def get_history(
-    session_id: str = Query(...),
+    session_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
+    principal: Principal = Depends(require_auth),
 ) -> HistoryResponse:
     """Return past queries for the History screen, backed by
     app.query_history (app/history.py). Same no-fallback rule as
@@ -383,7 +396,12 @@ def get_history(
     plausible-looking empty history, which would be indistinguishable from
     "this session really has no queries yet"."""
     try:
-        items = read_history(session_id, limit=limit)
+        items = read_history(
+            user_id=principal.user_id,
+            is_admin=principal.is_admin,
+            session_id=session_id,
+            limit=limit,
+        )
         return HistoryResponse(session_id=session_id, items=items, total=len(items))
     except Exception as e:
         logger.error("Failed to read history for session_id=%r: %s", session_id, e)
@@ -391,7 +409,9 @@ def get_history(
 
 
 @router.get("/admin/config", response_model=AdminConfigResponse)
-def get_admin_config() -> AdminConfigResponse:
+def get_admin_config(
+    _: Principal = Depends(require_admin),
+) -> AdminConfigResponse:
     """Live config + safety thresholds + the published eval numbers, for
     the Admin screen. eval_summary is NOT live-computed (see EvalSummary's
     docstring) -- it's the numbers from the last full eval/analyze.py run,
@@ -436,7 +456,10 @@ def get_admin_config() -> AdminConfigResponse:
 
 
 @router.get("/admin/blocked-queries", response_model=BlockedQueriesResponse)
-def get_blocked_queries(limit: int = Query(default=50, ge=1, le=200)) -> BlockedQueriesResponse:
+def get_blocked_queries(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: Principal = Depends(require_admin),
+) -> BlockedQueriesResponse:
     """The REAL, unredacted SQL for recent BLOCKED queries, across all
     sessions -- see app/history.py::read_blocked_queries()'s docstring.
     Gated by require_auth exactly like every other route on this router

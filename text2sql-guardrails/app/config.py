@@ -88,11 +88,26 @@ class Settings:
         "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
     ).split(",")
 
-    # Minimal auth (Task 4): one shared operator password, no users table,
-    # no registration. Empty by default -- app/auth.py refuses ALL logins
-    # (500, not 401 -- "not configured" is a different failure than "wrong
-    # password") rather than silently accepting an empty password.
+    # Bootstrap admin password (Phase 1). No longer a shared login for
+    # everyone -- accounts now live in app.users and authenticate
+    # individually. This seeds the FIRST admin account only, so there is a
+    # way in before any user exists; see seed/30_seed_users.sql. Empty means
+    # no bootstrap admin is created.
     OPERATOR_PASSWORD: str = os.getenv("OPERATOR_PASSWORD", "")
+
+    # How long a resolved Principal may be reused before role and
+    # is_active are re-read from the database.
+    #
+    # 0 = never cache, re-read on every request. That is the default and
+    # the recommended setting: this lookup is a single indexed primary-key
+    # SELECT, which is negligible next to the multi-second LLM call it
+    # precedes on the only hot path.
+    #
+    # Whatever you set here IS your revocation latency. A deactivated user
+    # keeps working for up to this many seconds, and from Phase 2 a
+    # demoted user keeps their old row visibility for the same window.
+    # Treat it as a security parameter, not a performance knob.
+    AUTH_PRINCIPAL_CACHE_SECONDS: int = int(os.getenv("AUTH_PRINCIPAL_CACHE_SECONDS", "0"))
     # Signs the session token app/auth.py issues on successful login.
     # Empty is refused the same way as an empty OPERATOR_PASSWORD -- an
     # empty HMAC key would "work" but make every token trivially forgeable.

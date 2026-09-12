@@ -16,6 +16,7 @@ import pytest
 
 from app.api.models import QueryRequest
 from app.api.routes import run_query
+from tests.principals import TEST_STUDENT
 from app.generation.generator import generate_sql
 from app.generation.json_utils import parse_llm_json
 
@@ -96,7 +97,7 @@ def test_timeout_after_retries_exhausted_surfaces_as_generic_error(monkeypatch, 
 
     monkeypatch.setattr("app.api.routes.generate_sql", fake_generate_sql)
     with caplog.at_level(logging.ERROR):
-        resp = run_query(QueryRequest(question="Which students are active?"))
+        resp = run_query(QueryRequest(question="Which students are active?"), TEST_STUDENT)
 
     assert resp.status == "error"
     assert resp.status_reason == (

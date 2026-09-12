@@ -16,6 +16,7 @@ import re
 
 from app.api.models import QueryRequest, SignalStatus
 from app.api.routes import run_query
+from tests.principals import TEST_STUDENT
 from app.config import settings
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import GenerationResult
@@ -175,7 +176,7 @@ def test_clarification_needed_response_has_no_schema_identifiers(monkeypatch):
         )
 
     monkeypatch.setattr("app.api.routes.generate_sql", fake_generate_sql)
-    resp = run_query(QueryRequest(question="Which Doctor has attendance above 70%"))
+    resp = run_query(QueryRequest(question="Which Doctor has attendance above 70%"), TEST_STUDENT)
     assert resp.status == "clarification"
     leaked = _leaked_identifiers(resp, IDENTIFIERS)
     assert not leaked, f"schema identifiers leaked in CLARIFICATION_NEEDED response: {leaked}"
@@ -194,7 +195,7 @@ def test_refused_response_has_no_schema_identifiers(monkeypatch):
         )
 
     monkeypatch.setattr("app.api.routes.generate_sql", fake_generate_sql)
-    resp = run_query(QueryRequest(question="Delete all attendance records"))
+    resp = run_query(QueryRequest(question="Delete all attendance records"), TEST_STUDENT)
     assert resp.status == "refused"
     leaked = _leaked_identifiers(resp, IDENTIFIERS)
     assert not leaked, f"schema identifiers leaked in REFUSED response: {leaked}"
@@ -204,7 +205,7 @@ def test_blocked_response_has_no_schema_identifiers():
     resp = run_query(QueryRequest(
         question="test",
         sql_override="DELETE FROM attendance WHERE student_id = 1;",
-    ))
+    ), TEST_STUDENT)
     assert resp.status == "blocked"
     leaked = _leaked_identifiers(resp, IDENTIFIERS)
     assert not leaked, f"schema identifiers leaked in BLOCKED response: {leaked}"
@@ -214,7 +215,7 @@ def test_error_response_has_no_schema_identifiers():
     resp = run_query(QueryRequest(
         question="test",
         sql_override="SELECT nonexistent_column_xyz FROM students;",
-    ))
+    ), TEST_STUDENT)
     assert resp.status == "error"
     leaked = _leaked_identifiers(resp, IDENTIFIERS)
     assert not leaked, f"schema identifiers leaked in ERROR response: {leaked}"
