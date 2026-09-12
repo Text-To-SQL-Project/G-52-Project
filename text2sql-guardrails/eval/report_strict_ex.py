@@ -24,7 +24,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from app.db import get_readonly_engine
+from app.db import get_eval_engine
 from eval.metrics import execution_match, strip_trailing_limit
 
 
@@ -44,7 +44,7 @@ def main() -> None:
     args = parser.parse_args()
 
     records = load_results(str(args.results))
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
 
     considered = 0  # answerable, non-adversarial, status == "success"
     permissive_correct = 0

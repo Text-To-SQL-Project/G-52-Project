@@ -389,7 +389,7 @@ def execution_accuracy(
 ) -> float:
     """Fraction of answerable, non-adversarial cases where the predicted
     result set matches gold_sql's actual result set (executed fresh
-    against `engine`, defaulting to app.db.get_readonly_engine()), via
+    against `engine`, defaulting to app.db.get_eval_engine()), via
     execution_match().
 
     strict=True reports the leaderboard-comparable number: gold_sql is
@@ -400,8 +400,8 @@ def execution_accuracy(
     (strict=False) is this project's own documented methodology, unchanged.
     """
     if engine is None:
-        from app.db import get_readonly_engine
-        engine = get_readonly_engine()
+        from app.db import get_eval_engine
+        engine = get_eval_engine()
 
     cases = [g for g in golden if g["answerable"] and not g["adversarial"]]
     if not cases:

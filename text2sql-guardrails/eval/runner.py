@@ -49,7 +49,7 @@ from sqlalchemy import text  # noqa: E402
 import app.generation.llm_client as llm_client  # noqa: E402
 from app.api.models import ConfidenceSignal, SignalStatus  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.db import get_readonly_engine  # noqa: E402
+from app.db import get_eval_engine  # noqa: E402
 from app.detection.back_translation import check_back_translation  # noqa: E402
 from app.detection.multi_query import check_multi_query_agreement  # noqa: E402
 from app.detection.result_sanity import check_result_sanity  # noqa: E402
@@ -57,6 +57,7 @@ from app.detection.schema_align import check_schema_alignment  # noqa: E402
 from app.generation.generator import generate_sql, is_noop_sql  # noqa: E402
 from app.safety.guardrails import check_guardrails  # noqa: E402
 
+from eval.db_guard import assert_or_exit  # noqa: E402
 from eval.metrics import execution_match, load_golden_set, strip_trailing_limit  # noqa: E402
 
 EVAL_DIR = Path(__file__).parent
@@ -248,7 +249,7 @@ def run_pipeline(question: str, sql_override: str | None = None) -> dict:
     out["signals"]["schema_alignment"] = _signal_to_dict(alignment_signal)
     out["signals"]["back_translation_match"] = _signal_to_dict(back_translation_signal)
 
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
     try:
         with engine.connect() as conn:
             cursor = conn.execute(text(safe_sql))
@@ -310,6 +311,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Before anything else, and specifically before a single LLM call is
+    # billed: refuse to run on a connection Row Level Security would
+    # filter. A filtered eval does not fail, it silently reports different
+    # numbers -- see eval/db_guard.py for why this is an abort, not a
+    # warning.
+    assert_or_exit(get_eval_engine(), label="runner")
+
     golden = load_golden_set(str(args.golden))
     if args.limit is not None:
         golden = golden[: args.limit]
@@ -345,7 +353,7 @@ def main() -> None:
         print(f"Resuming: {len(done_pairs)} (id, run) pairs already in {args.out}, will be skipped.")
 
     # Cache gold_rows once per case (fixed data, no need to re-execute per repeat).
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
     gold_cache: dict[str, dict | None] = {}
     for case in golden:
         if case["answerable"] and not case["adversarial"]:

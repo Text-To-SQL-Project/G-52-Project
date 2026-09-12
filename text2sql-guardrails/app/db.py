@@ -49,3 +49,31 @@ def get_readonly_engine() -> Engine:
         connect_args = {"check_same_thread": False}
         # ?mode=ro requires the uri=True form; keep simple + safe here.
     return create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+
+
+@lru_cache(maxsize=1)
+def get_eval_engine() -> Engine:
+    """Engine for eval/ only. Deliberately NOT the engine that runs user SQL.
+
+    eval/ compares gold against predicted row sets, so it has to see every
+    row in the table. Once Row Level Security lands, a connection that is
+    subject to a policy does not error -- it silently returns fewer rows,
+    execution_match() quietly starts disagreeing, and the published
+    baselines become unreproducible with nothing in the output to say why.
+
+    So the fallback chain here stops at DATABASE_URL (the owning/superuser
+    role, which is also the connection that produced the existing
+    results.jsonl) and never reaches READONLY_DATABASE_URL, no matter what
+    the environment sets. Falling back to the app's query-execution role is
+    exactly the failure this function exists to make impossible.
+
+    A URL alone is not a guarantee, though -- DATABASE_URL could itself be
+    pointed at a restricted role. eval/db_guard.py::assert_bypasses_rls()
+    interrogates the live connection and aborts the run if the role it
+    actually got would be filtered.
+    """
+    url = getattr(settings, "EVAL_DATABASE_URL", "") or settings.DATABASE_URL
+    connect_args = {}
+    if url.startswith("sqlite"):
+        connect_args = {"check_same_thread": False}
+    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)

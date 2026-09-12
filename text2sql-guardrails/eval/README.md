@@ -9,6 +9,81 @@ specific, documented ways. A [strict mode](#strict-mode-a-leaderboard-comparable
 disabling all four exists for a leaderboard-comparable number alongside
 this one; both are reported, not just the permissive default.
 
+## Which database eval runs against
+
+**Eval and the running API deliberately connect to two different PostgreSQL
+instances.** This was originally incidental. As of this section it is
+enforced, and an eval run that violates it aborts instead of producing
+numbers.
+
+| | eval | API container |
+|---|---|---|
+| Setting | `EVAL_DATABASE_URL`, falling back to `DATABASE_URL` | `READONLY_DATABASE_URL` |
+| Role | superuser / `BYPASSRLS` / table owner | `readonly_app` |
+| Subject to Row Level Security | **no** | **yes**, from Phase 2 |
+| Engine factory | `app.db.get_eval_engine()` | `app.db.get_readonly_engine()` |
+
+### Why the separation is load-bearing
+
+Eval decides correctness by executing gold SQL and predicted SQL and
+comparing the row sets (see [The execution-match
+criterion](#the-execution-match-criterion)). Row Level Security does not
+make a restricted connection fail — it makes it return **fewer rows**.
+
+So an eval run on a filtered connection does not crash, log a warning, or
+produce anything anomalous. It compares a filtered gold set against a
+filtered predicted set, records disagreements that are artefacts of the
+filter, and writes a `results.jsonl` whose numbers look entirely plausible.
+The published baselines — execution accuracy 0.714 permissive / 0.415
+strict, guardrail block rate 1.000 — would no longer be reproducible, and
+nothing in the output would say why.
+
+That is the one failure mode in this project that is silent by nature.
+Everything else fails loudly: a bad API key 401s, a bad URL refuses to
+connect, a malformed golden set raises.
+
+### How it is enforced
+
+Three mechanisms, in order of when they fire.
+
+1. **`EVAL_DATABASE_URL` is a separate setting** and
+   `app.db.get_eval_engine()` falls back only to `DATABASE_URL`. It can
+   never resolve to `READONLY_DATABASE_URL`, whatever the environment says.
+2. **`eval/db_guard.py` interrogates the live connection** at the start of
+   `eval/runner.py`, before the golden set is loaded and before a single
+   LLM call is billed. It permits exactly the three roles PostgreSQL exempts
+   from RLS: superusers, roles with `BYPASSRLS`, and a table's owner when
+   that table does not carry `FORCE ROW LEVEL SECURITY`. Ownership is checked
+   for every table in the schema, since owning 24 of 25 is not immunity.
+   Anything else exits 2 with an actionable message. The same guard is wired
+   into `recompute_correctness.py`, `report_strict_ex.py` and
+   `analyze_strict.py`, which also execute SQL and feed published numbers.
+3. **`.env.example` no longer sets `READONLY_DATABASE_URL`.** It used to, on
+   line 2, pointing at `readonly_app`. Copying the example over `.env` was
+   therefore enough to reroute every host-side process onto the filtered
+   role. `docker-compose.yml` sets that variable for the API container
+   itself and its `environment:` block takes precedence over the env file,
+   so the line was doing nothing for the API and everything for eval.
+
+The guard is strict even though no policy exists yet. A role that is not
+structurally immune passes trivially today and starts filtering the moment
+the first policy is created, which would put the failure a long way from its
+cause.
+
+### Reading the run log
+
+Every guarded entrypoint prints its resolved connection before doing any
+work:
+
+```
+[runner] RLS guard OK: role=postgres db=college_erp port=5432          system_identifier=7663923229260258440 superuser=True bypassrls=False
+```
+
+`system_identifier` is the only unambiguous way to tell the two instances
+apart — host and port can be forwarded, the database names are identical,
+and the data is the same on both. Record it alongside any numbers you
+publish.
+
 ## Golden set
 
 161 hand-authored, hand-verified natural-language questions over the real

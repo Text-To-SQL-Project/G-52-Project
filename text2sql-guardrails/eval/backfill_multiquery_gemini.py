@@ -41,7 +41,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 from sqlalchemy import text  # noqa: E402
 
 import app.generation.llm_client as llm_client  # noqa: E402
-from app.db import get_readonly_engine  # noqa: E402
+from app.db import get_eval_engine  # noqa: E402
 from app.detection.multi_query import check_multi_query_agreement  # noqa: E402
 
 
@@ -54,7 +54,7 @@ def main() -> None:
             if line:
                 records.append(json.loads(line))
 
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
     updated = 0
     skipped = 0
 

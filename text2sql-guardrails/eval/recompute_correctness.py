@@ -21,7 +21,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from app.db import get_readonly_engine
+from app.db import get_eval_engine
 from eval.metrics import execution_match, strip_trailing_limit
 
 EVAL_DIR = Path(__file__).parent
@@ -43,7 +43,7 @@ def main() -> None:
     args = parser.parse_args()
 
     records = load_results(str(args.results))
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
 
     changed_to_true = []
     changed_to_false = []

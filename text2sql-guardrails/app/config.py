@@ -21,8 +21,19 @@ class Settings:
     # currently relies on the connection's search_path instead.
     DB_SCHEMA: str = os.getenv("DB_SCHEMA", "public")
 
-    # LLM (wired in Phase 2)
+    # The role generated SQL executes as. Must be a NON-owner, NON-superuser
+    # role once Row Level Security lands, or RLS is bypassed silently.
     READONLY_DATABASE_URL: str = os.getenv("READONLY_DATABASE_URL", "")
+
+    # Eval's own connection, kept deliberately separate from both of the
+    # above. eval/ compares gold and predicted row sets, so it must see
+    # EVERY row: a filtered eval does not fail, it just quietly reports
+    # different numbers, and the published baselines stop being
+    # reproducible. Falls back to DATABASE_URL (owner/superuser) and NEVER
+    # to READONLY_DATABASE_URL -- see app/db.py::get_eval_engine(), which
+    # enforces that, and eval/db_guard.py, which refuses to run at all if
+    # whatever this resolves to would be subject to RLS.
+    EVAL_DATABASE_URL: str = os.getenv("EVAL_DATABASE_URL", "")
 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" | "gemini" | "groq"
     LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-5")

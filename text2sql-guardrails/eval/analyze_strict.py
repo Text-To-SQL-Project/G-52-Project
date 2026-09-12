@@ -30,7 +30,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from app.db import get_readonly_engine
+from app.db import get_eval_engine
 from eval.analyze import ablation_study, detection_f1_auroc, execution_accuracy_from_stored
 from eval.metrics import execution_match
 
@@ -50,7 +50,7 @@ def recompute_strict_labels(records: list[dict]) -> tuple[list[dict], int]:
     overwritten to the strict-mode value for every eligible record, and
     the count of records that could not be re-executed (skipped, left at
     their permissive value)."""
-    engine = get_readonly_engine()
+    engine = get_eval_engine()
     strict_records = copy.deepcopy(records)
     skipped = 0
 
