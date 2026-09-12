@@ -23,6 +23,87 @@ _DDL_BLOCK_TYPES = (exp.Drop, exp.Create, exp.Alter, exp.TruncateTable)
 # Statement types that mutate data.
 _DML_BLOCK_TYPES = (exp.Insert, exp.Update, exp.Delete, exp.Merge)
 
+# Functions that change session or server state despite being callable from
+# inside a plain SELECT. See eval/FINDINGS.md section 10.
+#
+# set_config() is the one that matters. It is an ordinary VOLATILE function
+# returning text, so `SELECT set_config('app.student_id','87',true), id
+# FROM marks` is a single read-only statement that passes every other check
+# here -- and it rewrites the session variable a Row Level Security policy
+# reads, mid-scan. Nine of ten attack shapes tested bypassed the policy that
+# way. pg_catalog.set_config(...) and "set_config"(...) normalise to the
+# same name once sqlglot has parsed them, so the bare name covers both.
+#
+# current_setting() is blocked too, though it only READS. Analytics SQL over
+# this schema has no legitimate use for it, and being able to read the
+# current value is what lets an attacker restore it before the statement
+# ends, which is precisely how the post-execution re-assertion in
+# app/api/routes.py can be evaded. Removing the read removes the easy path
+# to that evasion.
+#
+# THIS IS A DENYLIST AND IS TREATED AS NOISE REDUCTION, NOT AS A CONTROL.
+# It stops the shapes known today. It cannot stop a function that gains
+# state-changing behaviour in a future PostgreSQL, or an encoding of the
+# same intent this list does not name. The control is the enforcement
+# boundary in the database plus the post-execution check; this layer exists
+# so that the common case never reaches them.
+_STATE_CHANGING_FUNCTIONS = frozenset({
+    # Session/GUC state -- the RLS identity attack.
+    "set_config",
+    "current_setting",
+    # Server state.
+    "pg_reload_conf",
+    "pg_rotate_logfile",
+    "pg_switch_wal",
+    "pg_create_restore_point",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "pg_stat_reset",
+    "pg_stat_statements_reset",
+    # Locks -- not reads, and a denial-of-service surface.
+    "pg_advisory_lock",
+    "pg_advisory_unlock",
+    "pg_advisory_xact_lock",
+    "pg_advisory_lock_shared",
+    # Filesystem and outbound access. These are superuser-gated, so a
+    # correctly configured readonly role would be refused anyway; blocked
+    # here so the refusal is ours and is visible, rather than arriving as
+    # an execution error that gets redacted into a generic message.
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "lo_import",
+    "lo_export",
+    "dblink",
+    "dblink_exec",
+})
+
+
+def _normalize_function_name(raw: object) -> str:
+    """sqlglot surfaces an unknown function as exp.Anonymous with its name
+    in `.this`. Quoting is preserved there ('"set_config"'), and casing is
+    whatever the author wrote, so both are stripped before comparison."""
+    name = str(raw or "").strip()
+    if name.startswith('"') and name.endswith('"') and len(name) > 1:
+        name = name[1:-1]
+    return name.lower()
+
+
+def _state_changing_calls(stmt: exp.Expression) -> list[str]:
+    """Every blocked function called ANYWHERE in the statement.
+
+    Depth matters more than it looks: in the attack shapes that worked, the
+    call was never at the top level. It sat in a subquery target list, a
+    CTE, a LATERAL, a window ORDER BY, a UNION arm or a CASE. find_all
+    walks all of them.
+    """
+    found: list[str] = []
+    for node in stmt.find_all(exp.Anonymous):
+        name = _normalize_function_name(node.this)
+        if name in _STATE_CHANGING_FUNCTIONS and name not in found:
+            found.append(name)
+    return sorted(found)
+
 
 @dataclass
 class GuardrailResult:
@@ -103,6 +184,18 @@ def check_guardrails(sql: str) -> GuardrailResult:
         blocked_reasons.append(
             f"blocked statement: {type(stmt).__name__} is not a read-only query"
         )
+
+    # State-changing function calls, folded into the same gate for the same
+    # contract reason. A read-only SELECT can still rewrite the session
+    # variable an RLS policy reads -- see _STATE_CHANGING_FUNCTIONS.
+    if not blocked_reasons:
+        state_calls = _state_changing_calls(stmt)
+        if state_calls:
+            blocked_reasons.append(
+                "blocked function call: "
+                + ", ".join(state_calls)
+                + " changes session or server state"
+            )
 
     # --- row_limit ---------------------------------------------------
     checks_run.append("row_limit")

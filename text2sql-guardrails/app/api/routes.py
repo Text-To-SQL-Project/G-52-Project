@@ -44,6 +44,12 @@ from app.api.models import (
 from app.config import settings
 from app.auth import require_admin, require_auth
 from app.db import get_readonly_engine
+from app.safety.session_scope import (
+    ScopeTamperingError,
+    apply_scope,
+    assert_scope_intact,
+    check_rows_match_principal,
+)
 from app.detection import calibration
 from app.detection.back_translation import check_back_translation
 from app.detection.confidence import FAIL_SCORE_CAP, WEIGHTS, fuse_confidence
@@ -280,11 +286,43 @@ def run_query(
     # dedicated sandbox module yet).
     engine = get_readonly_engine()
     start = time.perf_counter()
+    scope_violation: str | None = None
     try:
-        with engine.connect() as conn:
+        # engine.begin(), not engine.connect(): the principal is bound with
+        # set_config(..., is_local => true), which only exists inside an
+        # explicit transaction, and is discarded by the COMMIT at the end of
+        # this block. That is what stops a pooled connection carrying one
+        # user's identity into the next user's request -- there is no
+        # cleanup step to forget. See app/safety/session_scope.py.
+        with engine.begin() as conn:
+            expected_scope = apply_scope(conn, principal)
+
             cursor = conn.execute(text(safe_sql))
             result_columns = list(cursor.keys())
             result_rows = [list(row) for row in cursor.fetchall()]
+
+            # Layer 2. Runs on the same connection, in the same transaction,
+            # BEFORE the rows are allowed out of this block. A statement that
+            # rewrote the scope selected its rows under an identity the
+            # caller is not entitled to, so those rows are discarded rather
+            # than returned.
+            try:
+                assert_scope_intact(conn, expected_scope)
+            except ScopeTamperingError as tamper:
+                scope_violation = str(tamper)
+            else:
+                # Independent, partial second check: if the result projects
+                # an identity column, every value in it must be the
+                # principal's own. Covers the common exfiltration shape, not
+                # aggregates or aliased ids -- see the module docstring.
+                row_violations = check_rows_match_principal(
+                    result_columns, result_rows, principal
+                )
+                if row_violations:
+                    scope_violation = "; ".join(row_violations)
+
+            if scope_violation is not None:
+                result_columns, result_rows = [], []
     except Exception as e:
         # Raw psycopg/SQLAlchemy error text embeds real identifiers
         # directly (column/relation names, HINT lines naming similar
@@ -312,11 +350,49 @@ def run_query(
         )
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
 
+    # Fail closed on a scope violation. Reached only when the statement
+    # executed without error but either rewrote the session scope
+    # (ScopeTamperingError) or returned rows carrying somebody else's
+    # identity. Rows were already discarded inside the transaction above;
+    # this converts that into a response.
+    #
+    # The full detail -- question, SQL, and which value drifted -- is logged
+    # server-side and NONE of it reaches the client, following the same
+    # disclosure rule as the execution-error path above: raw detail here
+    # would name columns and values, and would additionally tell an attacker
+    # exactly which check caught them and what it compared.
+    if scope_violation is not None:
+        logger.error(
+            "SCOPE VIOLATION -- results discarded. user_id=%s role=%s "
+            "question=%r sql=%r detail=%s",
+            principal.user_id, principal.role, req.question, safe_sql, scope_violation,
+        )
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
+            status_reason=f"Scope violation: {scope_violation}",
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+        )
+
     # 6. app.detection (post) -- result sanity + multi-query agreement,
     # both real; both need the rows so they can only run here, after
     # execution.
     result_sanity_signal = check_result_sanity(safe_sql, result_columns, result_rows, req.question)
-    multi_query_signal = check_multi_query_agreement(req.question, safe_sql, result_rows)
+    multi_query_signal = check_multi_query_agreement(
+        req.question, safe_sql, result_rows, principal=principal
+    )
     signals = [
         result_sanity_signal if s.key == "result_sanity"
         else multi_query_signal if s.key == "multi_query_agreement"

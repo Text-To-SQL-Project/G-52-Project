@@ -533,6 +533,93 @@ For anyone implementing RLS under generated SQL: layer 2 is the one to
 build first. It is cheap, and it is the only one that holds against an
 attack shape nobody has thought of yet.
 
+## 11. Stated limitation: every row-scoped table depends on a mutable GUC
+
+Written during Phase 2 implementation, before the policies exist, so the
+reasoning is recorded rather than reconstructed.
+
+§10 establishes that generated SQL can rewrite the session variable a
+PostgreSQL RLS policy reads. The obvious follow-up is to write policies
+that do not read a mutable setting at all. **For this schema, no such
+formulation exists.** Every table that needs row scoping needs to know
+*which* student or faculty member is asking, and there is no unforgeable
+place to put that under the current connection architecture.
+
+### Why `current_user` is not the escape hatch
+
+The natural alternative is a per-user database role, with policies reading
+`current_user` instead of a custom setting. That is worse, not better,
+because **`role` is itself a writable GUC**:
+
+| probe, session authenticated as `readonly_app` | result |
+|---|---|
+| `SELECT set_config('role','probe_student32',true)` | `current_user` becomes `probe_student32` |
+| same call from inside a subquery target list | escaped back to `readonly_app` |
+| `SELECT set_config('role','app',true)` | `ERROR: permission denied to set role "app"` |
+
+Switching is bounded by role membership, which is the only good news. But
+`SET LOCAL ROLE` requires the pooled session user to be a *member* of every
+per-user role it might switch into — and a query can then switch freely
+among exactly those roles. A connection pooled across users would hand
+student A a one-line path to student B's identity. The GUC approach at
+least confines the attack to rewriting a value; the naive per-user-role
+approach hands over authentication itself.
+
+### The eleven tables
+
+Nine student-scoped, two faculty-scoped. Each reads `app.student_id`,
+`app.faculty_id` or `app.role` from the session, and each therefore rests
+on the layer 1 and layer 2 mitigations described in §10 rather than on a
+structural guarantee:
+
+| table | scoping key | why no GUC-free form |
+|---|---|---|
+| `students` | `student_id` | three different predicates by role; the role itself is a setting |
+| `attendance` | `student_id` | direct column, still needs "which student" |
+| `marks` | `student_id` | as above |
+| `fee_payments` | `student_id` | as above |
+| `library_transactions` | `student_id` | as above |
+| `placement_applications` | `student_id` | as above |
+| `student_enrollments` | `student_id` | as above |
+| `student_section_mapping` | `student_id` | as above |
+| `placement_offers` | via `application_id` | no direct column; `EXISTS` against a table that is itself GUC-scoped |
+| `faculty` | `faculty_id` | own row plus department visibility |
+| `faculty_subject_assignments` | `faculty_id` | direct column |
+
+The fourteen shared reference tables (`departments`, `programs`,
+`academic_years`, `semesters`, `subjects`, `subject_offerings`, `sections`,
+`exam_types`, `exams`, `fee_categories`, `fee_structure`, `library_books`,
+`placement_companies`, `placement_drives`) are GUC-free in the only way
+that counts: they get **no policy at all**, because every user is entitled
+to see all of them. That is not a mitigation, it is an absence of a
+requirement.
+
+### What would make it structural
+
+Two designs remove the mutable setting from the trust path. Both cost
+something the current architecture does not currently pay:
+
+1. **Connection authenticated directly as the per-user role.** No
+   membership, so nothing to switch into, so `set_config('role', ...)` has
+   no reachable target. Ends cross-user connection pooling and ties
+   PostgreSQL role lifecycle to application account lifecycle.
+2. **Session table keyed on `pg_backend_pid()`.** A query cannot forge its
+   own backend pid, and `readonly_app` has no write privilege on the table,
+   so the mapping is unforgeable from inside the query. Costs a committed
+   write per request from the privileged connection.
+
+Neither is implemented as of this section. The honest statement for the
+paper is that the enforcement boundary is in the database, which survives
+arbitrary query *shape* — that claim is intact and is the point of choosing
+RLS over predicate injection — but the *binding of identity to session* is
+not equally protected, and rests on a denylist plus a post-execution check
+that a sufficiently informed attacker can evade by restoring the value
+before the statement ends.
+
+That distinction is worth stating precisely rather than blurring: **RLS
+removes the "a clever query shape defeats the filter" class of attack. It
+does not by itself remove the "a clever query rewrites who you are" class.**
+
 ---
 
 *Reproduction: `eval/analyze.py`, `eval/analyze_strict.py`,

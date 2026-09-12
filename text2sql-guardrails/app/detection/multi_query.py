@@ -20,6 +20,7 @@ from sqlalchemy import text
 from app.api.models import ConfidenceSignal, SignalStatus
 from app.config import settings
 from app.db import get_readonly_engine
+from app.safety.session_scope import apply_scope
 from app.generation.generator import generate_sql_variant
 from app.safety.guardrails import check_guardrails
 
@@ -45,6 +46,7 @@ def check_multi_query_agreement(
     question: str,
     primary_sql: str,
     primary_rows: list[list],
+    principal=None,
 ) -> ConfidenceSignal:
     """Never raises -- any generation/guardrail/execution failure on a
     variant is recorded as a disagreement for that variant rather than
@@ -79,7 +81,28 @@ def check_multi_query_agreement(
                 continue
 
             try:
-                with engine.connect() as conn:
+                # Each variant runs in its own scoped transaction.
+                #
+                # The scope matters from Phase 2 onward: the principal is
+                # bound with set_config(..., is_local => true), so a variant
+                # executed on an unscoped connection would carry no identity
+                # at all, see zero rows under every RLS policy, and register
+                # a guaranteed disagreement against the primary -- a
+                # fabricated signal rather than a measurement.
+                #
+                # A separate short transaction per variant, rather than
+                # reusing the caller's: variant GENERATION is an LLM call,
+                # and holding the request's read transaction open across
+                # network round trips would pin a pooled connection and an
+                # MVCC snapshot for seconds at a time. Correctness here does
+                # not need the same transaction, only the same scope.
+                #
+                # principal=None keeps the old unscoped path for callers
+                # outside the request path (eval/), which run as a role that
+                # bypasses RLS and are unaffected either way.
+                with engine.begin() as conn:
+                    if principal is not None:
+                        apply_scope(conn, principal)
                     cursor = conn.execute(text(guard.safe_sql))
                     variant_rows = [list(row) for row in cursor.fetchall()]
             except Exception as e:
