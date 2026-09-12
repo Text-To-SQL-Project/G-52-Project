@@ -13,15 +13,28 @@ Read that section before changing anything here; the short version is:
   variable transaction-locally and verifies it is unchanged before the
   results are allowed out.
 
-HONEST LIMIT, stated here because it must not read as a guarantee:
-an attacker who knows this check exists can defeat it by restoring the
-value before the statement ends. Anything the query can read, it can put
-back. This reliably catches careless tampering -- which is the realistic
-model-generated and non-targeted prompt-injection case -- and it catches
-attack shapes nobody has enumerated yet, which the denylist cannot. It is
-a mitigation, not a control. The control would be removing the mutable
-setting from the trust path entirely; see section 11 for the two designs
-that would do that and what they cost.
+SUPERSEDED, AND DELIBERATELY KEPT. As of the backend-keyed session map
+(seed/30_session_map.sql, findings section 12) the RLS policies no longer
+read these GUCs at all -- they resolve identity from (pid, backend_start),
+neither of which is settable from SQL. The denylist in
+app/safety/guardrails.py and the re-assertion below are therefore
+REDUNDANT-BY-DESIGN rather than load-bearing.
+
+They stay for two reasons. Defence in depth is this project's actual
+argument, and removing a layer the moment another one works would
+undercut it in exactly the way the paper criticises elsewhere. And they
+are cheap: a denylist lookup during parsing, and one extra round trip on a
+connection already in hand.
+
+What they still do: the GUCs remain bound and re-asserted, so if a policy
+is ever written against current_setting() by mistake -- the natural thing
+to reach for, and what every tutorial shows -- the old attack surface does
+not silently reopen. Drift becomes a caught anomaly rather than a breach.
+
+The original honest limit still applies to THESE TWO LAYERS in isolation:
+an attacker who knows about the re-assertion can defeat it by restoring
+the value before the statement ends, because anything the query can read
+it can put back. That is precisely why they are no longer the control.
 """
 from __future__ import annotations
 
@@ -194,3 +207,145 @@ def check_rows_match_principal(
                 # Out of scope for this check rather than a violation.
                 break
     return violations
+
+
+# ---------------------------------------------------------------------------
+# The backend-keyed session map: the actual control.
+#
+# Identity is resolved by the database from two values a query cannot
+# forge -- its own backend pid and that backend's start time -- looked up
+# in app.session_map, which the executing role may read and may never
+# write. See seed/30_session_map.sql for the schema, the accessor
+# functions, and the reasoning behind the composite key.
+#
+# Every failure path here raises. There is no degraded mode: a request that
+# cannot establish its identity must not execute, because executing
+# unscoped is the exact outcome this mechanism exists to prevent.
+# ---------------------------------------------------------------------------
+
+# How long a mapping stays valid. Deliberately short: this is a backstop
+# for a failed post-request DELETE, not a session lifetime. A request that
+# somehow outlives it fails closed (zero rows) rather than running on a
+# stale identity.
+SESSION_MAP_TTL_SECONDS = 120
+
+
+class SessionBindingError(RuntimeError):
+    """Identity could not be bound to this backend. Always fatal to the
+    request -- never downgraded to "continue without a scope"."""
+
+
+def read_backend_identity(conn: Connection) -> tuple[int, object]:
+    """The (pid, backend_start) of the backend `conn` is talking to.
+
+    Both come from the server, never the client. pg_backend_pid() is the
+    connection's own pid, and backend_start is read from pg_stat_activity
+    for that same pid -- a backend can always see its own row there.
+    """
+    row = conn.execute(
+        text(
+            "SELECT pg_backend_pid() AS pid, "
+            "       (SELECT a.backend_start FROM pg_stat_activity a "
+            "         WHERE a.pid = pg_backend_pid()) AS backend_start"
+        )
+    ).mappings().one_or_none()
+
+    if row is None or row["pid"] is None or row["backend_start"] is None:
+        # Fail closed. Without backend_start the mapping would have to be
+        # keyed on pid alone, and a recycled pid would then hand a stale
+        # identity to an unrelated backend.
+        raise SessionBindingError(
+            "could not read this backend's identity (pid/backend_start unavailable)"
+        )
+    return int(row["pid"]), row["backend_start"]
+
+
+def bind_session(
+    privileged_engine,
+    *,
+    pid: int,
+    backend_start,
+    principal: Principal,
+    ttl_seconds: int = SESSION_MAP_TTL_SECONDS,
+) -> None:
+    """Write this backend's identity, from the PRIVILEGED connection.
+
+    A separate, committed transaction on a different connection, because
+    the read-only role cannot write the map -- that inability is the whole
+    point -- and because the reading session must see the row as committed
+    data. The app's default READ COMMITTED isolation means the query
+    statement, which starts after this commit returns, sees it.
+
+    ON CONFLICT covers a previous request on this same physical connection
+    having failed to clean up: identical (pid, backend_start), so the row
+    is replaced rather than duplicated or stale.
+    """
+    try:
+        with privileged_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO app.session_map "
+                    "  (pid, backend_start, user_id, role, student_id, faculty_id, expires_at) "
+                    "VALUES (:pid, :bs, :uid, :role, :sid, :fid, "
+                    "        now() + make_interval(secs => :ttl)) "
+                    "ON CONFLICT (pid, backend_start) DO UPDATE SET "
+                    "  user_id = EXCLUDED.user_id, role = EXCLUDED.role, "
+                    "  student_id = EXCLUDED.student_id, faculty_id = EXCLUDED.faculty_id, "
+                    "  created_at = now(), expires_at = EXCLUDED.expires_at"
+                ),
+                {
+                    "pid": pid,
+                    "bs": backend_start,
+                    "uid": principal.user_id,
+                    "role": principal.role,
+                    "sid": principal.student_id,
+                    "fid": principal.faculty_id,
+                    "ttl": ttl_seconds,
+                },
+            )
+    except Exception as e:
+        # Fail closed. No mapping means the policies would return zero rows,
+        # but the caller must not proceed and then report that emptiness as
+        # a legitimate result.
+        raise SessionBindingError(f"could not bind session identity: {e}") from e
+
+
+def release_session(privileged_engine, *, pid: int, backend_start) -> None:
+    """Delete this backend's mapping. Best-effort by design.
+
+    A failure here is NOT fatal, and is swallowed after logging, because
+    the composite key makes a leftover row harmless. The row can only ever
+    match the very backend it was written for. If this application reuses
+    that backend, the next request overwrites it via ON CONFLICT before
+    running anything. If the backend dies, no future backend can match the
+    key: a new process gets a new start time even on a recycled pid. And
+    expires_at removes it regardless.
+
+    So the worst case of a failed delete is a row nobody else can reach,
+    which then expires on its own.
+    """
+    try:
+        with privileged_engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM app.session_map WHERE pid = :pid AND backend_start = :bs"),
+                {"pid": pid, "bs": backend_start},
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to release session map row for pid=%s (harmless: the row is "
+            "keyed to this backend alone and expires in %ss): %s",
+            pid, SESSION_MAP_TTL_SECONDS, e,
+        )
+
+
+def purge_expired_sessions(privileged_engine) -> int:
+    """TTL backstop sweep. Returns the number of rows removed."""
+    try:
+        with privileged_engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM app.session_map WHERE expires_at <= now()")
+            )
+            return result.rowcount or 0
+    except Exception as e:
+        logger.warning("Session map purge failed: %s", e)
+        return 0

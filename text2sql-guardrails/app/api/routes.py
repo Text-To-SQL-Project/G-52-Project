@@ -43,12 +43,16 @@ from app.api.models import (
 )
 from app.config import settings
 from app.auth import require_admin, require_auth
-from app.db import get_readonly_engine
+from app.db import get_engine, get_readonly_engine
 from app.safety.session_scope import (
     ScopeTamperingError,
+    SessionBindingError,
     apply_scope,
     assert_scope_intact,
+    bind_session,
     check_rows_match_principal,
+    read_backend_identity,
+    release_session,
 )
 from app.detection import calibration
 from app.detection.back_translation import check_back_translation
@@ -285,16 +289,40 @@ def run_query(
     # 5. app.safety.sandbox -- real read-only execution (inline; no
     # dedicated sandbox module yet).
     engine = get_readonly_engine()
+    privileged_engine = get_engine()
     start = time.perf_counter()
     scope_violation: str | None = None
+    binding: tuple[int, object] | None = None
     try:
-        # engine.begin(), not engine.connect(): the principal is bound with
+        # engine.begin(), not engine.connect(). Two things depend on it.
+        #
+        # The transaction pins ONE physical connection for the whole block,
+        # so the backend this identity is bound to is provably the backend
+        # the query runs on. And the GUC layer below uses
         # set_config(..., is_local => true), which only exists inside an
-        # explicit transaction, and is discarded by the COMMIT at the end of
-        # this block. That is what stops a pooled connection carrying one
-        # user's identity into the next user's request -- there is no
-        # cleanup step to forget. See app/safety/session_scope.py.
+        # explicit transaction and is discarded by the COMMIT here.
         with engine.begin() as conn:
+            # Identity comes from the backend itself -- its pid and start
+            # time, neither settable from SQL -- written to app.session_map
+            # by the PRIVILEGED connection, because the executing role has
+            # no write privilege on that table. That inability is the
+            # control. See seed/30_session_map.sql and findings section 12.
+            #
+            # Committed before the query statement begins, so READ COMMITTED
+            # guarantees the policies' lookup sees it.
+            pid, backend_start = read_backend_identity(conn)
+            binding = (pid, backend_start)
+            bind_session(
+                privileged_engine,
+                pid=pid,
+                backend_start=backend_start,
+                principal=principal,
+            )
+
+            # Redundant-by-design, kept deliberately: the policies resolve
+            # identity from the session map, not from these GUCs. They stay
+            # so that a policy accidentally written against current_setting()
+            # cannot silently reopen the old attack surface.
             expected_scope = apply_scope(conn, principal)
 
             cursor = conn.execute(text(safe_sql))
@@ -323,6 +351,32 @@ def run_query(
 
             if scope_violation is not None:
                 result_columns, result_rows = [], []
+    except SessionBindingError as e:
+        # Fail closed. Identity could not be established, so the request
+        # must not run -- an unscoped query would return every row and look
+        # like a perfectly ordinary success.
+        logger.error(
+            "SESSION BINDING FAILED -- request refused. user_id=%s question=%r: %s",
+            principal.user_id, req.question, e,
+        )
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
+            status_reason=f"Session binding failed: {e}",
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+        )
     except Exception as e:
         # Raw psycopg/SQLAlchemy error text embeds real identifiers
         # directly (column/relation names, HINT lines naming similar
@@ -348,6 +402,14 @@ def run_query(
             warnings=[],
             error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
         )
+    finally:
+        # Best-effort. A failed delete is harmless: the row is keyed to this
+        # backend alone, so no other backend can match it, the next request
+        # on this same backend overwrites it, and expires_at removes it
+        # regardless. See release_session()'s docstring.
+        if binding is not None:
+            release_session(privileged_engine, pid=binding[0], backend_start=binding[1])
+
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
 
     # Fail closed on a scope violation. Reached only when the statement

@@ -535,6 +535,12 @@ attack shape nobody has thought of yet.
 
 ## 11. Stated limitation: every row-scoped table depends on a mutable GUC
 
+> **SUPERSEDED by section 12.** This limitation was real when written and
+> was then removed by building the control it says was not implemented.
+> Kept in full, and kept in place, because the sequence is the finding:
+> a limitation was identified precisely, costed, and closed, rather than
+> shipped as a caveat. Read 10 → 11 → 12 in order.
+
 Written during Phase 2 implementation, before the policies exist, so the
 reasoning is recorded rather than reconstructed.
 
@@ -619,6 +625,120 @@ before the statement ends.
 That distinction is worth stating precisely rather than blurring: **RLS
 removes the "a clever query shape defeats the filter" class of attack. It
 does not by itself remove the "a clever query rewrites who you are" class.**
+
+## 12. The limitation in section 11, closed: backend-keyed session identity
+
+Sections 10 and 11 establish two things. Generated SQL can rewrite the
+session GUC an RLS policy reads, in nine of ten query shapes tested. And
+`current_user` is no escape, because `role` is itself a writable GUC — a
+per-user-role design would hand a query membership-bounded access to other
+users' identities, which is worse than what it replaces.
+
+Section 11 concluded that all eleven scoped tables therefore depended on a
+denylist plus an evadable post-execution check, and named two designs that
+would make the binding structural instead. **One of them is now built.**
+
+### What replaced the GUC
+
+`app.session_map`, keyed on **`(pid, backend_start)`**:
+
+```sql
+SELECT s.* FROM app.session_map s
+ WHERE s.pid = pg_backend_pid()
+   AND s.backend_start = (SELECT a.backend_start FROM pg_stat_activity a
+                           WHERE a.pid = pg_backend_pid())
+   AND s.expires_at > now()
+```
+
+Neither value is settable from SQL. A backend cannot choose its own pid and
+cannot change its own start time, so the two attacks that defeat the GUC
+design — rewriting the setting, or switching role — have nothing to act on.
+The executing role is granted `SELECT` on the table and nothing else, so a
+generated query can read the mapping but can never write one. The row is
+written by the privileged connection, in a separate committed transaction,
+before the query statement begins.
+
+### Why the composite key, not pid alone
+
+Operating systems recycle process ids. A row left behind for pid 12345
+would silently grant that identity to whichever unrelated backend next
+received pid 12345 — a wrong-user data leak arriving through *normal
+operation*, not through an attack, and therefore one that no amount of
+query-shape testing would surface. `backend_start` disambiguates: two
+backends may share a pid over time, never a pid and a start timestamp.
+
+This is asserted, not assumed. `test_recycled_pid_with_a_stale_row_is_rejected`
+plants a row for the current pid carrying a *different* `backend_start` and
+a different student's identity, then checks that the session sees **zero**
+rows — and that adding the correct row afterwards yields only the correct
+student's rows, so a stale row cannot contaminate a live session either.
+
+### Fail-closed, by SQL semantics rather than by vigilance
+
+The accessors return `NULL` when there is no valid mapping, so a policy
+written as `USING (student_id = app.current_student_id())` evaluates to
+`NULL`, not `TRUE`, and the row is excluded. **No mapping yields zero rows,
+never all rows**, without anyone having to remember a guard clause on the
+eleventh table. Verified directly (`test_no_mapping_yields_zero_rows_not_all_rows`),
+along with an expired mapping (`test_expired_mapping_stops_granting_identity`)
+and a failed bind aborting the request rather than running unscoped.
+
+### What a failed cleanup costs
+
+Cleanup is post-request `DELETE`, with `expires_at` as a TTL backstop. A
+failed delete is harmless, and the composite key is why: the leftover row
+can only ever match the exact backend it was written for. If that backend
+is reused by this application, the next request overwrites it via `ON
+CONFLICT` before running anything. If the backend dies, no future backend
+can match the key, because a new process gets a new start time even on a
+recycled pid. Proven in `test_a_failed_delete_leaves_nothing_another_backend_can_use`.
+
+### Measured cost on the real request path
+
+Not the probe — the wired path, 40 samples, median ms:
+
+| step | median | p95 |
+|---|---|---|
+| read backend identity | 0.45 | 1.14 |
+| bind session map | 0.84 | 1.31 |
+| bind GUCs (redundant) | 0.75 | 1.05 |
+| **the query itself** | **7.14** | **8.50** |
+| re-assert GUCs (redundant) | 0.37 | 0.54 |
+| release session map | 0.85 | 1.11 |
+
+**Total overhead 3.26 ms**, of which 2.14 ms is the control and 1.12 ms is
+the deliberately retained redundant layer. Against a request whose
+dominant cost is a multi-second LLM call, that is not a meaningful figure —
+it is roughly 0.1% of a two-second generation. The policy lookup itself
+compiles to an `InitPlan` evaluated once per statement (`loops=1` against a
+150,000-row table), so it does not scale with result size.
+
+### The old layers are kept, and are now redundant by design
+
+The `set_config` denylist and the GUC re-assertion both stay, even though
+the policies no longer read those GUCs. Removing a layer the moment another
+one works would undercut the defence-in-depth argument this project is
+making everywhere else. They also still do something specific: if a policy
+is ever written against `current_setting()` by mistake — the natural thing
+to reach for, and what every tutorial shows — the old attack surface does
+not silently reopen. Drift becomes a caught anomaly instead of a breach.
+The code says "redundant-by-design, not load-bearing" so nobody later
+mistakes cheap insurance for the control.
+
+### For the paper
+
+The honest claim is now stronger than section 11 allowed, and it is worth
+stating precisely because the distinction is the contribution:
+
+- **Enforcement is in the database**, so it survives arbitrary query shape.
+  That was always true of RLS and is why it beats predicate injection.
+- **Identity binding is also structural**, resting on two values the query
+  cannot forge, rather than on a setting it can rewrite.
+
+Section 11 remains in this document unedited above. The sequence — pattern
+found, limitation stated precisely, cost measured, control built — is more
+useful than the endpoint alone, and a limitation that was closed is a
+better result than one that was merely disclosed.
 
 ---
 
