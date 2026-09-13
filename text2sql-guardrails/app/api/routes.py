@@ -114,7 +114,9 @@ def run_query(
         columns_used: list[str] = []
     else:
         try:
-            gen = generate_sql(req.question)
+            # Same flag result_sanity uses, from the principal only. An
+            # admin is not row-scoped, so their prompt is unchanged.
+            gen = generate_sql(req.question, row_scoped=not principal.is_admin)
         except Exception as e:
             logger.error("SQL generation failed for question=%r: %s", req.question, e)
             write_history_row(

@@ -89,7 +89,7 @@ def test_timeout_after_retries_exhausted_surfaces_as_generic_error(monkeypatch, 
     generation failure -- not a special case, not a leak of the raw
     timeout exception text to the client."""
 
-    def fake_generate_sql(question):
+    def fake_generate_sql(question, row_scoped=False):
         # What generate_sql() actually raises once _with_backoff's retries
         # are exhausted on a persistent timeout -- the underlying SDK
         # exception, unwrapped, same as any other generation-failure path.

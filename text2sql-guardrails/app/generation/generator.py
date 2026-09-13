@@ -28,14 +28,20 @@ class GenerationResult:
     columns_used: list[str]
 
 
-def generate_sql(question: str) -> GenerationResult:
+def generate_sql(question: str, row_scoped: bool = False) -> GenerationResult:
     """Call the LLM to translate `question` into SQL over the live schema.
+
+    `row_scoped` tells the prompt that the database restricts results to
+    the current user, so first-person questions are answerable. It MUST
+    come from the authenticated principal and defaults to False, which is
+    what keeps the eval prompt byte-identical to the one that produced the
+    published baselines.
 
     Raises on API failure or a response that doesn't parse as the expected
     JSON shape -- callers (routes.py) are responsible for turning that into
     an ERROR QueryResponse.
     """
-    return _generate(question, extra_instructions=None)
+    return _generate(question, extra_instructions=None, row_scoped=row_scoped)
 
 
 def generate_sql_variant(question: str) -> GenerationResult:
@@ -114,14 +120,20 @@ def is_noop_sql(sql: str) -> bool:
     return False
 
 
-def _generate(question: str, extra_instructions: str | None) -> GenerationResult:
+def _generate(
+    question: str,
+    extra_instructions: str | None,
+    row_scoped: bool = False,
+) -> GenerationResult:
     # omit_restricted: the model never sees columns the execution role
     # cannot read, so it never writes SQL that would be refused at
     # execution and surface to the user as a generic error.
     schema = introspect_schema(
         include_samples=False, omit_restricted=True, include_row_estimates=False
     )
-    system = build_system_prompt(schema, extra_instructions=extra_instructions)
+    system = build_system_prompt(
+        schema, extra_instructions=extra_instructions, row_scoped=row_scoped
+    )
     user = build_user_prompt(question)
 
     # `system` (intro + rules + the full serialized schema) is byte-identical

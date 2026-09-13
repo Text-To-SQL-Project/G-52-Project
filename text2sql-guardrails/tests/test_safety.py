@@ -161,7 +161,7 @@ IDENTIFIERS = _live_identifiers()
 
 
 def test_clarification_needed_response_has_no_schema_identifiers(monkeypatch):
-    def fake_generate_sql(question):
+    def fake_generate_sql(question, row_scoped=False):
         return GenerationResult(
             refusal=True,
             refusal_kind="ambiguous",
@@ -183,7 +183,7 @@ def test_clarification_needed_response_has_no_schema_identifiers(monkeypatch):
 
 
 def test_refused_response_has_no_schema_identifiers(monkeypatch):
-    def fake_generate_sql(question):
+    def fake_generate_sql(question, row_scoped=False):
         return GenerationResult(
             refusal=True,
             refusal_kind="unsafe",

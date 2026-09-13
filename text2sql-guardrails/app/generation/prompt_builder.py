@@ -25,7 +25,37 @@ _RESPONSE_SHAPE = (
 )
 
 
-def build_system_prompt(schema: SchemaResponse, extra_instructions: str | None = None) -> str:
+# Added to the rule list ONLY when the request runs under per-user Row
+# Level Security. Two things about the wording are deliberate.
+#
+# It states the SHAPE of the scoping and never the VALUE. Putting "you are
+# student 32" in the prompt would be worse than useless: it invites the
+# model to write WHERE student_id = 32, which is a predicate the MODEL
+# chose, duplicating enforcement in exactly the layer this project moved
+# away from. If the model ever got the number wrong -- or a prompt
+# injection changed it -- the query's predicate would disagree with the
+# policy. RLS would still hold, but we would be generating SQL that
+# ASSERTS an identity rather than SQL that INHERITS one.
+#
+# It also says what NOT to do, not merely what is true. "Results are
+# filtered automatically" on its own invites the model to add the
+# predicate anyway, helpfully.
+_ROW_SCOPED_INSTRUCTION = (
+    "Results are automatically restricted to the current user by the "
+    "database itself, before you see them. A question phrased in the first "
+    "person (\"my\", \"mine\", \"I\") is therefore ANSWERABLE and must NOT "
+    "be refused as underspecified. Write the query with NO identity "
+    "predicate: do not add a WHERE clause on student_id, faculty_id, or "
+    "any other identifier to express \"my\", and never invent an id value. "
+    "The database applies that restriction on its own."
+)
+
+
+def build_system_prompt(
+    schema: SchemaResponse,
+    extra_instructions: str | None = None,
+    row_scoped: bool = False,
+) -> str:
     lines = [
         "You are a PostgreSQL expert that translates a natural-language "
         "question into a single read-only SQL query, using ONLY the tables "
@@ -57,6 +87,13 @@ def build_system_prompt(schema: SchemaResponse, extra_instructions: str | None =
         "- Respond with ONLY a JSON object, no prose, no markdown fences, "
         f"matching exactly this shape: {_RESPONSE_SHAPE}",
     ]
+    # Conditional, never unconditional. eval/ and admin requests carry
+    # row_scoped=False and therefore get a BYTE-IDENTICAL prompt to the one
+    # that produced results.jsonl and results_gemini.jsonl, so those
+    # baselines stay comparable with no re-run. tests/test_possessive_scope.py
+    # fails if this is ever hoisted out of the conditional.
+    if row_scoped:
+        lines.append(f"- {_ROW_SCOPED_INSTRUCTION}")
     if extra_instructions:
         lines.append(f"- {extra_instructions}")
     lines += [
