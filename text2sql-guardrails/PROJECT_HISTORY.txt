@@ -1,0 +1,1255 @@
+================================================================================
+SafeSQL / text2sql-guardrails
+PROJECT HISTORY
+================================================================================
+
+LAST REGENERATED : 2026-09-15
+AGAINST COMMIT   : 1d7f2fd (W6: faculty scope by teaching relation)
+PREVIOUS REVISION: 2026-09-14, against e3a151b
+
+    If the repository has moved past the commit named above, treat every
+    figure here as of that commit and re-check it before citing. A history
+    document that has silently drifted is worse than none, so this line is
+    the first thing to read and the first thing to update.
+
+Compiled from the repository itself: git history (58 commits, 2026-08-15 to
+2026-09-15), eval/FINDINGS.md (840 lines, 13 sections), eval/README.md,
+docs/SECURITY_MODEL.md, the golden set, the results files, and the source as
+it stands on master.
+
+Every figure below is traceable to one of those artifacts. Where a number
+could not be verified from them it is marked UNVERIFIED rather than
+estimated.
+
+
+    NOTE ON SOURCES
+    ---------------
+    This document was requested with an instruction to read
+    project_diary_15_weeks.md in full. That file does not exist anywhere in
+    this repository, on the Desktop, in Documents, or in Downloads. It was
+    searched for by name and by pattern. Nothing in this history is drawn
+    from it.
+
+    One consequence is worth stating plainly: the git history covers roughly
+    thirty days (2026-08-15 to 2026-09-13), not fifteen weeks. Any planning,
+    reading, schema design or dataset construction that happened before the
+    first commit is invisible to the repository and therefore absent here.
+    The phase structure below is the structure the commits actually show.
+
+    A second gap, found while compiling this: the sixth verification failure
+    described in section 5 (the eval RLS guard that was a no-op) is recorded
+    only in the message of commit 57611b2 and was never added to
+    eval/FINDINGS.md. That is a documentation gap in the repository, not in
+    this history.
+
+
+================================================================================
+1. WHAT THE SYSTEM IS AND WHY IT EXISTS
+================================================================================
+
+THE PROBLEM
+
+    A text-to-SQL system translates a natural-language question into SQL and
+    runs it against a real database. Two things can go wrong, and they are
+    different in kind.
+
+    The first is unsafe: the generated SQL destroys or mutates data, or
+    reaches rows the asker is not entitled to see. A language model asked to
+    "clean up the attendance table" may produce a DELETE. A model handed a
+    prompt-injected question may produce something worse.
+
+    The second is subtler and more common: the SQL runs cleanly, returns a
+    plausible table of numbers, and is wrong. It joined the wrong way, or
+    filtered on the wrong column, and nothing about the output says so. The
+    user has no way to tell a correct answer from a confident-looking
+    incorrect one.
+
+    Most published text-to-SQL work optimises execution accuracy and stops
+    there. Accuracy alone does not tell a user which individual answer to
+    trust.
+
+THE DUAL PURPOSE
+
+    This project is simultaneously two things, and several design decisions
+    only make sense in light of the second.
+
+    As an engineering deliverable it is a working, packaged application: a
+    FastAPI backend, a React frontend, PostgreSQL, and Docker Compose, with
+    per-user authentication and database-enforced row-level access control.
+    It runs, it is demonstrable, and a non-technical evaluator can operate it.
+
+    As a publishable contribution it is an evaluation artifact. The golden
+    set, the scoring criteria, the calibration procedure and the findings log
+    are the parts intended to survive review. This is why the repository
+    contains an 840-line findings document that spends as much space on
+    measurements that turned out to be wrong as on ones that held.
+
+THE CLAIMED CONTRIBUTION
+
+    Stated precisely, because overclaiming here would be the easiest way to
+    lose a reviewer:
+
+    1. Two independent safety layers, measured separately rather than
+       together. A deterministic AST guardrail that never sees which model
+       produced the SQL, and an LLM refusal layer that operates on the
+       question. Reporting a single combined "safety rate" would hide which
+       layer is doing the work; they are reported apart.
+
+    2. Per-answer calibrated confidence, not just corpus-level accuracy. A
+       five-signal fusion passed through isotonic regression fit on a
+       question-level held-out split, reported with its Expected Calibration
+       Error so the probability can be checked rather than trusted.
+
+    3. A documented execution-match criterion with two scoring regimes,
+       permissive and strict, both reported. The project's most transferable
+       finding is that the choice between them changes conclusions, including
+       one architectural decision that was made on the basis of the weaker
+       one.
+
+    4. Enforcement in the database rather than in generated SQL. Row-level
+       access control is a PostgreSQL policy, not a predicate injected into
+       the model's output, so it survives arbitrary query shape.
+
+
+================================================================================
+2. THE SCHEMA AND DATASET
+================================================================================
+
+THE college_erp SCHEMA
+
+    A synthetic but realistically shaped college Enterprise Resource Planning
+    database in PostgreSQL. Verified against the live database on 2026-09-14:
+
+        Tables                          25
+        Columns                        174
+        Rows across all 25 tables  233,929
+
+    The commonly quoted "~200K records" is consistent with the measured
+    233,929; the precise figure is the one above.
+
+    The schema spans six modules: core academic structure (departments,
+    programs, academic_years, semesters, sections), people (students,
+    faculty), teaching (subjects, subject_offerings,
+    faculty_subject_assignments, student_section_mapping,
+    student_enrollments), assessment (exam_types, exams, marks, attendance),
+    finance (fee_categories, fee_structure, fee_payments), and auxiliary
+    services (library_books, library_transactions, placement_companies,
+    placement_drives, placement_applications, placement_offers).
+
+    Two tables dominate the row count: attendance at 150,000 rows and marks
+    at 40,000. That matters for the evaluation, because it makes join
+    fan-out and aggregation errors produce plausible-looking wrong numbers
+    rather than obvious ones.
+
+    A separate application schema named app holds the system's own
+    bookkeeping: query_history, users, and session_map. It is deliberately
+    outside college_erp so that schema introspection, which resolves against
+    college_erp only, can never surface credentials or audit rows to the
+    model or to the Schema Explorer.
+
+THE GOLDEN EVALUATION SET
+
+    eval/golden_set.jsonl, 161 hand-authored and hand-verified questions.
+    Composition verified by reading the file:
+
+        Answerable                135
+            simple_lookup           8
+            aggregation            43
+            multi_join             48
+            date_filter            31
+            ambiguous               5
+        Unanswerable                8
+        Adversarial                18
+        ----------------------------------
+        Total                     161
+
+        Order-sensitive (ordered=true)   8
+
+    Each record carries: id, question, gold_sql, answerable, adversarial,
+    ordered, category. Unanswerable and adversarial cases have gold_sql=""
+    by construction, since there is no result set to compare against; they
+    are scored by refusal and clarification accuracy instead of execution
+    match.
+
+    The 18 adversarial cases include direct destructive requests, stacked
+    injections, and prompt-injection phrasings. The 5 ambiguous cases are
+    answerable in principle but underspecified, and exist to test the
+    clarification path rather than the refusal path.
+
+    The "135-question golden set" referred to elsewhere is the answerable
+    subset. The full file is 161 questions and the safety metrics are
+    computed over the adversarial and unanswerable cases that the 135
+    excludes.
+
+
+================================================================================
+3. ARCHITECTURE, LAYER BY LAYER
+================================================================================
+
+REQUEST PIPELINE
+
+    Question
+      -> generation (LLM; may refuse)
+      -> AST guardrail (may block; injects row cap)
+      -> pre-execution detectors (schema alignment, back-translation)
+      -> execution as a constrained role, inside a scoped transaction
+      -> post-execution detectors (result sanity, multi-query agreement)
+      -> confidence fusion + isotonic calibration
+      -> response
+
+LAYER ONE: THE LLM REFUSAL LAYER
+
+    Where: app/generation/
+
+    The model is instructed to decline rather than answer when a request is
+    destructive or unanswerable from the schema. A refusal carries a kind,
+    either "unsafe" or "ambiguous", and a reason. The prompt explicitly
+    forbids the common evasion of substituting a harmless placeholder query
+    instead of refusing outright.
+
+    The two kinds map to two distinct response statuses, REFUSED and
+    CLARIFICATION_NEEDED. Splitting them was a deliberate correction made on
+    2026-08-26 (commit 36f370b); before that, an underspecified question and
+    a destructive one produced the same outcome, which conflated a user
+    problem with a safety event.
+
+    What it catches: the great majority of destructive and out-of-scope
+    requests, before anything is parsed or executed, and it is the only layer
+    that can distinguish "I will not" from "I cannot".
+
+    What it does not catch: anything reliably. It is a model following an
+    instruction, and it can be argued out of a refusal. Nothing downstream
+    assumes this layer ran.
+
+LAYER TWO: THE AST GUARDRAIL
+
+    Where: app/safety/guardrails.py
+
+    Parses the generated SQL with sqlglot and decides on structure, never on
+    keyword matching. Four named checks, a vocabulary frozen because it is
+    part of the API contract:
+
+        ddl_block        blocks Drop, Create, Alter, TruncateTable
+        dml_block        blocks Insert, Update, Delete, Merge; also anything
+                         that is not a read-only query (GRANT, CALL, COPY),
+                         and state-changing function calls anywhere in the
+                         AST
+        row_limit        injects the default row cap when none is present
+        subquery_depth   rejects nesting beyond the configured maximum
+
+    Also rejected: multiple stacked statements, and SQL that fails to parse.
+
+    THESE TWO LAYERS ARE SEPARATE DEFENCES AND ARE MEASURED SEPARATELY.
+    This is a deliberate methodological choice, not a presentation detail.
+    The guardrail block rate is computed over direct_sql cases, where
+    adversarial SQL is submitted straight to the guardrail with no model in
+    the path. sqlglot's AST analysis never sees which model produced the
+    input, so the guardrail number is model-independent by construction and
+    is identical for both providers. Refusal accuracy and clarification
+    accuracy are computed separately over the LLM-mediated cases. A single
+    merged "safety rate" would obscure which layer produced the outcome, and
+    would make the guardrail look model-dependent when it is not.
+
+THE FIVE CONFIDENCE SIGNALS
+
+    Where: app/detection/
+
+    1. sql_validity        Parses via sqlglot and passed the guardrail AST
+                           checks. Deterministic. Measured AUROC 0.500 on
+                           both providers under both scoring regimes: by the
+                           time a query reaches scoring it has already
+                           passed, so the signal is constant and carries no
+                           discriminative information. It is retained
+                           because it is free and because its absence would
+                           be a silent failure.
+
+    2. schema_alignment    Compares identifiers in the generated SQL against
+                           the live schema. Deterministic, no LLM call.
+
+    3. back_translation_match
+                           Asks the model to translate the generated SQL back
+                           into a question and compares it to the original.
+                           One LLM call. Capped at 2 attempts as of commit
+                           0752057; generation itself keeps the full 5-retry
+                           budget.
+
+    4. result_sanity       Inspects the returned rows for symptoms of a
+                           subtly wrong query: empty result, a column that is
+                           100% NULL, a NULL single-row aggregate, an
+                           all-zero numeric column, hitting the row cap
+                           exactly, duplicate rows under GROUP BY. Penalties
+                           are module-level and tunable. Two issues force
+                           status FAIL.
+
+    5. multi_query_agreement
+                           Generates an independent second query for the same
+                           question and compares result sets. Disabled by
+                           default (MULTI_QUERY_ENABLED=false) and dropped
+                           from the weighted fusion. Section 5 below explains
+                           why that decision is now known to be questionable.
+
+    FUSION. A weighted mean over four signals, renormalised after
+    multi_query_agreement was dropped:
+
+        schema_alignment          0.35
+        back_translation_match    0.29
+        result_sanity             0.24
+        sql_validity              0.12
+
+    Any signal at FAIL forces the fused score down to FAIL_SCORE_CAP = 0.40.
+    This is a hard safety invariant, re-applied after calibration rather than
+    trusted to survive the calibration curve.
+
+    A signal that was disabled rather than measured returns a neutral
+    placeholder whose detail string carries the marker word "disabled". Such
+    signals are excluded from both the weighted mean and the fail-override,
+    so a switched-off detector does not drag the average toward 0.5. The
+    frontend hides them rather than displaying a misleading 50%.
+
+ISOTONIC CALIBRATION
+
+    Where: app/detection/calibration.py, fit by eval/fit_calibration.py
+
+    The weighted mean is a heuristic, not a probability. Isotonic regression
+    maps it to P(correct), fit on a question-level 60/40 train/test split,
+    seed 42. The split is question-level and never row-level, specifically to
+    stop repeats of the same question leaking across the boundary.
+
+    calibrated=True is reported only when a fitted artifact was actually
+    loaded. A missing artifact degrades to the raw score with
+    calibrated=False rather than silently pretending. As of the row-level
+    security work, requests that run under per-user scoping also report
+    calibrated=False, because they are fused over fewer signals than the
+    calibrator was fit on.
+
+PACKAGING
+
+    FastAPI backend, React and TypeScript frontend built with Vite and
+    Tailwind, PostgreSQL 16, orchestrated by Docker Compose. Five screens:
+    Login, Workspace, History, Schema Explorer, Admin. The frontend container
+    serves a pre-built static bundle through nginx, not a dev server, so
+    source edits require an image rebuild.
+
+
+================================================================================
+4. CHRONOLOGICAL BUILD HISTORY
+================================================================================
+
+The repository contains 57 commits from 2026-08-15 to 2026-09-13. Phases
+below are named from the commit messages themselves.
+
+PHASE 2 - GUARDRAILS AND GENERATION (2026-08-15 to 2026-08-18)
+
+    b50c8c0  AST guardrails plus the schema-alignment detector wired into
+             /v1/query. Six tests passing.
+    d1749ef  Real LLM generation wired end to end: question, model,
+             guardrails, schema alignment, execution against college_erp.
+
+    SETBACK, same week (5ba8632): the generation prompt contained a rule
+    forcing the model to emit its own LIMIT. This was wrong twice over. It
+    suppressed the guardrail's own row-cap injection, so the safety layer was
+    not doing the job it was credited with, and it depressed the
+    back_translation_match signal from 0.85 to 0.60 because the
+    back-translated question kept describing a limit the user never asked
+    for. Removing the rule restored both.
+
+PHASE 3 - THE DETECTOR STACK (2026-08-18 to 2026-08-21)
+
+    de2bb7b  Back-translation detector.
+    907576e  Result-sanity detector.
+    516fa0d  Multi-query agreement and confidence fusion.
+    be90082  Distinguish generation refusals from guardrail blocks; fix a
+             CTE false positive in schema_align.
+
+    The CTE false positive is worth noting: schema_align was treating
+    common-table-expression aliases as unknown table names and penalising
+    valid SQL for referencing them.
+
+PHASE 5 - EVALUATION HARNESS (2026-08-23)
+
+    Note the phase numbering in the commit log is the project's own and is
+    not strictly sequential; Phase 5 landed before Phase 4.
+
+    ea81bce  Golden evaluation set and metrics module.
+    4afdc13  Eval runner and analyzer, no-op refusal detection, direct_sql
+             guardrail cases, first full 3-repeat run.
+
+    FIRST MAJOR SETBACK (5796341, same day). The fused confidence score came
+    out BELOW CHANCE: AUROC 0.424 on the pipeline's own signals, 0.359 for a
+    separately hand-tuned baseline. Rather than accept "our detection signals
+    are anti-correlated with correctness" as a result, the twenty most
+    extreme cases were audited by hand, re-executing both predicted and gold
+    SQL against the live database.
+
+    Eight of the ten highest-confidence cases labelled incorrect were false
+    negatives. Roughly a 40% wrong-label rate in precisely the sample that
+    most distorts AUROC and ECE. In every case the predicted SQL's VALUES
+    matched gold exactly and only the column NAME differed, because the model
+    had aliased a COUNT or SUM differently. The fix was an AST-aware
+    positional fallback for same-kind aggregates. Weights were then re-fit on
+    the corrected labels (2c3768f).
+
+PHASE 4 - FRONTEND AND PACKAGING (2026-08-25 to 2026-08-26)
+
+    33a9c35  React frontend: workspace, history, schema explorer, admin.
+    4d2ec0d  Golden set expanded to 135 answerable questions,
+             multi_query_agreement dropped, isotonic calibration wired in.
+    fd65896  Docker packaging rebuilt: Postgres, API, frontend, verified end
+             to end.
+    ea1f079  README rewritten to lead with the evaluation numbers.
+    36f370b  Ambiguity split from refusal; CLARIFICATION_NEEDED reinstated.
+    604f498  Live smoke test for the structured-refusal contract.
+
+THE DISCLOSURE AND HONESTY AUDIT (2026-08-31 to 2026-09-01)
+
+    A cluster of commits that, taken together, is the most revealing week in
+    the history. It began as a security fix and turned into an audit of what
+    the system was claiming versus doing.
+
+    983d987  Stop leaking schema contents in clarification, refusal and
+             blocked responses. Raw model reasons and parser errors were
+             echoing real table and column names to the client.
+    93cad8e  Sanitise the ERROR path too; add schema-disclosure regression
+             tests. The first fix had missed the execution-error path, where
+             raw psycopg text embeds identifiers and HINT lines.
+    9d1090d  Wire real history persistence. THE HISTORY SCREEN HAD BEEN 100%
+             MOCK DATA AND WAS NEVER WRITTEN TO. It looked like a working
+             feature and was not one.
+    707938f  Delete confirmed-dead mock_data code, in an audit triggered by
+             the previous finding.
+    c336895  Remove silent fallback data from /v1/schema and /v1/history.
+             Endpoints were returning plausible placeholder content on
+             failure, making a broken database indistinguishable from an
+             empty one.
+    bdcf0cf  Require session_id on GET /v1/history: a 422, not a silent empty
+             200.
+    a5b53a2  Minimal auth: one shared operator password, signed session
+             token, gating all /v1 routes.
+    b091f6b  Eval harness respects deployed config instead of overriding it.
+             The harness had been forcing MULTI_QUERY_ENABLED=true regardless
+             of settings, which meant the evaluation measured a configuration
+             that nothing actually shipped with.
+
+MULTI-PROVIDER AND THE CALIBRATION CORRECTION (2026-09-03 to 2026-09-06)
+
+    121bb98  Provider-agnostic LLM client: Anthropic, Gemini, Groq.
+    fd7a492  Strict-mode EX and AUROC scoring; eval-runner cost and quota
+             safety. The quota control exists because a daily provider cap
+             was exhausted mid-run and nothing stopped the runner from
+             continuing: 2,128 pointless 429s were burned before it was
+             noticed.
+    7f4b378  Gemini eval run: repeats=1 complete, repeats=2 and 3 partial.
+    4e9ac32  Double-calibration bug fixed; strict calibration refit and
+             multi-query ablation added.
+    3115312  eval/FINDINGS.md created as the single reference for the paper.
+    3cf5e5b  multi_query_agreement backfilled on the Gemini run; ablation
+             replicates.
+    a97106e  Failure-investigation records committed and documented as
+             non-results.
+    dece029  README results table corrected: the unreproducible 0.649 AUROC
+             retired.
+
+PRE-DEMO HARDENING (2026-09-05 to 2026-09-12)
+
+    6e8ac92, cc8085b  Stale documentation and docstrings corrected.
+    ef977e0  Disabled confidence signals hidden from the Workspace panel
+             rather than shown as a misleading 50%.
+    0752057  Back-translation capped at 2 attempts; generation keeps 5.
+    9718a8c  Pre-demo runbook added.
+    f9afdb1  Workspace kept mounted so a result survives tab switches. The
+             screen was unmounting on navigation and discarding a result that
+             costs a real LLM call to reproduce.
+    c92c7ac  Visual refresh of all five screens.
+
+PHASE 1 AND PHASE 2 SECURITY WORK (2026-09-12 to 2026-09-13)
+
+    This is the largest single block of work in the history and is described
+    in full in section 7.
+
+    8963748  Eval's RLS immunity made explicit and enforced.
+    3e426b0  Per-user authentication, backend.
+    d1a89eb  Test-only read-only fallback fenced behind an isolation marker.
+    c0a6ff7  Per-user login, identity in the nav, admin gating, frontend.
+    afce46e, ad85ba9  Two findings recorded.
+    95f0d56  State-changing calls blocked; identity bound to the transaction.
+    afefb39  Backend-keyed session identity.
+    5ef8f10  Row-level security policies on all eleven scoped tables.
+    bd59465  Row-scoped result_sanity; salary removed from the prompt.
+    ab7db58  students.category and blood_group restricted; the introspection
+             hole documented.
+    6eca7c5  Schema Explorer sample values and row estimates gated on role.
+    57611b2  Eval RLS guard fixed, having been a no-op since d1a89eb.
+    7dcacd8  Demo runbook rewritten; docs/SECURITY_MODEL.md added.
+    e3a151b  The model told that results are row-scoped, without being told
+             who the user is.
+
+
+================================================================================
+5. EVALUATION METHODOLOGY AND ITS CORRECTIONS
+================================================================================
+
+THE EXECUTION-MATCH CRITERION
+
+    Correctness is decided by executing both the gold SQL and the predicted
+    SQL and comparing result sets. The project's criterion deliberately
+    departs from the Spider/BIRD convention in four documented ways, all in
+    the permissive direction:
+
+    1. Column projection by name rather than exact column-set matching, with
+       an AST-aware positional fallback for aggregate expressions.
+    2. Multiset SUBSET matching rather than multiset equality for unordered
+       cases.
+    3. Gold's own display LIMIT stripped before comparison, for unordered
+       cases.
+    4. Order-sensitivity taken from an explicit per-case annotation rather
+       than inferred from the presence of ORDER BY.
+
+    A strict mode disabling all four exists and is reported alongside. Both
+    numbers are published. Neither is "the" answer.
+
+THE DOUBLE-CALIBRATION BUG
+
+    fuse_confidence() unconditionally applies whatever isotonic calibrator is
+    on disk. Every reconstruction of a "raw hand-tuned score" elsewhere in
+    the codebase called fuse_confidence() to obtain it. It was not raw.
+    fit_calibration.py's own printed label, "RAW hand-tuned score (no
+    calibration)", was incorrect.
+
+    Consequences, stated carefully because they differ by case. For Anthropic
+    evaluating its own already-correctly-fit calibrator this was harmless: a
+    redundant second isotonic pass whose main measurable effect is on
+    AUROC's tie structure, not on ranking. For fitting a calibrator on a
+    DIFFERENT provider's data it was actively wrong. The first Gemini
+    calibration refit trained on scores that had already been passed through
+    Anthropic's fitted curve, violating the requirement that a provider's
+    calibration never reuse another provider's.
+
+    The fix extracted compute_raw_score() from fuse_confidence(), containing
+    the weighted mean and the fail cap with no calibrate() call.
+    fuse_confidence() now calls it internally, so live application behaviour
+    is provably unchanged; the full test suite passed unmodified.
+
+    Validation: the fixed held-out evaluation reproduces the previously
+    recorded pre-calibration baseline almost exactly, raw AUROC 0.552 and raw
+    ECE 0.171 against a documented 0.557 and 0.172. Before the fix the
+    identical call returned 0.564 and 0.114 to 0.121, silently pre-calibrated.
+
+    app/detection/calibrator.joblib, the live production artifact, was never
+    wrong. It had been fit on genuinely raw scores before the bug could
+    apply. Only re-derivations since were affected.
+
+PERMISSIVE TO STRICT, AND THE EX DROP
+
+    Adding strict mode dropped execution accuracy substantially:
+
+        Anthropic   0.714 permissive  ->  0.415 strict   (-0.299)
+        Gemini      0.607 permissive  ->  0.363 strict   (-0.244)
+
+    Neither number is wrong. They measure different things, and citing one
+    without the other misrepresents capability in either direction. The
+    project's position is that both must be reported together.
+
+THE ABLATION INVERSION ON multi_query_agreement
+
+    This is the most consequential correction in the project, because a
+    production architecture decision rests on it.
+
+    The original claim, documented in the repository before this
+    investigation: dropping multi_query_agreement from the fused signal set
+    improved AUROC by +0.074, from 0.575 to 0.649. On that basis the signal
+    was removed from production and MULTI_QUERY_ENABLED defaults to false.
+
+    Re-derived with the corrected raw scorer, under both label definitions,
+    in-sample and held-out, on the same question-level 60/40 split:
+
+        Anthropic (n=405, repeats=3)          in-sample   held-out
+          Permissive, 5-signal (with MQ)        0.560       0.573
+          Permissive, 4-signal (dropped)        0.625       0.552
+          Delta (4 - 5)                        +0.065      -0.020
+          Strict, 5-signal (with MQ)            0.772       0.804
+          Strict, 4-signal (dropped)            0.717       0.729
+          Delta (4 - 5)                        -0.055      -0.075
+
+        Gemini (n=120, repeats=1)             in-sample   held-out
+          Permissive, 5-signal (with MQ)        0.578       0.587
+          Permissive, 4-signal (dropped)        0.543       0.563
+          Delta (4 - 5)                        -0.034      -0.024
+          Strict, 5-signal (with MQ)            0.816       0.772
+          Strict, 4-signal (dropped)            0.742       0.795
+          Delta (4 - 5)                        -0.074      +0.024
+
+    Of the eight delta cells, exactly one reproduces the original
+    justification: Anthropic, permissive, in-sample, +0.065. That is the
+    single configuration the original decision was measured under. Under
+    strict labels on both providers, and under held-out permissive on both
+    providers, dropping the signal HURTS.
+
+    Per-signal AUROC shows why. multi_query_agreement inverts harder than any
+    other signal when the label definition changes:
+
+        Anthropic   0.532 permissive -> 0.734 strict   (+0.202)
+        Gemini      0.568 permissive -> 0.783 strict   (+0.215)
+
+    On both providers it is the STRONGEST single signal under strict labels
+    and among the WEAKEST under permissive. The inversion replicates across
+    providers at nearly identical magnitude.
+
+    THE MECHANISM, measured rather than theorised. Among the 405 Anthropic
+    rows with a computable label, 155 are rows where the permissive and
+    strict scorers disagree (145 of them permissive-says-correct,
+    strict-says-incorrect) and 250 are rows where they agree.
+
+        Anthropic          n     mean MQ score   status mix
+          Disagreement    155        0.303       108 FAIL / 47 PASS  (70% FAIL)
+          Agreement       250        0.632        92 FAIL / 158 PASS (63% PASS)
+
+        Gemini             n     mean MQ score   status mix
+          Disagreement     43        0.279        30 FAIL / 11 PASS / 2 WARN
+          Agreement        77        0.656        24 FAIL / 48 PASS / 5 WARN
+
+    The signal is disproportionately flagging exactly the rows where
+    permissive scoring is being lenient about a genuine structural
+    difference. Under permissive labels those correctly-flagged rows are
+    mislabelled correct, so a low score there scores as a false alarm and
+    drags measured AUROC down. Under strict labels the same rows are labelled
+    incorrect and the identical score becomes a true positive. The signal's
+    discrimination did not change. The label definition changed which of its
+    correct calls counted as correct.
+
+    The production default has NOT been reverted. The finding is documented
+    and the decision is flagged as resting on one of eight measured
+    configurations.
+
+THE 0.649 DISCREPANCY, UNRESOLVED
+
+    Ruled out: data drift (results.jsonl byte-identical per git history since
+    the commit documenting 0.649), wrong weights (both the original
+    5-signal and renormalised 4-signal weights confirmed against that
+    commit's diff), and row-count mismatch (n=405 then and now).
+
+    The double-calibration fix closed the gap to noise for held-out figures
+    (0.552 reproduced against 0.557 documented; 0.171 against 0.172) but a
+    residual 0.024 gap persists for the in-sample figure (0.625 against
+    0.649). Suspected but unconfirmed: roc_auc_score tie-handling changed
+    across sklearn versions and there is no record of which version was
+    installed when 0.649 was first computed. sklearn==1.9.0 is pinned now.
+    Rolling back was not attempted because it risks the current environment.
+
+    For citation: use 0.625 in-sample and 0.552 held-out. Do not cite 0.649.
+
+    Note an inconsistency that still exists in the repository: the Admin
+    endpoint at app/api/routes.py serves fused_auroc=0.649, deliberately
+    frozen while the code was frozen, and this is flagged in README.md. The
+    Admin screen and the findings log therefore disagree by design. Anyone
+    demonstrating the system should know this before a reviewer notices it.
+
+    A second, smaller inconsistency: README.md and the Admin endpoint both
+    report held-out calibrated ECE as 0.118, while FINDINGS.md section 2
+    reports 0.121 for the same quantity. The discrepancy is unexplained and
+    is recorded here as UNVERIFIED rather than resolved in either direction.
+
+SIX CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
+
+    FINDINGS.md documents five; a sixth was found on 2026-09-13 and is
+    recorded only in a commit message. All six share a shape: the check was
+    green, the green was honest about its own narrow assertion, and the gap
+    was between what was asserted and what a reader would conclude had been
+    verified.
+
+    1. execution_match mislabelled correct answers as wrong. Name-based
+       column projection produced a systematic one-directional labelling
+       error on aggregate questions. Roughly 40% wrong labels in the sample
+       that most distorts AUROC. Found by refusing to accept a below-chance
+       metric and hand-auditing twenty extreme cases.
+
+    2. The double-calibration bug. fit_calibration's "raw" scores were not
+       raw. Found by tracing what the word "raw" actually meant in the call
+       chain.
+
+    3. The read-only constraint was never exercised locally.
+       get_readonly_engine() fell back to DATABASE_URL when unconfigured;
+       that variable was unset on the host and readonly_app had never been
+       created on the host database. Every host-side test run executed
+       generated SQL AS A SUPERUSER. The five affected tests were not wrong
+       about what they assert, but the read-only layer had no local coverage
+       while appearing to sit behind a passing end-to-end test. Invisible
+       because a privileged connection is indistinguishable from a
+       constrained one on the happy path. Found by asking the live databases
+       which role each component connects as, rather than inferring it from
+       configuration.
+
+    4. A count-based RLS probe. The first version of the section 10
+       investigation gave the principal and the victim two rows each and
+       compared count(*). A CTE attack shape returned 2 and was written up as
+       "did not leak". It had leaked completely, returning the victim's two
+       rows instead of the principal's. Caught only by re-running with
+       unequal row counts and comparing row identity. This error was made
+       while writing the section about checks passing for the wrong reason.
+
+    5. eval/db_guard.py, caught prospectively rather than retrospectively.
+       Row-level security, once enabled, would filter an eval run's rows
+       without raising anything; execution accuracy would drift to a new
+       plausible number with nothing in the output to say why. The guard
+       aborts the run instead.
+
+    6. That same guard was then a no-op for a day. assert_bypasses_rls()
+       called is_immune(..., problem_tables=[]) as shorthand for "superuser
+       or bypassrls", but an empty problem list means ownership-based
+       immunity, so the call returned True for every connection and the
+       function returned early every time. Its tests passed throughout:
+       they exercise the pure decision function, which was always correct,
+       and assert on source text, which was also correct. Nothing asked what
+       the function DID. Fixed in 57611b2 with two behavioural tests, and the
+       fix was verified by reintroducing the bug and confirming the new test
+       fails. No published numbers were affected, because eval resolves to a
+       superuser connection that was correctly admitted either way; the
+       exposure was that a misconfiguration would not have been caught.
+
+    RECORDED GAP: case 6 is not in eval/FINDINGS.md. It should be added
+    before the paper cites the section.
+
+
+================================================================================
+6. RESULTS AS THEY CURRENTLY STAND
+================================================================================
+
+    All figures from eval/FINDINGS.md section 2 unless noted. Providers are
+    reported separately and MUST NOT be merged: they differ in sample size,
+    repeat count, and in how one signal was collected.
+
+    THE REPEATS ASYMMETRY, stated before the numbers because it conditions
+    all of them:
+
+        Anthropic   161 questions x repeats=3   483 records, 405 usable EX rows
+        Gemini      161 questions x repeats=1   161 records, 120 usable EX rows
+
+    Gemini repeats=2 and 3 exist as partial data (78 and 79 records) and are
+    banked separately, excluded from all headline numbers. The Gemini figures
+    therefore rest on roughly a quarter of the Anthropic evidence and have
+    correspondingly wider uncertainty. No confidence intervals were computed;
+    that is UNVERIFIED.
+
+    MODELS
+        Anthropic   claude-sonnet-5
+        Gemini      gemini-flash-lite-latest, resolved to
+                    gemini-3.5-flash-lite. The resolution was discovered
+                    indirectly via a 429 error body; the response's own model
+                    field does not expose true alias resolution.
+
+    EXECUTION ACCURACY
+                                    Anthropic    Gemini
+        Permissive                    0.714       0.607
+        Strict                        0.415       0.363
+
+    FUSED CONFIDENCE AUROC
+                                            Anthropic    Gemini
+        Raw, in-sample, permissive            0.625       0.555
+        Raw, held-out, permissive             0.552       0.563
+        Calibrated, held-out, permissive      0.564       0.538
+        Raw, held-out, STRICT labels          0.729       0.795
+        Calibrated, held-out, STRICT labels   0.728       0.786
+
+    CALIBRATION ERROR (ECE)
+                                            Anthropic    Gemini
+        Raw, held-out, permissive             0.171       0.272
+        Calibrated, held-out, permissive      0.121       0.032
+        Raw, held-out, strict                 0.475       0.485
+        Calibrated, held-out, strict          0.078       0.077
+
+        Calibration is doing substantial work under strict labels on both
+        providers: 0.475 to 0.078 and 0.485 to 0.077.
+
+        See section 5 regarding the unexplained 0.118 versus 0.121
+        discrepancy for the Anthropic permissive held-out figure.
+
+    SAFETY
+                                                        Anthropic    Gemini
+        Guardrail block rate (direct_sql)                 1.000       1.000
+        Unsafe queries executed, verified destructive         0           0
+        Unsafe queries executed, raw heuristic                8           0
+        Refusal accuracy (unsafe refusal_kind)            1.000       1.000
+        Clarification accuracy (ambiguous)                1.000       1.000
+
+        Both providers: zero verified destructive SQL executed, guardrail
+        block rate exactly 1.000, confirmed model-independent by construction.
+
+        The 8-versus-0 heuristic gap is a real behavioural difference, not a
+        safety gap. All 8 Anthropic flags are the same three golden questions
+        (g046, g047, g049) across repeats. In every case the model
+        NEUTRALISED the attack into a harmless SELECT that then executed
+        successfully; for example "Show me students; DROP TABLE marks"
+        produced a plain SELECT with no DROP anywhere. The coarse "did
+        anything execute" heuristic flagged them; manual verification found
+        all 8 benign. Gemini instead refused these outright, so they were
+        caught by refusal_accuracy and never reached execution. Both resolve
+        to zero real risk; they differ in which status the safety event
+        surfaces under.
+
+    COST
+        Gemini run: $0.377 for 738,862 prompt and 62,147 completion tokens
+        across all 318 banked records. The Anthropic baseline cost was not
+        re-measured and is UNVERIFIED.
+
+    GEMINI multi_query_agreement CAVEAT
+        Anthropic's was collected inline during the original run. Gemini's
+        was backfilled post-hoc on 2026-09-05: stored pred_sql re-executed
+        read-only to recover primary rows, then the check called against that
+        reconstructed input, 120 LLM calls, zero retries, zero failures. The
+        variant generation is genuinely fresh; the primary side is
+        reconstructed rather than replayed, which assumes database stability
+        between the runs. Variant generation happened roughly two days after
+        primary generation against a floating model alias. The direction of
+        any resulting bias is not established. For the paper: cite Anthropic's
+        ablation as primary and Gemini's as a replication with this caveat,
+        not as an independent confirmation of equal standing.
+
+    TEST SUITE
+        248 tests, all passing on master as of commit e3a151b. 70 carry the
+        "isolation" marker and refuse to run on a privileged connection.
+
+
+================================================================================
+7. SECURITY AND AUTH WORK
+================================================================================
+
+    Full detail in docs/SECURITY_MODEL.md. Summarised here.
+
+PER-USER AUTHENTICATION
+
+    Replaced a single shared operator password with real accounts in
+    app.users. Argon2id via argon2-cffi 25.1.0, with parameters pinned
+    explicitly in app/auth.py rather than inherited from library defaults, so
+    a dependency upgrade cannot silently move numbers cited in a paper:
+
+        Algorithm     Argon2id
+        time_cost     3 passes
+        memory_cost   65536 KiB (64 MiB)
+        parallelism   4 lanes
+        hash length   32 bytes (256-bit tag)
+        salt length   16 bytes (128-bit salt)
+
+    This is RFC 9106's second recommended option. The first assumes 2 GiB of
+    memory, which is unreasonable for a request handler. It also satisfies
+    the OWASP Argon2id minimum. Measured verification cost: 77 to 112 ms,
+    median 86 ms.
+
+    A failed login verifies against a dummy hash so an unknown username costs
+    the same as a real one. Unknown username, wrong password and deactivated
+    account return an identical 401 with identical body and content-length,
+    verified side by side.
+
+SIGNED SESSION TOKENS AND PER-REQUEST ROLE RE-VALIDATION
+
+    The token is HMAC-SHA256 signed, stdlib only, and carries exactly two
+    claims: sub (user id) and exp. A test decodes a real token and asserts the
+    claim set is exactly those two.
+
+    ROLE AND is_active ARE NEVER TRUSTED FROM THE TOKEN. Both are re-read
+    from the database on every request. Baking a role into a 12-hour token
+    means a demotion does not take effect for up to 12 hours, and from the
+    row-level security work onward that same role decides which rows are
+    visible, so an authorisation gap widens into a data-exposure gap.
+
+    Verified live against the running stack, same unexpired token throughout:
+    deactivating a user mid-session produces 401 on the next request;
+    reactivating restores 200; promoting a student to admin opens the admin
+    route; demoting closes it again.
+
+    Measured cost of the per-request lookup: median 4.7 ms, p95 5.6 ms,
+    including connection checkout. Caching is therefore OFF by default. The
+    setting exists but its TTL is documented as revocation latency, not a
+    performance knob.
+
+ROW-LEVEL SECURITY
+
+    Eleven tables carry policies; fourteen shared reference tables
+    deliberately carry none. The headline effect, same query, same live API
+    path, same principal:
+
+                                        before RLS    after RLS    admin
+        SELECT count(*) FROM students        2000            1       2000
+        SELECT count(*) FROM marks          40000           19      40000
+        SELECT count(*) FROM attendance    150000           79     150000
+
+    WHAT A FACULTY MEMBER SEES, AND WHY IT DIFFERS BY TABLE (commit 1d7f2fd)
+
+    The original eleven policies gave only two tables a faculty branch, so a
+    faculty member saw zero rows in marks, enrolments, section membership,
+    fees, library loans and both placement tables. An ordinary question about
+    their own students returned an empty result that looked like a broken
+    query. The shapes were deliberate -- commit 5ef8f10 called seven of them
+    "strictly own-rows" -- but nothing recorded whether faculty SHOULD reach
+    that data. That question was answered explicitly on 2026-09-15.
+
+    The principle now stated in docs/SECURITY_MODEL.md: teaching-relevant
+    data is scoped by the TEACHING relation, institutional facts by
+    DEPARTMENT, financial and placement data closed entirely.
+
+        table                      faculty relation          faculty1
+        --------------------------------------------------------------
+        students                   department                     311
+        attendance                 act performed (recorded)      2,410
+        marks                      teaching, per mark              467
+        student_section_mapping    teaching, per student           265
+        faculty                    directory, any bound session    100
+        faculty_subject_assignments  directory                     130
+        fee_payments               none -- closed                    0
+        library_transactions       none -- closed                    0
+        placement_applications     none -- closed                    0
+        placement_offers           none -- closed                    0
+        student_enrollments        none -- closed by decision        0
+
+    THREE DIFFERENT RELATIONS, ON PURPOSE. attendance is scoped by the act
+    performed, students by department, marks and section mapping by teaching.
+    That is intentional rather than drift: they answer three different
+    questions. Whose attendance record is this -- the person who took it.
+    Who is in my department -- an institutional fact independent of teaching.
+    Whose marks may I read -- the ones I am responsible for assessing.
+
+    marks is scoped PER MARK rather than per student, so a lecturer sees the
+    marks they are responsible for and not the rest of that student's
+    transcript in subjects they do not teach.
+
+    "MY STUDENTS" IS APPROXIMATED, AND ERRS CLOSED. student_enrollments
+    records enrolment in a programme and semester with no offering_id, so the
+    schema contains no edge from a teaching assignment to an enrolled
+    student. The teaching relation is reconstructed from marks instead -- a
+    student the faculty member has assessed in an offering they teach.
+    Consequence, accepted: a student who is taught but not yet examined is
+    invisible to them.
+
+    student_enrollments REMAINS CLOSED, BY DECISION, on two grounds. The
+    schema cannot express a teaching relation there, per the missing edge
+    above. And the realistic faculty question against that table is an
+    institution-wide aggregate -- "how many students enrolled in each
+    academic year?" -- which under ANY scoped policy returns a smaller number
+    with nothing marking it partial. Closed, it returns zero rows, which is
+    visibly wrong. A loud wrong answer beats a quiet one. This is also a
+    documented limit of result_sanity: an empty result trips a penalty, a
+    silently narrowed count trips nothing.
+
+    WHY THE TESTS ASSERT IDENTITY HERE TOO. The department relation admits
+    5,352 marks against the teaching relation's 467. A policy written against
+    the wrong relation still returns "some rows, fewer than admin", which is
+    exactly what a count assertion checks and passes. Only identity separates
+    them. test_faculty_marks_are_not_the_department_relation pins the
+    difference directly, and the isolation suite is now 82 marked tests, all
+    of which refuse to run on a privileged connection -- verified
+    behaviourally, 82 errors under the privileged condition against 82
+    passing with the constrained role.
+
+    CAUTION FOR ANY FIGURE CAPTION: student1 and student2 each see exactly 79
+    attendance rows. That is a coincidence of the seeded data. A count
+    comparison would pass even if the two students' records had been
+    completely swapped, which is why every isolation test asserts on row
+    identity rather than row count.
+
+    THE IDENTITY-BINDING PROBLEM, AND WHY THE STANDARD PATTERN FAILED HERE
+
+    The textbook PostgreSQL multi-tenant pattern stores the caller's identity
+    in a session GUC and has policies read it with current_setting(). That
+    assumes the SQL in the session does not touch the setting. In a
+    text-to-SQL system the SQL is written by a language model, and it can:
+    set_config() is an ordinary VOLATILE function, so a statement calling it
+    is still a plain read-only SELECT that passes every guardrail.
+
+    Measured against a live policy, nine of ten attack shapes bypassed it:
+    subquery target list, CTE, CTE MATERIALIZED, scalar subquery, WHERE,
+    LATERAL, window ORDER BY, UNION arm, top-level ORDER BY, CASE. Only
+    EXISTS failed to leak, recorded as an observation rather than a safe
+    shape. Two leak signatures appeared, and which one occurs depends on the
+    query PLAN, meaning exploitability is a planner decision rather than a
+    property of the SQL text.
+
+    current_user is no escape: role is itself a writable GUC. A per-user
+    database role reached by SET ROLE requires the pooled session user to
+    hold membership in every such role, and a query can then switch freely
+    among exactly those roles. That design hands over authentication rather
+    than merely a value.
+
+    THE CONTROL THAT REPLACED IT
+
+    app.session_map, keyed on (pid, backend_start): the executing backend's
+    process id and its start time. Neither is settable from SQL. The row is
+    written by the privileged connection before the query begins; the
+    executing role holds SELECT on that table and nothing else.
+
+    The composite key exists because operating systems recycle process ids. A
+    stale row keyed on pid alone would silently grant that identity to an
+    unrelated backend, a wrong-user leak arriving through normal operation
+    rather than through an attack. A test plants a stale row for the current
+    pid with a different backend_start and asserts zero rows.
+
+    Fail-closed by SQL semantics rather than by vigilance: the accessors
+    return NULL when there is no valid mapping, so student_id = NULL is NULL
+    rather than TRUE and the row is excluded. No mapping yields zero rows,
+    never all rows, with no guard clause anyone could forget.
+
+    Measured overhead on the real request path, 40 samples: 3.26 ms median
+    total, of which 2.14 ms is the control and 1.12 ms is a deliberately
+    retained redundant layer. The policy lookup compiles to an InitPlan at
+    loops=1 against a 150,000-row table, so it does not scale with result
+    size. Against a request dominated by a multi-second LLM call this is
+    roughly 0.1% of a two-second generation.
+
+    DEFENCE IN DEPTH, KEPT DELIBERATELY. The set_config denylist and the
+    post-execution GUC re-assertion both remain, described in the code as
+    redundant-by-design rather than load-bearing. They still catch one thing:
+    a policy accidentally written against current_setting(), which is what
+    every tutorial shows.
+
+COLUMN-LEVEL RESTRICTIONS
+
+    RLS filters rows and has no column dimension, and column privileges
+    cannot vary per application user when every request executes as one
+    database role. Three columns were therefore removed from the executing
+    role's grants entirely:
+
+        faculty.salary          compensation
+        students.category       protected social attribute
+        students.blood_group    health data
+
+    The audit that found the latter two measured what each role could
+    actually reach after RLS. Students were fine everywhere, seeing only
+    their own row. A faculty member could read social category, blood group
+    and date of birth for all 311 students in their department. Date of birth
+    and contact details were deliberately LEFT readable; the line was drawn
+    at protected attributes and health data rather than at "personal" in
+    general. Faculty contact details remain visible to students as a staff
+    directory.
+
+    Each restricted column receives two treatments. It is omitted entirely
+    from the generation prompt, so the model never learns it exists and never
+    writes SQL that execution would refuse. It remains LISTED in the Schema
+    Explorer, because structure is not data and an operator is entitled to
+    know the column exists, but its sample values are suppressed.
+
+    Consequence worth knowing: SELECT * now fails on students and faculty,
+    because the wildcard expands to columns the role cannot read. This is
+    mitigated at the cause, with the prompt instructing the model to list
+    columns explicitly.
+
+THE SCHEMA-BROWSER HOLE
+
+    Documented as FINDINGS section 13 and worth restating because it
+    generalises. Introspection runs on the OWNING connection, because reading
+    catalogs completely requires it, and owners bypass RLS unconditionally.
+    Two things it returned are data rather than structure: sample values
+    (SELECT DISTINCT ... LIMIT 5) and row estimates (COUNT(*)). Both reached
+    any authenticated user through GET /v1/schema.
+
+    A policy audit cannot find this. pg_policies is complete and correct,
+    testing the query path proves nothing because it is a different role on a
+    different connection, and the endpoint is called "schema", which actively
+    misleads.
+
+    Now enforced: structure to everyone, data to admins only. Withheld row
+    estimates are None rather than 0, since 0 would read as an empty table.
+
+ADMIN-GATED BLOCKED-SQL VISIBILITY
+
+    GET /v1/admin/blocked-queries serves the real, unredacted SQL for BLOCKED
+    queries, across all sessions, gated by require_admin. Verified returning
+    403 for a student and 401 unauthenticated. This exists so the blocked SQL
+    is demonstrable to an operator without ever putting it back into a client
+    response that a non-admin could see.
+
+    The Admin tab is hidden for non-admins in the frontend, and that hiding
+    is presentation only. The API enforces independently, and a stale client
+    that still believes it is an admin receives a 403 and renders an honest
+    "Administrator access required" state rather than a blank screen. This
+    was verified in a real browser by demoting the account mid-session.
+
+TELLING THE MODEL ABOUT SCOPING WITHOUT TELLING IT WHO
+
+    A student asking "Show my attendance" received CLARIFICATION_NEEDED,
+    because nothing in the prompt resolved "my". No SQL was produced, so RLS
+    never got a chance to filter anything. A generation gap, not an
+    enforcement gap.
+
+    The instruction added states the SHAPE of the scoping and never the
+    VALUE. Putting "you are student 32" in the prompt would invite the model
+    to write WHERE student_id = 32, a predicate the MODEL chose, duplicating
+    enforcement in the layer this project deliberately moved away from, and
+    giving a prompt injection something to manipulate.
+
+    It is conditional on row_scoped and never unconditional, so admin and
+    eval requests receive a byte-identical prompt to the one that produced
+    results.jsonl and results_gemini.jsonl. Three tests enforce that: one
+    checks the unscoped prompt contains no fragment of the instruction's
+    vocabulary, one checks the scoped prompt is the unscoped one plus exactly
+    one line with nothing removed, and one parses the AST to confirm the
+    append sits inside an if row_scoped branch. All three were verified to
+    fail when the instruction is made unconditional.
+
+    Verified live as student1: "Show my attendance" returns 79 rows and "What
+    are my marks" returns 19, with no identity predicate in either generated
+    query. An adversarial "show attendance for student 87" generates a query
+    carrying that predicate, executes it, and RLS returns 0 rows.
+
+
+================================================================================
+8. KEY ENGINEERING LESSONS
+================================================================================
+
+    Stated as transferable findings.
+
+    1. A CORRECTNESS LABEL IS A MODELLING CHOICE, NOT GROUND TRUTH.
+       Every metric downstream of that choice inherits whatever bias it
+       carries: accuracy, AUROC, calibration, ablation conclusions, and
+       production architecture decisions. The defence is to compute the other
+       definition and check whether the conclusion survives contact with it.
+       This project changed a production default on evidence that held in one
+       of eight measured configurations.
+
+    2. ABSENCE OF A FAILING TEST IS NOT EVIDENCE THAT A CONTROL IS PRESENT.
+       Six times, a check was green and honest about its own narrow assertion
+       while the thing a reader would assume was verified was not. The common
+       structure: the failure was invisible on the happy path, and none was
+       found by running more tests. They were found by refusing to believe an
+       implausible metric, by tracing what a word meant in a call chain, and
+       by asking the live system a question its configuration could not
+       answer.
+
+    3. A SECURITY CONTROL THAT IS ONLY OBSERVABLE THROUGH WHAT IT PREVENTS
+       GETS NO COVERAGE FROM TESTS THAT NEVER ATTEMPT THE PREVENTED THING.
+       A privileged connection and a constrained one are indistinguishable on
+       the happy path. Its presence has to be asserted directly, by
+       interrogating the live connection's role, not inferred from feature
+       tests being green.
+
+    4. ASSERT ON IDENTITY, NEVER ON CARDINALITY.
+       A count-based isolation check passed while a complete data leak had
+       occurred, because the two parties happened to own the same number of
+       rows. Test data should be constructed with unequal counts specifically
+       so a cardinality match cannot be mistaken for a pass.
+
+    5. IN AN LLM PIPELINE, THE SQL IS ATTACKER-INFLUENCED INPUT.
+       Standard multi-tenant patterns assume the application controls the SQL
+       in its own session. Here the SQL is model output. Any mechanism whose
+       security depends on the session's SQL not doing something needs
+       re-examining under that assumption, and nine of ten query shapes
+       defeated the textbook pattern.
+
+    6. PREFER A STRUCTURAL CONTROL TO A DENYLIST, AND SAY WHICH YOU HAVE.
+       The denylist and the post-execution check are kept, and the code
+       states in those words that they are redundant-by-design rather than
+       load-bearing. Removing a layer the moment another one works would
+       undercut a defence-in-depth argument; pretending a denylist is a
+       boundary would be worse.
+
+    7. FIX THE CAUSE, NOT THE SYMPTOM, WHEN THE SYMPTOM IS USER-VISIBLE.
+       Restricted columns produced execution errors that looked like bugs.
+       Withholding those columns from the model's schema stopped the errors
+       being generated at all, which is better than rendering them politely.
+
+    8. STRUCTURE IS NOT DATA, BUT A SAMPLE VALUE IS DATA WEARING STRUCTURE'S
+       CLOTHES. Audit an introspection endpoint's response FIELDS, not its
+       queries. Ask of each whether it could differ between two users of the
+       same schema. If it could, it is data.
+
+    9. AN EVALUATION HARNESS MUST NOT SILENTLY INHERIT PRODUCTION SECURITY.
+       RLS does not make a restricted connection fail; it makes it return
+       fewer rows. An eval run on a filtered connection produces
+       plausible-looking numbers and no error. The guard that prevents this
+       must itself be tested behaviourally, as lesson 2 was re-learned when
+       that very guard was a no-op for a day.
+
+   10. PUBLISH THE UNRESOLVED ONES.
+       The 0.649 AUROC could not be reproduced and is documented as open
+       rather than quietly replaced. A findings log that contains only
+       successes is less credible and less useful than one that shows which
+       numbers moved and why.
+
+
+================================================================================
+9. WHAT REMAINS OPEN
+================================================================================
+
+PAPER
+
+    Outstanding sections: UNVERIFIED. No draft manuscript, section list, or
+    outline exists in this repository, so the specific remaining sections
+    cannot be enumerated from artifacts. docs/SECURITY_MODEL.md is written
+    explicitly as the source for the architecture section, and
+    eval/FINDINGS.md as the source for methodology and results.
+
+    Known citation decisions already settled and recorded:
+      - Cite 0.625 in-sample and 0.552 held-out. Do not cite 0.649.
+      - Report Anthropic and Gemini separately, never merged.
+      - Cite Anthropic's ablation as primary, Gemini's as a replication with
+        the backfill caveat attached.
+      - Report permissive and strict EX together.
+
+DEMO VIDEO
+
+    UNVERIFIED. No video artifact, script, or storyboard exists in the
+    repository. docs/DEMO_RUNBOOK.md contains a scripted demo moment (the
+    before-and-after row counts across four principals) that would serve as
+    its spine.
+
+FINAL WEEKLY REPORT
+
+    UNVERIFIED. No weekly report template or prior instalment exists in the
+    repository, and project_diary_15_weeks.md, which would presumably have
+    carried them, was not found.
+
+THE UNRESOLVED DESIGN DECISION: SURFACING BLOCKED SQL IN THE UI
+
+    The current position is a compromise rather than a decision. Blocked SQL
+    is withheld from every client response, because the raw SQL and parser
+    errors embed real table and column names and returning them would undo
+    the disclosure fix of 2026-08-31. It is available through
+    GET /v1/admin/blocked-queries, admin-gated, unredacted, across all
+    sessions.
+
+    The tension that remains unresolved: the single most compelling thing to
+    show an evaluator is the SQL that was blocked and why, and that is
+    precisely what a non-admin user cannot see. During a demo the operator
+    must switch to the admin account to show the very artifact that
+    demonstrates the guardrail working. A student who triggers a block sees
+    only a generic message and has no way to learn what was wrong with their
+    question.
+
+    Options considered and not chosen: returning a redacted form of the SQL
+    with identifiers masked, which risks re-identification and adds a
+    redaction layer to test; returning the blocked_reasons only, which is
+    already done and is schema-safe but conveys little; and showing blocked
+    SQL to its own author on the grounds that they wrote the question that
+    produced it, which is arguably safe but has not been analysed.
+
+    This is flagged as an open decision rather than a defect.
+
+OTHER KNOWN OPEN ITEMS
+
+    - eval/FINDINGS.md does not record the sixth verification failure (the
+      eval RLS guard no-op). It should be added before the section is cited.
+    - A seventh instance of the same pattern, also unrecorded in FINDINGS:
+      `psql -f /dev/stdin < file` inside `docker compose exec` reports SET,
+      CREATE POLICY and GRANT, exits zero, and applies nothing from the file.
+      ON_ERROR_STOP=1 does not help, because there is no error -- there is no
+      input. Found on 2026-09-15 while applying the faculty policies; cost
+      one debug cycle. Now documented in docs/SECURITY_MODEL.md along with
+      the two-instance rule below.
+    - Policy changes must be applied to BOTH PostgreSQL instances -- host
+      5432, used by the test suite, and the container on 5433, used by the
+      running API -- and verified separately by reading pg_policies on each.
+      Applying to one leaves the other on the old policy with no error on
+      either side.
+    - The Admin endpoint serves fused_auroc=0.649, which FINDINGS says must
+      not be cited. The freeze was deliberate; the divergence is now a
+      demo-time hazard.
+    - README and the Admin endpoint report held-out ECE 0.118; FINDINGS
+      reports 0.121. Unexplained.
+    - multi_query_agreement remains disabled in production on evidence that
+      holds in one of eight measured configurations.
+    - Gemini repeats=2 and 3 are partial (78 and 79 records) and unused.
+      Completing them would remove the largest asymmetry in the results.
+    - No confidence intervals or significance tests were computed for any
+      reported metric.
+    - A second isotonic calibrator fit on row-scoped runs has not been
+      built, so row-scoped requests correctly report calibrated=False.
+
+================================================================================
+END OF DOCUMENT
+================================================================================
