@@ -4,8 +4,8 @@ PROJECT HISTORY
 ================================================================================
 
 LAST REGENERATED : 2026-09-15
-AGAINST COMMIT   : d4c69f9 (FINDINGS: seven instances in section 9, and the
-                   ECE discrepancy resolved)
+AGAINST COMMIT   : 1b5a6cd (Retire 0.649 and 0.118 from every surface that
+                   presented them as current)
 PREVIOUS REVISION: 2026-09-14, against e3a151b
 
     If the repository has moved past the commit named above, treat every
@@ -13,8 +13,8 @@ PREVIOUS REVISION: 2026-09-14, against e3a151b
     document that has silently drifted is worse than none, so this line is
     the first thing to read and the first thing to update.
 
-Compiled from the repository itself: git history (62 commits, 2026-08-15 to
-2026-09-15), eval/FINDINGS.md (1028 lines, 14 sections), eval/README.md,
+Compiled from the repository itself: git history (64 commits, 2026-08-15 to
+2026-09-15), eval/FINDINGS.md (1081 lines, 14 sections), eval/README.md,
 docs/SECURITY_MODEL.md, the golden set, the results files, and the source as
 it stands on master.
 
@@ -81,7 +81,7 @@ THE DUAL PURPOSE
     As a publishable contribution it is an evaluation artifact. The golden
     set, the scoring criteria, the calibration procedure and the findings log
     are the parts intended to survive review. This is why the repository
-    contains a 1,028-line findings document that spends as much space on
+    contains a 1,081-line findings document that spends as much space on
     measurements that turned out to be wrong as on ones that held.
 
 THE CLAIMED CONTRIBUTION
@@ -637,16 +637,26 @@ THE 0.649 DISCREPANCY, UNRESOLVED
 
     For citation: use 0.625 in-sample and 0.552 held-out. Do not cite 0.649.
 
-    Note an inconsistency that still exists in the repository: the Admin
-    endpoint at app/api/routes.py serves fused_auroc=0.649, deliberately
-    frozen while the code was frozen, and this is flagged in README.md. The
-    Admin screen and the findings log therefore disagree by design. Anyone
-    demonstrating the system should know this before a reviewer notices it.
+    RESOLVED 2026-09-15. The Admin endpoint at app/api/routes.py served
+    fused_auroc=0.649 under a deliberate freeze. The freeze was lifted and
+    the constant is now 0.625, with a comment at the site recording what it
+    was and why it changed. eval/README.md's ablation table, which still
+    presented 0.575 -> 0.649, was corrected to 0.560 -> 0.625 to match
+    FINDINGS section 3. Every surface now agrees; 0.649 survives only as a
+    superseded entry in the findings log and in this history.
 
-    A second, smaller inconsistency: README.md and the Admin endpoint both
-    report held-out calibrated ECE as 0.118, while FINDINGS.md section 2
-    reports 0.121 for the same quantity. The discrepancy is unexplained and
-    is recorded here as UNVERIFIED rather than resolved in either direction.
+    A second discrepancy, RESOLVED 2026-09-15 and unlike the one above it
+    was fully explained rather than merely retired. README.md and the Admin
+    endpoint reported held-out calibrated ECE as 0.118 against FINDINGS
+    section 2's 0.121. Re-running the documented procedure gives 0.121 at
+    n=162, matching the recorded split exactly, which rules out seed and
+    eligibility. Reconstructing the pre-fix path -- push both halves through
+    the production isotonic curve first, then fit again, which is what
+    fuse_confidence() did before 4e9ac32 -- reproduces 0.117 on the RAW row.
+    0.118 is that raw cell: never a calibrated result, but the ECE of
+    already-calibrated scores mislabelled RAW by the script's own output.
+    Cite 0.121 and the paired calibrated held-out AUROC 0.564; 0.118 and its
+    paired 0.574 are superseded. Full derivation in FINDINGS section 14.
 
 SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
 
@@ -664,6 +674,28 @@ SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
     2. The double-calibration bug. fit_calibration's "raw" scores were not
        raw. Found by tracing what the word "raw" actually meant in the call
        chain.
+
+       This one has a second, larger half, written up in FINDINGS section
+       14 and cross-referenced from section 9. The script printed a real
+       number under the label "RAW hand-tuned score (no calibration)" when
+       those scores had already been calibrated. The computation ran,
+       nothing failed or warned, and the only false thing was the one thing
+       the output asserted about itself. The figure -- 0.118 -- was read off
+       that line into README.md, eval/README.md and the Admin endpoint,
+       where it was served as a headline calibration result for nine days
+       and through two documentation passes, one of which existed to correct
+       stale figures.
+
+       It is the only case in the set where the wrong value escaped the
+       tooling and reached user-facing surfaces, and it outlived its own fix
+       by nine days: the bug was fixed 2026-09-03, the number retired
+       2026-09-15, because nothing connected "that function was wrong" to
+       "therefore every figure it printed is suspect."
+
+       A WRONG NUMBER IS MORE DURABLE THAN THE BUG THAT PRODUCED IT. Fixing
+       the code does not retract its output. A fix is incomplete until every
+       figure the broken computation produced has been traced to where it
+       was published and either reproduced or retired.
 
     3. The read-only constraint was never exercised locally.
        get_readonly_engine() fell back to DATABASE_URL when unconfigured;
@@ -1246,12 +1278,11 @@ OTHER KNOWN OPEN ITEMS
       running API -- and verified separately by reading pg_policies on each.
       Applying to one leaves the other on the old policy with no error on
       either side. Documented in docs/SECURITY_MODEL.md.
-    - OUTSTANDING ACTION: app/api/routes.py still serves fused_auroc=0.649
-      and held_out_ece=0.118, both of which FINDINGS says must not be cited.
-      Both were frozen deliberately and both are flagged in README.md, but
-      the Admin screen and FINDINGS now disagree on two figures and a
-      reviewer comparing them will find it. Retiring both is the last
-      numbers-related change outstanding.
+    - (Closed 2026-09-15.) app/api/routes.py served fused_auroc=0.649 and
+      held_out_ece=0.118 under a deliberate freeze. Both are retired; the
+      Admin screen, README.md and FINDINGS now agree on every figure, and
+      the live endpoint was verified returning 0.625 and 0.121 after an API
+      rebuild. No surface presents a superseded value as current.
     - multi_query_agreement remains disabled in production on evidence that
       holds in one of eight measured configurations.
     - Gemini repeats=2 and 3 are partial (78 and 79 records) and unused.
