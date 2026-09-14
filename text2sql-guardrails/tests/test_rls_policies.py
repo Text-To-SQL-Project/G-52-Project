@@ -39,9 +39,25 @@ SCOPED_TABLES = [
     "placement_applications", "student_enrollments", "student_section_mapping",
     "placement_offers", "faculty", "faculty_subject_assignments",
 ]
-OWN_ROWS_ONLY = [
+# Tables where a STUDENT principal must never see another student's row.
+# Named from the student's side on purpose: marks and student_section_mapping
+# additionally admit the faculty member who teaches the row (see the faculty
+# scope tests below), so they are not own-rows-only in general -- but they are
+# still own-rows-only for a student, which is what these parametrised tests
+# assert.
+STUDENT_OWN_ROWS_ONLY = [
     "attendance", "marks", "fee_payments", "library_transactions",
     "placement_applications", "student_enrollments", "student_section_mapping",
+]
+
+# Closed to faculty entirely: no teaching relation grants them. fee_payments
+# and library_transactions are financial, the placement pair is a student's
+# job search, and student_enrollments is closed for a separate reason
+# recorded in seed/31_rls_policies.sql -- an institution-wide aggregate must
+# fail loudly rather than return a silently partial count.
+CLOSED_TO_FACULTY = [
+    "fee_payments", "library_transactions", "placement_applications",
+    "placement_offers", "student_enrollments",
 ]
 
 
@@ -101,14 +117,14 @@ def test_each_policy_resolves_identity_through_the_accessors(table):
 
 # --- the core property -----------------------------------------------------
 
-@pytest.mark.parametrize("table", OWN_ROWS_ONLY)
+@pytest.mark.parametrize("table", STUDENT_OWN_ROWS_ONLY)
 def test_student_sees_only_their_own_rows(table):
     """Row identity, not count."""
     owners = {r[0] for r in run_as(STUDENT_A, f"SELECT DISTINCT student_id FROM {table}")}
     assert owners <= {STUDENT_A.student_id}, f"{table} exposed student_ids {owners}"
 
 
-@pytest.mark.parametrize("table", OWN_ROWS_ONLY)
+@pytest.mark.parametrize("table", STUDENT_OWN_ROWS_ONLY)
 def test_two_students_never_see_each_others_rows(table):
     a = {r[0] for r in run_as(STUDENT_A, f"SELECT DISTINCT student_id FROM {table}")}
     b = {r[0] for r in run_as(STUDENT_B, f"SELECT DISTINCT student_id FROM {table}")}
@@ -210,13 +226,24 @@ def test_admin_sees_everything():
 
 
 def test_faculty_sees_their_department_not_the_whole_school():
-    n = run_as(FACULTY, "SELECT count(*) FROM students")[0][0]
-    assert 0 < n < 2000, f"faculty saw {n} students; expected a department subset"
+    """students is the one table deliberately scoped by DEPARTMENT rather
+    than by teaching relation -- a faculty member is entitled to know who is
+    in their department. Asserted as identity: the visible set must be
+    exactly the department roster, not merely smaller than the school."""
+    visible = {r[0] for r in run_as(FACULTY, "SELECT student_id FROM students")}
+    assert visible == _department_student_ids(), (
+        f"students exposed {len(visible)} rows; department roster is "
+        f"{len(_department_student_ids())}")
 
 
-def test_faculty_does_not_see_student_financial_or_library_records():
-    for table in ("fee_payments", "library_transactions", "marks"):
-        assert run_as(FACULTY, f"SELECT count(*) FROM {table}")[0][0] == 0, table
+# test_faculty_does_not_see_student_financial_or_library_records was removed
+# here, not weakened. It asserted count == 0 for fee_payments,
+# library_transactions AND marks. marks is now scoped by the teaching
+# relation, so that expectation is superseded; and the assertion style was
+# the count-based kind this file's own rule warns against. Its coverage now
+# lives in test_faculty_sees_nothing_in_closed_tables, which asserts the
+# empty set as identity over a wider table list, and in the marks identity
+# tests below it.
 
 
 def test_reference_tables_stay_readable():
@@ -231,3 +258,118 @@ def test_salary_is_unreachable_through_the_query_path():
     read-only role's grants entirely -- for every role including admin."""
     with pytest.raises(Exception):
         run_as(ADMIN, "SELECT salary FROM faculty LIMIT 1")
+
+
+# --- faculty scope: the teaching relation --------------------------------
+#
+# RULE, and the reason these tests are written the way they are: assert on
+# ROW IDENTITY, never on row count. The department relation and the teaching
+# relation differ by an order of magnitude on the seeded data -- 5,352 marks
+# versus 467 -- but a policy accidentally written against the wrong one still
+# returns "some rows, fewer than admin", which is what a count assertion
+# checks. Only identity distinguishes the two relations.
+
+
+def _faculty_offerings():
+    """Offerings faculty1 teaches, computed unfiltered as admin."""
+    return {r[0] for r in run_as(
+        ADMIN,
+        "SELECT offering_id FROM faculty_subject_assignments "
+        f"WHERE faculty_id = {FACULTY.faculty_id}")}
+
+
+def _taught_student_ids():
+    """Students faculty1 has assessed in an offering they teach."""
+    return {r[0] for r in run_as(
+        ADMIN,
+        "SELECT DISTINCT m.student_id FROM marks m "
+        "JOIN exams e ON e.exam_id = m.exam_id "
+        "JOIN faculty_subject_assignments fsa ON fsa.offering_id = e.offering_id "
+        f"WHERE fsa.faculty_id = {FACULTY.faculty_id}")}
+
+
+def _department_student_ids():
+    """Students in faculty1's department -- the relation NOT used for marks."""
+    return {r[0] for r in run_as(
+        ADMIN,
+        "SELECT student_id FROM students WHERE department_id = "
+        f"(SELECT department_id FROM faculty WHERE faculty_id = {FACULTY.faculty_id})")}
+
+
+def test_faculty_marks_are_exactly_their_taught_offerings():
+    """Identity, not count: every visible mark belongs to an offering they
+    teach, and every such mark is visible."""
+    visible = {r[0] for r in run_as(
+        FACULTY,
+        "SELECT DISTINCT e.offering_id FROM marks m "
+        "JOIN exams e ON e.exam_id = m.exam_id")}
+    assert visible == _faculty_offerings(), (
+        f"marks visible under offerings {visible}, teaches {_faculty_offerings()}")
+
+
+def test_faculty_marks_are_not_the_department_relation():
+    """The test that a count assertion would pass and this one fails.
+
+    If rls_marks were rewritten against students.department_id it would still
+    return a plausible subset. This pins the difference: there exist marks in
+    faculty1's department, for students they teach nothing of, and those marks
+    must not be visible."""
+    dept_only = {r[0] for r in run_as(
+        ADMIN,
+        "SELECT m.marks_id FROM marks m "
+        "JOIN students s ON s.student_id = m.student_id "
+        "WHERE s.department_id = (SELECT department_id FROM faculty "
+        f"WHERE faculty_id = {FACULTY.faculty_id}) "
+        "AND NOT EXISTS (SELECT 1 FROM exams e "
+        "JOIN faculty_subject_assignments fsa ON fsa.offering_id = e.offering_id "
+        f"WHERE e.exam_id = m.exam_id AND fsa.faculty_id = {FACULTY.faculty_id})")}
+    assert dept_only, "precondition: seeded data must contain department-but-not-taught marks"
+    visible = {r[0] for r in run_as(FACULTY, "SELECT marks_id FROM marks")}
+    assert visible.isdisjoint(dept_only), (
+        f"marks policy is following the DEPARTMENT relation; leaked {len(visible & dept_only)} rows")
+
+
+def test_faculty_section_mapping_is_exactly_taught_students():
+    visible = {r[0] for r in run_as(
+        FACULTY, "SELECT DISTINCT student_id FROM student_section_mapping")}
+    assert visible == _taught_student_ids(), (
+        f"section mapping exposed {len(visible)} students, teaches {len(_taught_student_ids())}")
+
+
+def test_faculty_section_mapping_excludes_untaught_department_students():
+    untaught = _department_student_ids() - _taught_student_ids()
+    assert untaught, "precondition: seeded data must contain untaught department students"
+    visible = {r[0] for r in run_as(
+        FACULTY, "SELECT DISTINCT student_id FROM student_section_mapping")}
+    assert visible.isdisjoint(untaught), (
+        f"section mapping followed the department relation; leaked {len(visible & untaught)}")
+
+
+@pytest.mark.parametrize("table", CLOSED_TO_FACULTY)
+def test_faculty_sees_nothing_in_closed_tables(table):
+    """Empty set asserted as identity, so a future faculty branch that admits
+    even one row fails here rather than passing a non-zero count check."""
+    rows = run_as(FACULTY, f"SELECT * FROM {table}")
+    assert rows == [], f"{table} is meant to be closed to faculty; got {len(rows)} rows"
+
+
+def test_faculty_enrollment_aggregate_is_empty_not_partial():
+    """The decision recorded in seed/31_rls_policies.sql, pinned as a test.
+
+    A faculty member asking an institution-wide enrolment aggregate gets zero
+    rows, NOT a smaller plausible number. If someone later adds a scoped
+    faculty branch here, this fails and forces them to re-read the reasoning."""
+    sql = ("SELECT ay.year_name, count(*) FROM student_enrollments se "
+           "JOIN semesters sm ON sm.semester_id = se.semester_id "
+           "JOIN academic_years ay ON ay.academic_year_id = sm.academic_year_id "
+           "GROUP BY ay.year_name")
+    assert run_as(FACULTY, sql) == [], "enrollment aggregate must be empty for faculty, not partial"
+    assert run_as(ADMIN, sql), "precondition: admin must see the aggregate"
+
+
+def test_faculty_branches_did_not_widen_student_scope():
+    """Regression: adding faculty branches must not change what a student sees."""
+    for table in ("marks", "student_section_mapping"):
+        owners = {r[0] for r in run_as(
+            STUDENT_A, f"SELECT DISTINCT student_id FROM {table}")}
+        assert owners <= {STUDENT_A.student_id}, f"{table} widened for students: {owners}"

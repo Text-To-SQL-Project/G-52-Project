@@ -50,6 +50,70 @@ $$;
 GRANT EXECUTE ON FUNCTION app.current_faculty_department() TO readonly_app;
 
 -- ---------------------------------------------------------------------------
+-- Helpers: the querying faculty member's TEACHING relation.
+--
+-- Two accessors, both SECURITY DEFINER for the same reason as
+-- current_faculty_department() above: they read tables that carry their own
+-- policies (faculty_subject_assignments) or that are the very table being
+-- filtered (marks), and a policy cannot evaluate a policy on the table it is
+-- protecting without PostgreSQL rejecting it as recursive.
+--
+-- Elevating also buys independence. If faculty_subject_assignments' own
+-- policy is ever narrowed, a non-DEFINER version of this lookup would
+-- silently narrow what faculty can see in marks -- a policy changing meaning
+-- because a DIFFERENT table's policy changed, which is exactly the kind of
+-- action-at-a-distance that stays invisible until someone notices missing
+-- rows. DEFINER pins the relation to the schema, not to another policy.
+--
+-- Both take NO ARGUMENTS and return sets derived solely from the session
+-- map. That is deliberate: a function taking a student_id would be a boolean
+-- oracle a caller could steer ("do you teach student 87?"), and generated SQL
+-- is attacker-influenced input. With no argument there is nothing to steer.
+-- search_path is pinned so the elevated bodies cannot be redirected.
+--
+-- Both return the empty set when current_faculty_id() is NULL, so a student
+-- or an unbound session matches nothing -- fail-closed, same as every other
+-- accessor here.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION app.current_faculty_offerings()
+RETURNS TABLE (offering_id int)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = college_erp, pg_temp
+AS $fn$
+    SELECT fsa.offering_id
+      FROM college_erp.faculty_subject_assignments fsa
+     WHERE fsa.faculty_id = app.current_faculty_id()
+$fn$;
+
+GRANT EXECUTE ON FUNCTION app.current_faculty_offerings() TO readonly_app;
+
+-- The students this faculty member has actually assessed in an offering they
+-- teach. This is the closest thing the schema offers to "my students":
+-- student_enrollments records enrolment in a PROGRAMME and SEMESTER and
+-- carries no offering_id, so there is no edge from a teaching assignment to
+-- an enrolled student. Marks are the only evidence that a specific student
+-- sat in a specific offering.
+--
+-- Consequence, accepted: a student a faculty member teaches but has not yet
+-- examined is not visible to them. That errs closed, which is the direction
+-- to err, but it means this set grows as assessment happens rather than at
+-- enrolment time.
+CREATE OR REPLACE FUNCTION app.current_faculty_taught_students()
+RETURNS TABLE (student_id int)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = college_erp, pg_temp
+AS $fn$
+    SELECT DISTINCT m.student_id
+      FROM college_erp.marks m
+      JOIN college_erp.exams e ON e.exam_id = m.exam_id
+     WHERE e.offering_id IN (SELECT o.offering_id
+                               FROM app.current_faculty_offerings() o)
+$fn$;
+
+GRANT EXECUTE ON FUNCTION app.current_faculty_taught_students() TO readonly_app;
+
+
+-- ---------------------------------------------------------------------------
 -- 1. students -- own row; a faculty member sees their own department;
 --    admin sees all.
 -- ---------------------------------------------------------------------------
@@ -73,14 +137,36 @@ CREATE POLICY rls_attendance ON attendance FOR SELECT USING (
 );
 
 -- ---------------------------------------------------------------------------
--- 3-8. Strictly own rows. No faculty access: marks, fees, library loans,
---      enrolments and section membership are the student's own record, and
---      widening any of them is a product decision, not a schema one.
+-- 3-8. The student's own record. Four of these stay strictly own-rows;
+--      marks and student_section_mapping additionally admit the faculty
+--      member who TEACHES the row, per the faculty scope principle in
+--      docs/SECURITY_MODEL.md.
+--
+--      Closed to faculty, deliberately: fee_payments, library_transactions,
+--      placement_applications (and placement_offers below). Financial and
+--      placement records have no teaching relevance, so no teaching relation
+--      grants them.
+--
+--      Closed to faculty, also deliberately but for a different reason:
+--      student_enrollments. See its own note below.
 -- ---------------------------------------------------------------------------
 ALTER TABLE marks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_marks ON marks;
+-- marks: scoped PER MARK, not per student. The faculty branch asks whether
+-- THIS mark's exam belongs to an offering the querying faculty member
+-- teaches -- so a lecturer sees the marks they are responsible for, and not
+-- the rest of that same student's transcript in subjects they do not teach.
+-- exams carries no policy of its own, so this EXISTS reads it unfiltered.
 CREATE POLICY rls_marks ON marks FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    app.current_is_admin()
+    OR student_id = app.current_student_id()
+    OR EXISTS (
+        SELECT 1
+          FROM exams e
+         WHERE e.exam_id = marks.exam_id
+           AND e.offering_id IN (SELECT o.offering_id
+                                   FROM app.current_faculty_offerings() o)
+    )
 );
 
 ALTER TABLE fee_payments ENABLE ROW LEVEL SECURITY;
@@ -101,6 +187,22 @@ CREATE POLICY rls_placement_applications ON placement_applications FOR SELECT US
     app.current_is_admin() OR student_id = app.current_student_id()
 );
 
+-- student_enrollments: DELIBERATELY CLOSED TO FACULTY, and the reasoning is
+-- the point. Two independent grounds.
+--
+-- First, the schema cannot express a teaching relation here. The table
+-- records enrolment in a programme and semester with no offering_id, so
+-- there is no edge from a teaching assignment to an enrolment row. The only
+-- available predicates were department or programme, neither of which is a
+-- teaching relation.
+--
+-- Second, and decisively: the realistic faculty question against this table
+-- is an institution-wide aggregate ("how many students enrolled in each
+-- academic year?"). Under ANY scoped policy that query returns a smaller
+-- number with nothing marking it partial -- a plausible wrong answer.
+-- Closed, it returns zero rows, which is an obviously wrong answer. A loud
+-- wrong answer beats a quiet one, and result_sanity can catch an empty
+-- result but cannot catch a silently-narrowed count.
 ALTER TABLE student_enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_student_enrollments ON student_enrollments;
 CREATE POLICY rls_student_enrollments ON student_enrollments FOR SELECT USING (
@@ -109,8 +211,20 @@ CREATE POLICY rls_student_enrollments ON student_enrollments FOR SELECT USING (
 
 ALTER TABLE student_section_mapping ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_student_section_mapping ON student_section_mapping;
+-- student_section_mapping: section membership for the students this faculty
+-- member actually teaches. Scoped per STUDENT rather than per row, because a
+-- section mapping has no offering to attach a teaching relation to.
+--
+-- sections carries no faculty link at all -- no faculty_id, and nothing
+-- references it but this table -- so "sections I teach" is not expressible.
+-- The cohort reading (sections matching my offerings' programme, semester
+-- and year) was measured and rejected: it admits students in the cohort I do
+-- not teach, which is a wider relation wearing a narrower name.
 CREATE POLICY rls_student_section_mapping ON student_section_mapping FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    app.current_is_admin()
+    OR student_id = app.current_student_id()
+    OR student_id IN (SELECT t.student_id
+                        FROM app.current_faculty_taught_students() t)
 );
 
 -- ---------------------------------------------------------------------------

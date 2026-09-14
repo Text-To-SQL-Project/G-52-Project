@@ -134,6 +134,122 @@ every table, with no guard clause anyone could forget to write.
 
 ---
 
+## Who sees what: the faculty scope principle
+
+RLS decides which rows each principal reaches. *Which* rows a faculty member
+**should** reach is a product decision, not a schema one, and it was made
+explicitly rather than inherited from whatever the first policy happened to
+say. The principle, in one line each:
+
+- **Teaching-relevant data is scoped by the teaching relation.** A faculty
+  member sees a student's academic record where — and only where — they
+  teach it.
+- **Institutional facts are scoped by department.** A faculty member is
+  entitled to know who is in their department.
+- **Financial and placement data is closed entirely.** No teaching relation
+  grants it, because none is relevant to teaching.
+
+Applied to the eleven policied tables:
+
+| table | faculty relation | rows for `faculty1` |
+|---|---|---|
+| `students` | department | 311 |
+| `attendance` | act performed (rows they recorded) | 2,410 |
+| `marks` | teaching, per mark | 467 |
+| `student_section_mapping` | teaching, per student | 265 |
+| `faculty`, `faculty_subject_assignments` | directory; any bound session | 100 / 130 |
+| `fee_payments`, `library_transactions` | none — closed | 0 |
+| `placement_applications`, `placement_offers` | none — closed | 0 |
+| `student_enrollments` | none — closed, see below | 0 |
+
+### Three different relations, on purpose
+
+`attendance` is scoped by **the act performed** — the faculty member who
+recorded the row. `students` is scoped by **department**. `marks` and
+`student_section_mapping` are scoped by **teaching**. These are three
+different relations in one schema, and that is intentional rather than
+drift, because they answer three different questions:
+
+- *Whose attendance record is this?* — the person who took it is the person
+  accountable for it.
+- *Who is in my department?* — an institutional fact, true regardless of
+  what anyone teaches.
+- *Whose marks may I read?* — the ones I am responsible for assessing.
+
+Scoping all three by department would be simpler and wrong: it would let a
+lecturer read marks for students in subjects they have never taught. On the
+seeded data the department relation admits **5,352 marks against the
+teaching relation's 467**, an order of magnitude wider for no teaching
+purpose.
+
+That gap is also why every faculty isolation test asserts **row identity and
+never row count**. A policy accidentally written against the department
+relation still returns "some rows, fewer than admin" — exactly what a count
+assertion checks and passes. Only identity separates the two relations.
+`test_faculty_marks_are_not_the_department_relation` pins this directly: it
+finds marks in the faculty member's department that they teach nothing of,
+and asserts those are invisible.
+
+### "My students" is approximated, and the approximation errs closed
+
+`student_enrollments` records enrolment in a **programme and semester** and
+carries no `offering_id`. There is therefore no edge in this schema from a
+teaching assignment to an enrolled student. The teaching relation is
+reconstructed instead from **marks** — a student a faculty member has
+assessed in an offering they teach.
+
+Consequence, accepted: a student who is taught but not yet examined is not
+visible. That errs closed, which is the right direction, but it means the
+set grows as assessment happens rather than at enrolment time.
+
+### `student_enrollments` is closed, and the reason is the interesting part
+
+Two independent grounds, the second decisive.
+
+**The schema cannot express a teaching relation here**, per the missing
+edge above. The only available predicates were department or programme,
+neither of which is a teaching relation.
+
+**And a scoped policy here would be worse than no access.** The realistic
+faculty question against this table is an institution-wide aggregate — *how
+many students enrolled in each academic year?* Under **any** scoped policy
+that query returns a smaller number with nothing marking it partial. The
+faculty member reads a plausible answer to a question the system did not
+actually answer. Closed, the same query returns zero rows, which is visibly
+wrong.
+
+A loud wrong answer beats a quiet one. This is also a limit of
+`result_sanity`: an empty result trips a penalty, and a silently-narrowed
+count trips nothing at all. The honest failure is the one the detector can
+see.
+
+`test_faculty_enrollment_aggregate_is_empty_not_partial` pins the decision,
+so that adding a faculty branch here later fails a test and forces a reader
+back to this reasoning rather than quietly widening it.
+
+### The elevated helpers
+
+`app.current_faculty_offerings()` and `app.current_faculty_taught_students()`
+are `SECURITY DEFINER`, joining `app.current_faculty_department()`. Three
+properties matter:
+
+- **They take no arguments.** A helper taking a `student_id` would be a
+  boolean oracle a caller could steer — *do you teach student 87?* — and
+  generated SQL is attacker-influenced input. With no argument there is
+  nothing to steer.
+- **`search_path` is pinned**, so an elevated body cannot be redirected at a
+  different `faculty_subject_assignments`.
+- **Elevation buys independence.** `faculty_subject_assignments` carries its
+  own policy. Without `DEFINER`, narrowing that policy would silently narrow
+  what faculty see in `marks` — one table's policy changing another's
+  meaning, invisible until someone noticed missing rows.
+
+They return the empty set when `app.current_faculty_id()` is NULL, so a
+student or an unbound session matches nothing. Fail-closed, like every other
+accessor.
+
+---
+
 ## What the layers jointly do not cover
 
 Stated plainly, because these are the residual risks and the paper should
