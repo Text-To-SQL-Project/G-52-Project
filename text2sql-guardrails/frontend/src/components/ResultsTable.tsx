@@ -54,9 +54,33 @@ export function ResultsTable({ results, executed }: Props) {
       </header>
 
       {!executed || !results ? (
-        <p className="px-5 py-10 text-center text-sm text-white/30">Query not executed.</p>
+        <div className="px-5 py-12 text-center">
+          <p className="text-sm font-semibold text-white/65">Query not executed</p>
+          <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-relaxed text-white/40">
+            No SQL was run for this question.
+          </p>
+        </div>
       ) : results.rows.length === 0 ? (
-        <p className="px-5 py-10 text-center text-sm text-white/30">No rows returned.</p>
+        /* A successful query that matched nothing.
+         *
+         * THIS WORDING MUST NOT DEPEND ON WHY THE SET IS EMPTY, and the
+         * component is deliberately given no way to find out. A result can
+         * be empty because no such record exists, or because a row policy
+         * filtered every candidate away, and the two must be indistinguishable
+         * here. Saying anything like "some rows may be hidden" would confirm
+         * to the asker that rows they cannot see DO exist, which is exactly
+         * the inference Row Level Security is there to prevent -- a leak
+         * delivered by a helpful empty state.
+         *
+         * It is stated positively ("ran successfully") because the previous
+         * faint "No rows returned." was easy to read as a panel that had
+         * failed to render, which is its own kind of wrong answer. */
+        <div className="px-5 py-12 text-center">
+          <p className="text-sm font-semibold text-white/65">No matching records</p>
+          <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-relaxed text-white/40">
+            The query ran successfully and matched no rows.
+          </p>
+        </div>
       ) : (
         <div className="max-h-[30rem] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
