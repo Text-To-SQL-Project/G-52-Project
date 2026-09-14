@@ -4,7 +4,8 @@ PROJECT HISTORY
 ================================================================================
 
 LAST REGENERATED : 2026-09-15
-AGAINST COMMIT   : 1d7f2fd (W6: faculty scope by teaching relation)
+AGAINST COMMIT   : d4c69f9 (FINDINGS: seven instances in section 9, and the
+                   ECE discrepancy resolved)
 PREVIOUS REVISION: 2026-09-14, against e3a151b
 
     If the repository has moved past the commit named above, treat every
@@ -12,8 +13,8 @@ PREVIOUS REVISION: 2026-09-14, against e3a151b
     document that has silently drifted is worse than none, so this line is
     the first thing to read and the first thing to update.
 
-Compiled from the repository itself: git history (58 commits, 2026-08-15 to
-2026-09-15), eval/FINDINGS.md (840 lines, 13 sections), eval/README.md,
+Compiled from the repository itself: git history (62 commits, 2026-08-15 to
+2026-09-15), eval/FINDINGS.md (1028 lines, 14 sections), eval/README.md,
 docs/SECURITY_MODEL.md, the golden set, the results files, and the source as
 it stands on master.
 
@@ -36,11 +37,10 @@ estimated.
     first commit is invisible to the repository and therefore absent here.
     The phase structure below is the structure the commits actually show.
 
-    A second gap, found while compiling this: the sixth verification failure
-    described in section 5 (the eval RLS guard that was a no-op) is recorded
-    only in the message of commit 57611b2 and was never added to
-    eval/FINDINGS.md. That is a documentation gap in the repository, not in
-    this history.
+    A second gap, found while compiling the 2026-09-14 revision, has since
+    been closed. The eval RLS guard no-op was recorded only in commit
+    57611b2's message; it and a seventh instance are now written up in
+    eval/FINDINGS.md section 9, which carries all seven.
 
 
 ================================================================================
@@ -81,7 +81,7 @@ THE DUAL PURPOSE
     As a publishable contribution it is an evaluation artifact. The golden
     set, the scoring criteria, the calibration procedure and the findings log
     are the parts intended to survive review. This is why the repository
-    contains an 840-line findings document that spends as much space on
+    contains a 1,028-line findings document that spends as much space on
     measurements that turned out to be wrong as on ones that held.
 
 THE CLAIMED CONTRIBUTION
@@ -648,13 +648,12 @@ THE 0.649 DISCREPANCY, UNRESOLVED
     reports 0.121 for the same quantity. The discrepancy is unexplained and
     is recorded here as UNVERIFIED rather than resolved in either direction.
 
-SIX CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
+SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
 
-    FINDINGS.md documents five; a sixth was found on 2026-09-13 and is
-    recorded only in a commit message. All six share a shape: the check was
-    green, the green was honest about its own narrow assertion, and the gap
-    was between what was asserted and what a reader would conclude had been
-    verified.
+    All seven are written up in eval/FINDINGS.md section 9 as of
+    2026-09-15. They share a shape: the check was green, the green was
+    honest about its own narrow assertion, and the gap was between what was
+    asserted and what a reader would conclude had been verified.
 
     1. execution_match mislabelled correct answers as wrong. Name-based
        column projection produced a systematic one-directional labelling
@@ -705,8 +704,20 @@ SIX CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
        superuser connection that was correctly admitted either way; the
        exposure was that a misconfiguration would not have been caught.
 
-    RECORDED GAP: case 6 is not in eval/FINDINGS.md. It should be added
-    before the paper cites the section.
+    7. psql -f /dev/stdin inside docker compose exec, applying a policy
+       file. It printed SET, CREATE POLICY and GRANT and exited zero,
+       having applied nothing from the file. Every part of that output was
+       honest: statements really ran and really succeeded, but were read
+       from somewhere other than the file handed over. ON_ERROR_STOP=1
+       could not help, because there was no error -- there was no input.
+       Found on 2026-09-15 when patched policies did not take effect; cost
+       one debug cycle.
+
+    The through-line, stated in FINDINGS section 9 because it generalises
+    past all seven: VERIFY BY READING THE STATE BACK, NOT BY TRUSTING AN
+    EXIT CODE. An exit code reports whether a process failed, not whether
+    it did what was wanted, and the two diverge exactly when the input is
+    wrong rather than the operation.
 
 
 ================================================================================
@@ -759,8 +770,16 @@ SIX CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
         Calibration is doing substantial work under strict labels on both
         providers: 0.475 to 0.078 and 0.485 to 0.077.
 
-        See section 5 regarding the unexplained 0.118 versus 0.121
-        discrepancy for the Anthropic permissive held-out figure.
+        RESOLVED 2026-09-15 (FINDINGS section 14). The competing 0.118 was
+        never a calibrated result. It is the ECE of scores that had already
+        been through the isotonic curve while being labelled "RAW hand-tuned
+        score (no calibration)" by fit_calibration.py's own output -- the
+        double-calibration bug of section 5, reproduced today at 0.117 by
+        reconstructing the pre-fix path. Seed and split are ruled out: the
+        re-run matches the documented n=162 exactly. Cite 0.121, and the
+        paired calibrated held-out AUROC 0.564. The old paired AUROC 0.574
+        reproduced under neither path and is superseded with it, the same
+        class and era as the 0.649 above.
 
     SAFETY
                                                         Anthropic    Gemini
@@ -1222,25 +1241,17 @@ THE UNRESOLVED DESIGN DECISION: SURFACING BLOCKED SQL IN THE UI
 
 OTHER KNOWN OPEN ITEMS
 
-    - eval/FINDINGS.md does not record the sixth verification failure (the
-      eval RLS guard no-op). It should be added before the section is cited.
-    - A seventh instance of the same pattern, also unrecorded in FINDINGS:
-      `psql -f /dev/stdin < file` inside `docker compose exec` reports SET,
-      CREATE POLICY and GRANT, exits zero, and applies nothing from the file.
-      ON_ERROR_STOP=1 does not help, because there is no error -- there is no
-      input. Found on 2026-09-15 while applying the faculty policies; cost
-      one debug cycle. Now documented in docs/SECURITY_MODEL.md along with
-      the two-instance rule below.
     - Policy changes must be applied to BOTH PostgreSQL instances -- host
       5432, used by the test suite, and the container on 5433, used by the
       running API -- and verified separately by reading pg_policies on each.
       Applying to one leaves the other on the old policy with no error on
-      either side.
-    - The Admin endpoint serves fused_auroc=0.649, which FINDINGS says must
-      not be cited. The freeze was deliberate; the divergence is now a
-      demo-time hazard.
-    - README and the Admin endpoint report held-out ECE 0.118; FINDINGS
-      reports 0.121. Unexplained.
+      either side. Documented in docs/SECURITY_MODEL.md.
+    - OUTSTANDING ACTION: app/api/routes.py still serves fused_auroc=0.649
+      and held_out_ece=0.118, both of which FINDINGS says must not be cited.
+      Both were frozen deliberately and both are flagged in README.md, but
+      the Admin screen and FINDINGS now disagree on two figures and a
+      reviewer comparing them will find it. Retiring both is the last
+      numbers-related change outstanding.
     - multi_query_agreement remains disabled in production on evidence that
       holds in one of eight measured configurations.
     - Gemini repeats=2 and 3 are partial (78 and 79 records) and unused.
