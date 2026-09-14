@@ -327,19 +327,24 @@ For the paper: cite Anthropic's ablation as the primary result (inline
 collection, repeats=3, n=405) and Gemini's as a replication with this
 caveat attached, not as an independent confirmation of equal standing.
 
-## 9. Verification infrastructure passing for the wrong reason — a third instance
+## 9. Verification infrastructure passing for the wrong reason — seven instances
 
 Distinct from §6, which is about a *scoring definition* changing a
 conclusion. This one is about a check reporting success while not
-exercising the thing it appeared to exercise. Three instances so far, and
-the newest is not an eval finding at all, which is itself the point: the
-pattern is not confined to the metrics code.
+exercising the thing it appeared to exercise. **Seven instances so far**,
+and they are not confined to the metrics code: the set now includes a
+security guard, a shell redirect, and a test suite. That spread is itself
+the finding.
 
 | # | What claimed to be verified | What was actually happening |
 |---|---|---|
 | 1 | `execution_match()` decided predicted-vs-gold correctness | Name-based column projection systematically mislabelled correct aggregate answers as wrong (see `eval/README.md`, "Methodological finding") |
 | 2 | `fit_calibration.py` fit a calibrator on *raw* hand-tuned scores | Those scores had already been through an isotonic curve; a Gemini refit trained on Anthropic-calibrated input (§1) |
 | 3 | The test suite exercised the read-only execution path | Generated SQL in every host-side run executed **as a superuser** |
+| 4 | An RLS probe showed a CTE attack "did not leak" | Principal and victim owned the same row count, so `count(*)` matched through a total leak (§10) |
+| 5 | — *(caught prospectively)* | `eval/db_guard.py`: RLS would silently filter an eval run's rows rather than raise |
+| 6 | `assert_bypasses_rls()` guarded eval against a filtered connection | The guard returned early on **every** connection and asserted nothing, for a day |
+| 7 | `psql -f /dev/stdin < file.sql` applied a policy file | Reported each statement, exited zero, and applied **nothing from the file** |
 
 ### The third instance, in detail (2026-09-12)
 
@@ -405,18 +410,117 @@ because the pipeline noticed nothing wrong. The evaluation apparatus
 deserves the same scepticism: **absence of a failing test is not evidence
 that a control is present.**
 
-A fourth instance is recorded in §10, and it is the sharpest of the set:
-the first version of that finding used `count(*)` on a table where the
-principal and the victim happened to own the same number of rows, so a
-complete data leak read as "no leak". It was committed while writing this
-very section. The lesson is apparently not learnable once.
+### The fourth instance (2026-09-13) — a count that matched through a total leak
 
-A fifth was caught prospectively rather than retrospectively.
+Recorded in §10, and the sharpest of the set. The first version of that
+finding gave the principal and the victim two rows each and compared
+`count(*)`. A CTE attack shape returned 2 and was written up as "did not
+leak". It had leaked completely, returning the victim's two rows instead of
+the principal's. Caught only by re-running with unequal row counts and
+comparing row **identity**. It was committed while writing this very
+section. The lesson is apparently not learnable once.
+
+### The fifth instance (2026-09-12) — caught prospectively
+
 `eval/db_guard.py` exists because Row Level Security, once enabled, would
 filter an eval run's rows without raising anything — execution accuracy
 would drift to a new, entirely plausible number with nothing in the output
 to say why. That guard aborts the run instead. Same lesson, applied before
 it could cost anything.
+
+### The sixth instance (2026-09-13) — the guard from §9.5 was itself a no-op
+
+**What it was supposed to catch.** `assert_bypasses_rls()` is the
+enforcement behind the fifth instance above. An eval run must execute on a
+connection that RLS cannot filter, because a filtered run does not fail —
+it returns fewer rows and a new, plausible execution-accuracy number with
+nothing in the output to explain the drift. The guard's whole purpose is to
+abort rather than let a quietly-wrong baseline get published.
+
+**What it actually did.** It called
+`is_immune(..., problem_tables=[])` as shorthand for "this connection is a
+superuser or holds BYPASSRLS". But an empty `problem_tables` list means
+*ownership-based* immunity, and with nothing to check the call returned
+`True` for **every** connection. The function then returned early, every
+time. From `d1a89eb` until `57611b2` — about a day — the guard asserted
+nothing at all.
+
+**Why its tests passed throughout.** This is the part worth the space,
+because the tests were not sloppy:
+
+- The tests exercised `is_immune()` itself, a **pure decision function**,
+  across its cases. That function was correct then and is correct now. It
+  was never the bug.
+- Other tests asserted on the **source text** of `assert_bypasses_rls()` —
+  that it mentions the right role attributes. That assertion was also
+  correct. The source said the right things.
+- **Nothing asked what the function did.** No test called
+  `assert_bypasses_rls()` with a connection that *should* be rejected and
+  checked that it raised. The guard's only observable behaviour is a
+  refusal, and no test ever attempted the thing it was supposed to refuse.
+
+So a correct pure function plus a correct source-text assertion produced a
+green suite over a control that was doing nothing. The gap was not in
+either assertion; it was that neither was **behavioural**.
+
+**How it was found.** Not by a test. By re-reading the call site while
+writing up the fifth instance and noticing that the shorthand argument did
+not mean what the call site assumed. The fix (`57611b2`) added two
+behavioural tests, and — the part that matters — **the fix was verified by
+reintroducing the bug and confirming the new tests fail.** A test for a
+guard is worth only as much as its demonstrated ability to fail.
+
+**Blast radius: none, by luck.** Eval resolves to a superuser connection,
+which the guard would have admitted either way, so no published number is
+affected. The exposure was that a misconfigured run would not have been
+caught — the exact scenario the guard exists for.
+
+### The seventh instance (2026-09-15) — an honest command with the wrong input
+
+Applying the faculty-scope policies (§14's neighbouring work, commit
+`1d7f2fd`) to the container database:
+
+```bash
+docker compose exec -T db psql -U app -d college_erp -v ON_ERROR_STOP=1 \
+    -f /dev/stdin < seed/31_rls_policies.sql
+```
+
+This printed `SET`, `ALTER TABLE`, `DROP POLICY`, `CREATE POLICY`, `GRANT`
+— and exited zero. **It applied nothing from the file.** The new policies
+were absent afterwards; `pg_policies` still held the old expressions.
+
+Every part of that output was honest. Statements really were executed and
+really did succeed; psql reported each one accurately. The command simply
+read them from somewhere other than the file that was handed to it, and
+`ON_ERROR_STOP=1` offered no protection because **there was no error —
+there was no input.** Piping to stdin instead (`cat file | docker compose
+exec -T db psql ...`) works correctly.
+
+It cost one debug cycle: the policy file was patched, "applied", and the
+tests still showed the old behaviour, which looked like a policy-logic bug
+rather than an application failure. (Compounded by the two-instance split
+documented in `docs/SECURITY_MODEL.md` — the host and container databases
+must both be updated and both be verified.)
+
+**The generalisable lesson, and the reason this belongs here rather than in
+a shell-tips file:**
+
+> **Verify by reading the state back, not by trusting an exit code.**
+
+An exit code reports whether a process failed. It does not report whether
+the process did what you wanted, and the two diverge exactly when the input
+is wrong rather than the operation. The same shape recurs across all seven
+instances in this section: a green test that never ran the code
+(instance 3), a guard that returned early (instance 6), a count that
+matched through a leak (instance 4), a "raw" score that had been calibrated
+(instance 2). In every case the reported signal was truthful about
+something *other than* the question being asked.
+
+The verification that works is the one that interrogates the system
+afterwards and is capable of coming back negative: read `pg_policies` on
+each instance; ask the live connection which role it is; compare row
+identity rather than row count; reintroduce the bug and watch the test
+fail.
 
 ## 10. Generated SQL can rewrite the RLS session variable (2026-09-13)
 
@@ -838,3 +942,87 @@ differ between two users of the same schema. If it could, it is data.
 against the golden-set database for re-executing stored SQL where
 needed. `eval/results.jsonl` and `eval/results_gemini.jsonl` are both
 unmodified by any analysis in this document.*
+
+
+## 14. The 0.118 vs 0.121 held-out ECE discrepancy — reconciled (2026-09-15)
+
+Two different numbers were being published for the same quantity, the
+Anthropic held-out isotonic-calibrated ECE under permissive labels:
+
+| source | figure |
+|---|---|
+| `README.md`, `app/api/routes.py::held_out_ece`, `eval/README.md` | **0.118** (paired with AUROC 0.574) |
+| `eval/FINDINGS.md` §2 | **0.121** (paired with AUROC 0.564) |
+
+### What was re-run
+
+`eval/fit_calibration.py eval/results.jsonl --seed 42 --train-frac 0.6`,
+the documented procedure, with `--out`/`--plot` redirected to a scratch
+path so the production artifact was untouched (verified by md5 before and
+after: `e8a25bb5…` unchanged). No LLM calls; this path reads
+`eval/results.jsonl` only.
+
+```
+Held-out, RAW hand-tuned score (no calibration): AUROC=0.552  ECE=0.171 (n=162)
+Held-out, ISOTONIC-CALIBRATED:                   AUROC=0.564  ECE=0.121 (n=162)
+```
+
+`n=162` matches the documented split exactly (81 train / 54 test
+questions), so a split or seed mismatch is **ruled out** — unlike the §5
+investigation, the eligibility set is provably identical.
+
+### Where 0.118 came from
+
+The pre-fix path was reconstructed directly: take the same split, push both
+halves through the production isotonic curve *first*, then fit again on top
+— which is precisely what `fuse_confidence()` did before `4e9ac32` (§1).
+
+```
+                                              raw            calibrated
+A. corrected scorer (documented procedure)   0.552 / 0.171   0.564 / 0.121
+B. pre-fix path (pre-calibrated input)       0.564 / 0.117   0.564 / 0.121
+```
+
+**0.118 is row B's *raw* cell, not a calibrated result.** It is the ECE of
+scores that had already been through the isotonic curve while being labelled
+"RAW hand-tuned score (no calibration)" by `fit_calibration.py`'s own
+output — the exact mislabelling §1 documents. Reproduced today at 0.117
+against the recorded 0.118.
+
+So 0.118 never measured what it was published as. It is not a better
+calibration result; it is the double-calibration bug's artifact, read off
+the wrong row and promoted into the README, the Admin endpoint and the
+paper-facing summary.
+
+### What did not reconcile
+
+The paired **AUROC 0.574 could not be reproduced by either path** — both
+give 0.564. That residual is the same class and the same era as §5's
+in-sample 0.649 (reproduced at 0.625), with the same suspected and
+unconfirmed cause: `roc_auc_score` tie-handling across sklearn versions,
+with no record of which version was installed at the time
+(`sklearn==1.9.0` is pinned now). Not confirmed by rolling back, for the
+same reason given in §5.
+
+### For citation
+
+> **Use ECE 0.121 and calibrated held-out AUROC 0.564.** Both reproduce
+> today from a documented, re-runnable procedure on an identical split.
+> **0.118 and 0.574 are superseded and must not be cited.** 0.118 in
+> particular should not be described as a calibration result at all.
+
+`README.md` and `eval/README.md` have been corrected. `app/api/routes.py`
+still serves `held_out_ece=0.118` alongside `fused_auroc=0.649`, both
+deliberately frozen and both flagged in `README.md` — the same treatment
+0.649 received in `dece029`. **That freeze is now a demo hazard**: the
+Admin screen and this document disagree on two figures, and a reviewer
+comparing them will find it. Retiring both in `routes.py` is the
+outstanding action.
+
+### Note for §9
+
+This is instance 2's blast radius, one layer further out than §1 recorded.
+The double-calibration bug did not only affect the Gemini refit; it put a
+mislabelled figure into three user-facing surfaces, where it survived nine
+days and two documentation passes. A wrong number is more durable than the
+bug that produced it.

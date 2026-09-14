@@ -570,12 +570,22 @@ in the test split):
 
 | | AUROC | ECE |
 |---|---|---|
-| Raw hand-tuned score, same held-out split, uncalibrated | 0.557 | 0.172 |
-| Isotonic-calibrated | 0.574 | **0.118** |
+| Raw hand-tuned score, same held-out split, uncalibrated | 0.552 | 0.171 |
+| Isotonic-calibrated | 0.564 | **0.121** |
 
-0.118 is materially better than both the pre-expansion 5-signal ECE (0.267)
+> **Corrected 2026-09-15.** This table previously read 0.557/0.172 and
+> 0.574/**0.118**. The 0.118 was not a calibrated result at all: it was the
+> ECE of scores that had *already* been through the isotonic curve while
+> being labelled "raw" by `fit_calibration.py`'s own output — the
+> double-calibration bug of FINDINGS §1, reproduced today at 0.117. The
+> figures above are what the documented procedure produces now, on an
+> identical n=162 split. The old paired AUROC 0.574 could not be reproduced
+> by either path and is superseded along with it. Full reconciliation in
+> [FINDINGS.md](FINDINGS.md) §14.
+
+0.121 is materially better than both the pre-expansion 5-signal ECE (0.267)
 and the current in-sample 4-signal ECE (0.227), and calibration still helps
-over the *same-split* raw baseline (0.172 → 0.118), so the improvement
+over the *same-split* raw baseline (0.171 → 0.121), so the improvement
 isn't just an easier test split. On that basis the calibrator was wired
 into production: `app/detection/calibration.py` loads the fitted
 `app/detection/calibrator.joblib` artifact at first use (`lru_cache`d) and

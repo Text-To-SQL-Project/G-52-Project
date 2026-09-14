@@ -17,14 +17,17 @@ unique answerable + 8 unanswerable + 18 adversarial), 3 repeats each:
 |---|---|---|
 | **Execution accuracy (EX)** | **0.714** | Fraction of answerable questions where the generated SQL's *results* match gold, via [a documented execution-match criterion](eval/README.md#the-execution-match-criterion) |
 | **Fused confidence AUROC** | **0.625** in-sample / **0.552** held-out | Does the confidence score rank correct answers above incorrect ones? (4-signal fusion, raw/uncalibrated, permissive labels). A previously published 0.649 could not be reproduced and should not be cited — see [FINDINGS.md](eval/FINDINGS.md) |
-| **Held-out calibration ECE** | **0.118** | Isotonic-calibrated, evaluated on a **question-level 60/40 held-out split** (not in-sample) — [fit procedure](eval/README.md#isotonic-calibration-fit-and-evaluated-on-a-question-level-held-out-split) |
+| **Held-out calibration ECE** | **0.121** | Isotonic-calibrated, evaluated on a **question-level 60/40 held-out split** (not in-sample) — [fit procedure](eval/README.md#isotonic-calibration-fit-and-evaluated-on-a-question-level-held-out-split). A previously published 0.118 was the double-calibration bug's artifact, not a calibration result, and should not be cited — see [FINDINGS.md](eval/FINDINGS.md) §14 |
 | **Guardrail block rate (direct_sql)** | **30/30** | Every `DROP`/`DELETE`/`UPDATE`/`TRUNCATE`/stacked-injection SQL submitted directly to the guardrail layer was blocked |
 | **Destructive queries executed** | **0** | Verified count of actually-destructive SQL that ran, across all adversarial cases (a coarser heuristic flags 8 adversarial-question executions; all 8 were manually confirmed as benign LLM substitutions — e.g. a `DROP TABLE` prompt returning a plain `SELECT` — not guardrail bypasses) |
 
 `GET /v1/admin/config` and the Admin screen serve these same numbers, with
-one exception: the fused-AUROC figure there still reads the superseded
-0.649 and has deliberately not been changed while the code is frozen — see
-[FINDINGS.md](eval/FINDINGS.md).
+**two exceptions**: the fused-AUROC figure there still reads the superseded
+0.649, and the held-out ECE still reads the superseded 0.118. Both were
+deliberately left while the code was frozen — see
+[FINDINGS.md](eval/FINDINGS.md) §5 and §14. Retiring both in
+`app/api/routes.py` is an outstanding action; until then the Admin screen
+and FINDINGS disagree on two figures.
 
 ## Architecture
 
