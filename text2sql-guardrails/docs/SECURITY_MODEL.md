@@ -250,6 +250,54 @@ accessor.
 
 ---
 
+## Applying a policy change: two instances, both of them
+
+**There are two PostgreSQL instances, and a policy change must be applied to
+both and verified separately.**
+
+| instance | reached at | used by |
+|---|---|---|
+| host | `localhost:5432` | the test suite, and anything run from the host venv |
+| container (`db` service) | `localhost:5433` from the host, `db:5432` inside the compose network | the running API |
+
+Applying `seed/31_rls_policies.sql` to one leaves the other on the old
+policy. The failure is quiet in the worst way: the tests pass against a host
+database that has the change while the live app enforces the old rules, or
+the reverse — the app behaves correctly in a demo while the suite asserts
+against stale policy. Neither side errors.
+
+Apply, then verify each independently:
+
+```bash
+# container
+cat seed/31_rls_policies.sql | docker compose exec -T db psql -U app -d college_erp -v ON_ERROR_STOP=1
+# host
+./venv/Scripts/python.exe -c "import io; from app.db import get_engine; \
+  get_engine().begin().__enter__().exec_driver_sql(io.open('seed/31_rls_policies.sql', encoding='utf-8').read())"
+# then read the policy back from BOTH, not just the one you changed last
+```
+
+### `psql -f /dev/stdin` is a silent no-op here
+
+```bash
+docker compose exec -T db psql ... -f /dev/stdin < file.sql   # DO NOT
+cat file.sql | docker compose exec -T db psql ...             # do this
+```
+
+The first form reports `SET`, `CREATE POLICY`, `GRANT` and exits zero while
+applying nothing from the file. `ON_ERROR_STOP=1` does not help, because
+there is no error — there is no input.
+
+This belongs in the same family as the six cases in `eval/FINDINGS.md` §9:
+**a check that succeeded and did nothing.** The command's own output is
+honest about each statement it ran; it simply ran statements from somewhere
+other than the file you passed. As everywhere else in this project, the
+verification that works is reading the state back from the system itself —
+here, `pg_policies` on each instance — rather than trusting the exit code of
+the thing that was supposed to change it.
+
+---
+
 ## What the layers jointly do not cover
 
 Stated plainly, because these are the residual risks and the paper should
