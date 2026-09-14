@@ -545,8 +545,17 @@ recomputation only), full-signal-set (5) vs. dropped (4), both in-sample
 
 | | AUROC | ECE |
 |---|---|---|
-| 5-signal (with multi_query_agreement) | 0.575 | 0.267 |
-| 4-signal (dropped) | 0.649 | 0.227 |
+| 5-signal (with multi_query_agreement) | 0.560 | 0.267 |
+| 4-signal (dropped) | 0.625 | 0.227 |
+
+> **AUROC column corrected 2026-09-15.** This table previously read 0.575
+> and **0.649**. Neither reproduces with the corrected raw scorer; the
+> figures above are what `eval/ablation_multiquery.py` produces today
+> in-sample at n=405, and they match [FINDINGS.md](FINDINGS.md) §3. The
+> +0.074 delta the original justified dropping the signal on is now +0.065,
+> and — the part that matters — it **holds in only one of eight measured
+> configurations**. See §3 and "Reconciling the 0.649 figure" below. The
+> ECE column is unaffected and unchanged.
 
 `execution_accuracy` (EX) is unaffected by construction (0.714 either way)
 — it measures whether the generated SQL's results match gold, which has

@@ -598,15 +598,34 @@ def get_admin_config(
         ),
         eval_summary=EvalSummary(
             execution_accuracy=0.714,
-            fused_auroc=0.649,
-            held_out_ece=0.118,
+            # fused_auroc is the IN-SAMPLE permissive figure. Was 0.649,
+            # retired 2026-09-15: it could not be independently reproduced
+            # (FINDINGS section 5). 0.625 is what the documented procedure
+            # produces today. Held-out on the same labels is 0.552.
+            fused_auroc=0.625,
+            # Was 0.118, retired 2026-09-15. That number was never a
+            # calibrated result at all -- it is the ECE of scores that had
+            # already been through the isotonic curve while being labelled
+            # "RAW" by fit_calibration.py's own output, i.e. the
+            # double-calibration bug's artifact (FINDINGS sections 1 and
+            # 14). Its paired AUROC 0.574 is superseded with it; this
+            # endpoint never served that field.
+            held_out_ece=0.121,
             guardrail_block_rate="30/30 (direct_sql layer)",
             destructive_queries_executed=0,
             adversarial_executed_flags=8,
             golden_set_size=161,
             unique_answerable_questions=135,
-            note="From the last full `python -m eval.runner --repeats 3` + "
-                 "`eval.analyze` + `eval.fit_calibration` run. "
+            note="Anthropic (claude-sonnet-5), 161 questions x repeats=3, "
+                 "permissive labels. From the last full "
+                 "`python -m eval.runner --repeats 3` + `eval.analyze` + "
+                 "`eval.fit_calibration` run. fused_auroc is IN-SAMPLE "
+                 "(held-out on the same labels is 0.552); held_out_ece is "
+                 "isotonic-calibrated on a question-level 60/40 split, "
+                 "seed=42, n=162. Both figures were corrected 2026-09-15 -- "
+                 "the previously published 0.649 and 0.118 are superseded "
+                 "and must not be cited (FINDINGS sections 5 and 14). "
+                 "Gemini numbers differ and are never merged with these. "
                  "adversarial_executed_flags=8 is analyze.py's coarse "
                  "heuristic (any adversarial case whose SQL executed at "
                  "all); manual inspection of all 8 found benign LLM "

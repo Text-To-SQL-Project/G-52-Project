@@ -339,7 +339,7 @@ the finding.
 | # | What claimed to be verified | What was actually happening |
 |---|---|---|
 | 1 | `execution_match()` decided predicted-vs-gold correctness | Name-based column projection systematically mislabelled correct aggregate answers as wrong (see `eval/README.md`, "Methodological finding") |
-| 2 | `fit_calibration.py` fit a calibrator on *raw* hand-tuned scores | Those scores had already been through an isotonic curve; a Gemini refit trained on Anthropic-calibrated input (§1) |
+| 2 | `fit_calibration.py` fit a calibrator on *raw* hand-tuned scores | Those scores had already been through an isotonic curve; a Gemini refit trained on Anthropic-calibrated input (§1), **and a mislabelled ECE reached three user-facing surfaces** (§14) |
 | 3 | The test suite exercised the read-only execution path | Generated SQL in every host-side run executed **as a superuser** |
 | 4 | An RLS probe showed a CTE attack "did not leak" | Principal and victim owned the same row count, so `count(*)` matched through a total leak (§10) |
 | 5 | — *(caught prospectively)* | `eval/db_guard.py`: RLS would silently filter an eval run's rows rather than raise |
@@ -521,6 +521,56 @@ afterwards and is capable of coming back negative: read `pg_policies` on
 each instance; ask the live connection which role it is; compare row
 identity rather than row count; reintroduce the bug and watch the test
 fail.
+
+### Instance 2 again, one layer out: when the bad value outlives the bug
+
+§1 recorded the double-calibration bug's effect on *re-derivations* — the
+Gemini refit trained on Anthropic-calibrated input. **§14 records the part
+that reached users**, and it belongs in this section rather than only in
+the calibration one, because the mechanism is this section's mechanism and
+not §1's.
+
+`fit_calibration.py` printed its held-out baseline under the label
+
+```
+Held-out, RAW hand-tuned score (no calibration): ...  ECE=0.118
+```
+
+The number was real. The computation ran. The script did not fail, warn, or
+behave oddly in any way. **Only the word `RAW` was false** — those scores
+had already been through the production isotonic curve. Anyone reading that
+line had no way to tell, because the only thing that was wrong was the one
+thing the output asserted about itself.
+
+0.118 was then read off that line and written into `README.md`,
+`eval/README.md` and `app/api/routes.py`'s `held_out_ece`, where the Admin
+screen served it to anyone who opened the page. It was cited as a headline
+calibration result for **nine days and across two documentation passes**,
+including one pass whose explicit purpose was correcting stale figures.
+
+Two things make this the sharpest instance in the set:
+
+1. **It is the only one where the wrong value escaped the tooling and
+   reached user-facing surfaces.** Instances 1, 3, 6 and 7 produced wrong
+   *confidence* in a control or a label. This one produced a wrong
+   *number*, published under a headline.
+2. **The bug was fixed nine days before the number was.** `4e9ac32` fixed
+   the double calibration on 2026-09-03. The figure it had produced
+   survived until 2026-09-15, propagating through three surfaces the entire
+   time, because nothing connected "that function was wrong" to "therefore
+   every number it printed is suspect."
+
+> **A wrong number is more durable than the bug that produced it.** Fixing
+> the code does not retract its output. When a computation is found to have
+> been wrong, the fix is incomplete until every figure it produced has been
+> traced to where it was published and either reproduced or retired.
+
+This is also why §14 reconstructs the pre-fix path rather than simply
+declaring 0.118 unreproducible. Re-deriving it (0.117 against the recorded
+0.118) is what turns "we cannot reproduce this" into "we know exactly what
+this measured, and it was not what the label said" — the difference between
+a discrepancy and an explanation. Compare §5, where the residual 0.649
+genuinely could not be explained and is reported as open.
 
 ## 10. Generated SQL can rewrite the RLS session variable (2026-09-13)
 
@@ -1021,8 +1071,11 @@ outstanding action.
 
 ### Note for §9
 
-This is instance 2's blast radius, one layer further out than §1 recorded.
-The double-calibration bug did not only affect the Gemini refit; it put a
+This is instance 2's blast radius, one layer further out than §1 recorded,
+and it is written up there as its own case — see **§9, "Instance 2 again,
+one layer out: when the bad value outlives the bug"**. The short version:
+the double-calibration bug did not only affect the Gemini refit; it put a
 mislabelled figure into three user-facing surfaces, where it survived nine
-days and two documentation passes. A wrong number is more durable than the
-bug that produced it.
+days and two documentation passes. The bug was fixed on 2026-09-03; the
+number it produced was not retired until 2026-09-15. **A wrong number is
+more durable than the bug that produced it.**

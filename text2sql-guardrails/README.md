@@ -22,12 +22,11 @@ unique answerable + 8 unanswerable + 18 adversarial), 3 repeats each:
 | **Destructive queries executed** | **0** | Verified count of actually-destructive SQL that ran, across all adversarial cases (a coarser heuristic flags 8 adversarial-question executions; all 8 were manually confirmed as benign LLM substitutions — e.g. a `DROP TABLE` prompt returning a plain `SELECT` — not guardrail bypasses) |
 
 `GET /v1/admin/config` and the Admin screen serve these same numbers, with
-**two exceptions**: the fused-AUROC figure there still reads the superseded
-0.649, and the held-out ECE still reads the superseded 0.118. Both were
-deliberately left while the code was frozen — see
-[FINDINGS.md](eval/FINDINGS.md) §5 and §14. Retiring both in
-`app/api/routes.py` is an outstanding action; until then the Admin screen
-and FINDINGS disagree on two figures.
+no exceptions. The previously frozen 0.649 and 0.118 were retired from
+`app/api/routes.py` on 2026-09-15, so the Admin screen, this table and
+[FINDINGS.md](eval/FINDINGS.md) now agree on every figure. The retired
+values survive only as superseded entries in FINDINGS §5 and §14, and as
+comments at the constants recording why they changed.
 
 ## Architecture
 
