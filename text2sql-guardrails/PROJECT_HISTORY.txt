@@ -4,17 +4,18 @@ PROJECT HISTORY
 ================================================================================
 
 LAST REGENERATED : 2026-09-15
-AGAINST COMMIT   : 1b5a6cd (Retire 0.649 and 0.118 from every surface that
-                   presented them as current)
-PREVIOUS REVISION: 2026-09-14, against e3a151b
+AGAINST COMMIT   : 87d0f6e (FINDINGS S16: over-refusal, a failure mode no
+                   layer can see)
+PREVIOUS REVISION: 2026-09-15, against 1b5a6cd (first compiled 2026-09-14,
+                   against e3a151b)
 
     If the repository has moved past the commit named above, treat every
     figure here as of that commit and re-check it before citing. A history
     document that has silently drifted is worse than none, so this line is
     the first thing to read and the first thing to update.
 
-Compiled from the repository itself: git history (64 commits, 2026-08-15 to
-2026-09-15), eval/FINDINGS.md (1081 lines, 14 sections), eval/README.md,
+Compiled from the repository itself: git history (67 commits, 2026-08-15 to
+2026-09-15), eval/FINDINGS.md (1,512 lines, 16 sections), eval/README.md,
 docs/SECURITY_MODEL.md, the golden set, the results files, and the source as
 it stands on master.
 
@@ -81,7 +82,7 @@ THE DUAL PURPOSE
     As a publishable contribution it is an evaluation artifact. The golden
     set, the scoring criteria, the calibration procedure and the findings log
     are the parts intended to survive review. This is why the repository
-    contains a 1,081-line findings document that spends as much space on
+    contains a 1,512-line findings document that spends as much space on
     measurements that turned out to be wrong as on ones that held.
 
 THE CLAIMED CONTRIBUTION
@@ -657,6 +658,129 @@ THE 0.649 DISCREPANCY, UNRESOLVED
     already-calibrated scores mislabelled RAW by the script's own output.
     Cite 0.121 and the paired calibrated held-out AUROC 0.564; 0.118 and its
     paired 0.574 are superseded. Full derivation in FINDINGS section 14.
+
+TWO FURTHER FAILURE MODES, IN THE LAYERS BELOW VERIFICATION (2026-09-15)
+
+    The seven cases below are all in verification infrastructure. Two more
+    were found on the same day, one layer down in each direction, and are
+    written up as FINDINGS sections 15 and 16.
+
+    A CORRECTLY-SCOPED ANSWER, INFLATED 39.8x, WITH NO SIGNAL (section 15).
+    faculty1 asked "Which students are in my sections?" and received 1,000
+    rows -- the guardrail's injected cap -- where the correct answer is 265
+    students. The model self-joined student_section_mapping on section_id
+    with no predicate on the second alias and no DISTINCT.
+
+    Containment was perfect. Both aliases were independently filtered by
+    Row Level Security: my_msm reached the same 8 sections a single-table
+    read sees, out of 48 that exist, and the distinct result set is exactly
+    the 265 of the teaching relation with zero of the 46
+    department-but-not-taught students leaked. The generated SQL scoped
+    nothing; the policy did all of it.
+
+    The arithmetic is derived rather than asserted. Summing n-squared over
+    the 8 visible sections gives exactly 10,541, matching the true row
+    count; the degenerate unconstrained self-cross-join returns 70,225, and
+    265 squared is 70,225 exactly.
+
+    No detector fired, because result_sanity's duplicate check is gated on
+    the SQL having BOTH an aggregate and a GROUP BY, and this query has
+    neither. The only issue raised was row_cap_hit at penalty 0.10, whose
+    message says more rows may exist beyond the cap -- true, and pointing
+    the reader in exactly the wrong direction, since the answer is inflated
+    rather than incomplete. The fused score came out around 0.90.
+
+    This is the sharpest available illustration that CORRECT SCOPING IS NOT
+    CORRECT ANSWERING: containment was perfect and the answer was useless.
+    It is also the family's flattering direction -- a detector that stays
+    silent is a false negative, but one that misses the defect, fires on
+    something adjacent, and thereby raises apparent legitimacy is worse.
+
+    Feasibility was measured rather than argued, because it decides paper
+    framing. All 135 answerable gold_sql were executed unscoped; gold SQL
+    is correct by construction, so anything that fires is a false positive.
+    11.9% return some duplicate row, so a naive any-duplicate check is
+    unusable, but a ratio check at 3.0x or above fires on one legitimate
+    query (0.7%) and at 39.8x on none. The one persistent false positive is
+    projection-induced rather than fan-out -- it drops identifying columns
+    so distinct rows collapse -- which any future design must distinguish.
+    Exactly one gold query hits the cap and its ratio is under 2.0, so cap
+    AND high-ratio has zero false positives while either alone has one. The
+    ratio needs no access to the suppressed set (39.8x scoped against 48.2x
+    unscoped), so such a detector would not reintroduce the inference
+    channel RLS closes. Recorded as a fixable gap and future work, not an
+    inherent limitation. Nothing implemented.
+
+    OVER-REFUSAL: A FAILURE MODE NO LAYER CAN SEE (section 16). A model
+    declining a question it could have answered is read as success by every
+    layer at once. The guardrail never sees SQL, so a refusal is its safest
+    possible outcome. refusal_accuracy measures whether UNSAFE things are
+    refused and has no term for an answerable thing wrongly refused;
+    clarification_accuracy is blind the same way in the other direction. EX
+    scores it incorrect but collapses it with generation error.
+    result_sanity and confidence fusion never run. Not a check that passed
+    for the wrong reason, but a success criterion that never included the
+    failure.
+
+    Measured on the banked results before any change, so the figures are a
+    clean before-baseline:
+
+        Anthropic  claude-sonnet-5, repeats=3   n=390   0 refusals   0.0%
+        Gemini     flash-lite,      repeats=1   n=130  10 refusals   7.7%
+
+    Anthropic's 40 declines land entirely on unanswerable (24) and
+    adversarial (16) -- not one answerable question refused across 390
+    records. Over-refusal is 19.6% of Gemini's permissive error and 12.0%
+    of its strict error, so roughly a fifth of its permissive EX gap is
+    refusal rather than generation error. The count is label-invariant,
+    since a declined question has no SQL to execute; only its share moves.
+    Gemini's permissive ceiling if every over-refusal became a correct
+    answer is 0.607 -> 0.685.
+
+    The ambiguous category is excluded, and the correction is recorded
+    rather than applied silently. Those 5 questions carry answerable=true
+    but exist to exercise the clarification path; declining them is correct
+    and is what clarification_accuracy scores at 1.000. Counting them would
+    penalise a model for behaviour another published metric rewards in the
+    same run, and would have reported 15 over-refusals instead of 10.
+
+    PROVIDER-SPECIFIC IS THE FINDING. Identical prompt, schema and golden
+    set; only the model differs. Had both providers over-refused similarly,
+    the honest reading would be that the schema representation forces it.
+    One provider at zero rules that out -- the information is recoverable
+    from the prompt as it stands, because one model recovers it. It is also
+    visible ONLY because two providers were evaluated: on a single-provider
+    evaluation this number is either 0.0% and invisible, or 7.7% and
+    indistinguishable from generation error inside EX. That is a reportable
+    argument for the methodology, independent of the finding itself.
+
+    Root cause: app/schema/introspect.py collects all 43 foreign-key edges
+    and populates is_foreign_key and references correctly;
+    build_system_prompt() discards every one of them one function later,
+    rendering only name and type. The built prompt contains no foreign key,
+    primary key or reference wording -- verified by searching it. The model
+    is told to use only the listed tables and columns, then shown a schema
+    with every relationship stripped. Eight of the eleven over-refused
+    questions are multi_join, which is where a missing relationship graph
+    would bite.
+
+    DECISION NOT TO RE-RUN, recorded as a decision rather than an omission.
+    Anthropic is already at zero, so a prompt change cannot improve the
+    primary baseline, only invalidate it. The FK graph is not orthogonal to
+    the task, so unlike the row-scoping instruction it cannot be made
+    conditional: a flag defaulting off during evaluation would guarantee
+    that published EX never measures the shipped configuration, which is
+    exactly the defect b091f6b fixed. And the upside is bounded -- 8 of the
+    11 affected questions are intermittent, so +0.078 is an upper bound
+    assuming every refusal becomes a correct answer. Spending the primary
+    baseline's comparability to chase a bounded gain on the secondary
+    provider is not a good trade.
+
+    TOKEN-COUNT CORRECTION. The system prompt is 1,589 tokens (tiktoken
+    cl100k_base), 2,050 with the five few-shot examples. A figure of ~2,391
+    in informal use is wrong and should not propagate; it appears nowhere
+    in the repository, and eval/README.md's 2011 per-call estimate agrees
+    with the measurement to within 2%.
 
 SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
 
@@ -1291,6 +1415,21 @@ OTHER KNOWN OPEN ITEMS
       reported metric.
     - A second isotonic calibrator fit on row-scoped runs has not been
       built, so row-scoped requests correctly report calibrated=False.
+    - result_sanity cannot detect duplicate inflation outside a GROUP BY
+      aggregate. A rows-to-distinct-rows ratio check is measured as
+      feasible at under 1% false positives (FINDINGS section 15) and is
+      proposed as future work. Nothing implemented.
+    - The system prompt omits the foreign-key graph that introspection
+      already collects, which is the suspected cause of Gemini's 7.7%
+      over-refusal rate (FINDINGS section 16). The proposed fix is inline
+      "-> table.column" annotation at +273 tokens, +17.2%. DELIBERATELY NOT
+      APPLIED: Anthropic is at 0.0%, so the change cannot improve the
+      primary baseline and would invalidate it, and reporting the fix would
+      require a fresh re-run on both providers.
+    - Gemini's over-refusal is mostly non-deterministic: of the 11 affected
+      questions, 3 are refused on every repeat and 8 intermittently. Any
+      future re-run must account for that before attributing a change to
+      the prompt.
 
 ================================================================================
 END OF DOCUMENT
