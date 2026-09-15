@@ -4,9 +4,9 @@ PROJECT HISTORY
 ================================================================================
 
 LAST REGENERATED : 2026-09-15
-AGAINST COMMIT   : 87d0f6e (FINDINGS S16: over-refusal, a failure mode no
-                   layer can see)
-PREVIOUS REVISION: 2026-09-15, against 1b5a6cd (first compiled 2026-09-14,
+AGAINST COMMIT   : 89654c8 (FINDINGS S18: the guard against instance 6,
+                   containing instance 6)
+PREVIOUS REVISION: 2026-09-15, against 87d0f6e (first compiled 2026-09-14,
                    against e3a151b)
 
     If the repository has moved past the commit named above, treat every
@@ -14,8 +14,8 @@ PREVIOUS REVISION: 2026-09-15, against 1b5a6cd (first compiled 2026-09-14,
     document that has silently drifted is worse than none, so this line is
     the first thing to read and the first thing to update.
 
-Compiled from the repository itself: git history (67 commits, 2026-08-15 to
-2026-09-15), eval/FINDINGS.md (1,512 lines, 16 sections), eval/README.md,
+Compiled from the repository itself: git history (70 commits, 2026-08-15 to
+2026-09-15), eval/FINDINGS.md (1,868 lines, 18 sections), eval/README.md,
 docs/SECURITY_MODEL.md, the golden set, the results files, and the source as
 it stands on master.
 
@@ -82,7 +82,7 @@ THE DUAL PURPOSE
     As a publishable contribution it is an evaluation artifact. The golden
     set, the scoring criteria, the calibration procedure and the findings log
     are the parts intended to survive review. This is why the repository
-    contains a 1,512-line findings document that spends as much space on
+    contains a 1,868-line findings document that spends as much space on
     measurements that turned out to be wrong as on ones that held.
 
 THE CLAIMED CONTRIBUTION
@@ -782,9 +782,77 @@ TWO FURTHER FAILURE MODES, IN THE LAYERS BELOW VERIFICATION (2026-09-15)
     in the repository, and eval/README.md's 2011 per-call estimate agrees
     with the measurement to within 2%.
 
-SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
+A SECURITY CONTROL THAT WAS ONLY CHEAP AT SMALL N (2026-09-15)
 
-    All seven are written up in eval/FINDINGS.md section 9 as of
+    A scoped count over attendance took 54 SECONDS. Recorded as FINDINGS
+    section 17, and it changes how section 7's overhead figure should be
+    read.
+
+    The policies called app.current_session() once per row, twice over. That
+    function returns a composite type with a subquery in its body, so
+    PostgreSQL cannot inline it: every call planned and executed a nested
+    query at 526 microseconds. Neither underlying lookup was the cost --
+    pg_stat_activity and session_map measure 4.8 and 4.6 microseconds. The
+    cost was the invocation, multiplied by rows. It was uniform across every
+    policied table at roughly 235 microseconds per row and entirely absent
+    from unpolicied ones, which returned in 8 to 10 milliseconds.
+
+    THE EARLIER MEASUREMENT WAS HONEST AND WAS NOT WRONG. The 3.26 ms median
+    overhead reported for the session-binding control is accurate. It
+    measured a bound request returning a handful of rows, which is what the
+    application normally does. The claim it could not support is the one a
+    reader takes away -- that the control is cheap. It is cheap per row, and
+    a scan multiplies it by the table. This is the section 9 family on a new
+    axis: a gap between MICROBENCHMARK AND PRODUCTION SCALE, where the
+    measurement was right and the extrapolation was never made. A per-row
+    cost is invisible in every measurement that does not scan.
+
+    THE MISCONCEPTION WORTH RECORDING. The natural diagnosis is that the
+    accessors must be missing a volatility marker, since a STABLE function
+    with constant arguments should be evaluated once. All eight were already
+    STABLE, which made it look like a planner bug. It is not. STABLE IS A
+    PROMISE, NOT AN INSTRUCTION: it guarantees one value per statement,
+    which licenses index use, and nothing more. PostgreSQL re-invokes a bare
+    call in a qual once per row whatever its volatility class. Only a
+    SUBQUERY becomes an InitPlan evaluated once. That is why
+    current_faculty_offerings() was already hoisted -- it sits in the FROM
+    of a subquery -- while current_student_id() beside it was not. Three
+    candidate causes were considered and all three are wrong: not the
+    composite return type, not the subquery in the function body, not a
+    missing marker. The call site's syntactic form is what decides.
+
+    THE FIX was policy text only: 26 scalar accessor call sites across 11
+    policies wrapped in (SELECT ...). No change to the 8 accessors, to
+    app.session_map, to session_scope.py, or to any application code. The
+    two set-returning accessors are deliberately left unwrapped, since they
+    already sit in the FROM of a subquery.
+
+        table         principal     before      after    speedup
+        ---------------------------------------------------------
+        marks         faculty1     9,410 ms     27 ms       352x
+        marks         student1    10,177 ms     20 ms       520x
+        attendance    faculty1    54,112 ms     54 ms      1002x
+        attendance    student1     9,627 ms     49 ms       197x
+        students      faculty1     6,324 ms     17 ms       383x
+
+    The test suite fell from 693 seconds to roughly 50. The isolation tests
+    were paying the same per-row cost on every assertion, and an 11-minute
+    suite had not been read as a symptom of anything.
+
+    ISOLATION IS UNCHANGED, and was verified rather than assumed. Fail-closed
+    is preserved: a NULL InitPlan result still makes the comparison NULL, and
+    an unbound session sees zero rows on every table. No mutable GUC is
+    involved; identity still resolves through session_map keyed on (pid,
+    backend_start). Evaluating once per statement is correct because both are
+    fixed for the life of the backend -- the same fact that justifies STABLE.
+    Row identity was re-checked rather than row counts, and the
+    four-principal table is unchanged: students 1/311/2000, marks
+    19/467/40000, attendance 79/2410/150000, section mapping 1/265/2000, with
+    all five closed tables returning the empty set.
+
+EIGHT CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
+
+    All eight are written up in eval/FINDINGS.md section 9 as of
     2026-09-15. They share a shape: the check was green, the green was
     honest about its own narrow assertion, and the gap was between what was
     asserted and what a reader would conclude had been verified.
@@ -869,11 +937,50 @@ SEVEN CASES OF VERIFICATION INFRASTRUCTURE PASSING FOR THE WRONG REASON
        Found on 2026-09-15 when patched policies did not take effect; cost
        one debug cycle.
 
+    8. A guard asserting that every Row Level Security accessor call was
+       hoisted, whose predicate matched the hoisted form TOO. It tested
+       substring presence, and PostgreSQL's deparse of a hoisted call still
+       contains that substring -- "( SELECT app.current_is_admin() AS
+       current_is_admin)". The check could not distinguish compliant from
+       violating input. It was not a weak check; it carried no information
+       about the property it named, and would have passed on every possible
+       input.
+
+       Recorded in full as FINDINGS section 18 because it is the sharpest
+       of the set: a guard written SPECIFICALLY to prevent case 6's failure
+       mode, containing case 6's failure mode, by the same author, inside
+       the same working session in which that phenomenon was the explicit
+       subject of attention. The pattern is not a knowledge gap.
+
+       Caught not by a test but by a number that could not be true: the
+       check reported 11 bare calls against policies rewritten seconds
+       earlier and verified by eye. Reading the stored expression confirmed
+       the wrapping was correct and the check was reporting on itself.
+
     The through-line, stated in FINDINGS section 9 because it generalises
-    past all seven: VERIFY BY READING THE STATE BACK, NOT BY TRUSTING AN
+    past all eight: VERIFY BY READING THE STATE BACK, NOT BY TRUSTING AN
     EXIT CODE. An exit code reports whether a process failed, not whether
     it did what was wanted, and the two diverge exactly when the input is
     wrong rather than the operation.
+
+    And the rule that case 8 forced, which generalises further:
+
+        A GUARD MUST BE DEMONSTRATED TO FAIL ON A CONSTRUCTED VIOLATION AND
+        TO PASS ON A CONSTRUCTED COMPLIANCE. SATISFIABILITY IS NOT EVIDENCE.
+
+    Both halves catch different bugs. Failing on a constructed violation
+    catches the guard that asserts nothing, as in case 6, which returned
+    early on every input. Passing on a constructed compliance catches the
+    guard that asserts everything, as in case 8, which would block every
+    correct change while appearing vigilant. A guard that only ever fails is
+    as uninformative as one that only ever passes; both are constant
+    functions. The test of a guard is that it is a function of the property,
+    and the only way to show that is to exhibit both of its outputs.
+
+    The mitigation that has actually worked across all eight is not more
+    tests. It is treating an implausible number as a defect in the
+    measurement until proven otherwise, and requiring every guard to exhibit
+    both outputs before it is trusted.
 
 
 ================================================================================
@@ -1430,6 +1537,17 @@ OTHER KNOWN OPEN ITEMS
       questions, 3 are refused on every repeat and 8 intermittently. Any
       future re-run must account for that before attributing a change to
       the prompt.
+    - (Closed 2026-09-15.) Scoped queries were linear in rows scanned at
+      roughly 235 microseconds per row, because policies re-invoked a
+      non-inlinable accessor per row. Fixed by hoisting every scalar
+      accessor call into a scalar subquery; attendance went from 54,112 ms
+      to 54 ms. Guarded by
+      tests/test_rls_policies.py::test_every_policy_hoists_its_accessors,
+      which ships with its own failure test.
+    - The published latency figures elsewhere in this document predate that
+      fix and are not re-measured here. Any latency number quoted for a
+      scoped query should be taken from FINDINGS section 17 rather than
+      from earlier sections.
 
 ================================================================================
 END OF DOCUMENT
