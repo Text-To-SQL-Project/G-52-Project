@@ -327,11 +327,11 @@ For the paper: cite Anthropic's ablation as the primary result (inline
 collection, repeats=3, n=405) and Gemini's as a replication with this
 caveat attached, not as an independent confirmation of equal standing.
 
-## 9. Verification infrastructure passing for the wrong reason — seven instances
+## 9. Verification infrastructure passing for the wrong reason — eight instances
 
 Distinct from §6, which is about a *scoring definition* changing a
 conclusion. This one is about a check reporting success while not
-exercising the thing it appeared to exercise. **Seven instances so far**,
+exercising the thing it appeared to exercise. **Eight instances so far**,
 and they are not confined to the metrics code: the set now includes a
 security guard, a shell redirect, and a test suite. That spread is itself
 the finding.
@@ -345,6 +345,7 @@ the finding.
 | 5 | — *(caught prospectively)* | `eval/db_guard.py`: RLS would silently filter an eval run's rows rather than raise |
 | 6 | `assert_bypasses_rls()` guarded eval against a filtered connection | The guard returned early on **every** connection and asserted nothing, for a day |
 | 7 | `psql -f /dev/stdin < file.sql` applied a policy file | Reported each statement, exited zero, and applied **nothing from the file** |
+| 8 | A guard asserted every RLS accessor call was hoisted | Its predicate matched the **hoisted form too** — vacuously true, would have passed on every input (§18) |
 
 ### The third instance, in detail (2026-09-12)
 
@@ -524,7 +525,13 @@ fail.
 
 ### A note on where this pattern goes next
 
-**S17 adds an axis**: a gap between MICROBENCHMARK AND PRODUCTION SCALE.
+**§18 is the sharpest instance**: a guard written specifically to prevent
+instance 6's failure mode, containing instance 6's failure mode — a
+predicate that matched the compliant and violating forms alike, and so
+carried no information about the property it named. It is recorded as
+instance 8 in the table above.
+
+**§17 adds an axis**: a gap between MICROBENCHMARK AND PRODUCTION SCALE.
 S12 measured the session-binding control at 3.26 ms on the real request
 path and was correct -- for a bound request over a handful of rows. The
 cost is paid per row, so a scan multiplies it: 54 seconds for a count over
@@ -1718,18 +1725,144 @@ slower — is precisely the failure class of §9.
 `pg_policies` and asserts each scalar accessor call is immediately preceded
 by `SELECT`, which is how a hoisted call deparses.
 
-**The first version of that guard was itself wrong**, and in the way this
-document keeps recording. It tested substring presence — `if "app.current_is_admin(" in qual` — which matches the *wrapped* form too, since the
-hoisted expression deparses as `( SELECT app.current_is_admin() AS ...)`.
-It would have passed on every input, unwrapped included. Caught within
-minutes by running it against the freshly-rewritten policies and noticing
-it reported 11 bare calls where there were none — but it is instance 6's
-shape exactly, in a guard written *for* that shape.
+**The first version of that guard was vacuously true — it would have passed
+on every possible input, including the one it existed to reject.** That is
+recorded in full as **§18**, because a guard written specifically to prevent
+§9's instance 6 turned out to contain instance 6's defect.
 
-So the guard ships with `test_hoisting_guard_would_catch_an_unwrapped_policy`,
-which builds a deliberately unwrapped policy on a scratch table, asserts the
-predicate flags it, then rebuilds it wrapped and asserts the predicate does
-*not* — proving the guard can both fail and pass rather than merely being
-satisfiable. The guard was additionally verified by unwrapping one real site
-in `rls_fee_payments` and confirming the failure names the table, policy and
-accessor.
+The guard therefore ships with
+`test_hoisting_guard_would_catch_an_unwrapped_policy`, which proves it can
+both fail and pass rather than merely being satisfiable, and was
+additionally verified by unwrapping one real site in `rls_fee_payments`.
+
+
+## 18. The guard against instance 6, containing instance 6 (2026-09-15)
+
+The sharpest entry in §9's family, and the least comfortable. A test written
+**specifically to prevent** instance 6's failure mode shipped containing
+instance 6's failure mode.
+
+### The guard and its job
+
+§17 rewrote 26 scalar accessor call sites across 11 policies, wrapping each
+in `(SELECT ...)` so PostgreSQL hoists it to an `InitPlan`. One missed wrap
+reverts that policy to the slow path with **no functional symptom** — same
+rows, same isolation, silently 345× slower. Nothing in the application
+surfaces it. No correctness test can see it.
+
+`test_every_policy_hoists_its_accessors` exists for exactly that. It reads
+every policy's `qual` from `pg_policies` and flags any scalar accessor that
+is not hoisted.
+
+### What the first version did
+
+```python
+for fn in _SCALAR_ACCESSORS:
+    if f"app.{fn}(" in (qual or ""):
+        offenders.append(...)
+```
+
+Substring presence. The defect is that **PostgreSQL's deparse of a hoisted
+call still contains that substring**:
+
+```
+( SELECT app.current_is_admin() AS current_is_admin)
+```
+
+`app.current_is_admin(` appears in the wrapped form and in the unwrapped
+form alike. The predicate could not distinguish them.
+
+The consequence is worse than "the test was wrong". The test was
+**vacuously satisfiable in the failing direction**: it flagged every policy
+whether or not it was hoisted, so it could never have passed on a correct
+codebase — and, had the polarity been the other way round, could never have
+failed on a broken one. Either way the assertion carried no information
+about the property it named. It was not a weak check. It was not a check.
+
+### How it was caught
+
+Not by running the test — by a number that did not fit.
+
+A verification query counting bare accessor calls on the container database
+returned **11 bare calls against policies that had just been rewritten and
+had none**. Reading the stored `qual` directly showed
+`( SELECT app.current_is_admin() AS current_is_admin)` — correctly wrapped.
+The 11 was the *check* reporting on itself, not on the policies.
+
+The guard test carried the identical predicate, so the same reasoning
+condemned it in the same minute.
+
+**The thing that worked was a result that contradicted a known-good state.**
+The policies had been rewritten seconds earlier and verified by eye; a
+report of 11 violations was impossible, so the report was wrong. Every
+instance in §9 that was caught retrospectively was caught the same way — by
+disbelieving an implausible number (instance 1's below-chance AUROC,
+instance 4's count that matched through a leak), never by a test.
+
+### Why this is instance 6 exactly
+
+Instance 6: `assert_bypasses_rls()` called
+`is_immune(..., problem_tables=[])`, which returned `True` for every
+connection, so the guard returned early every time and asserted nothing —
+while its tests stayed green because they exercised a pure decision function
+that was correct and asserted on source text that was also correct. Nothing
+asked what the function *did*.
+
+Instance 8 is the same shape one level up. The guard's predicate was applied
+to real data and produced a real-looking answer. Nothing asked whether the
+predicate could **discriminate** — whether it returned different answers for
+a compliant input and a violating one. A check that cannot distinguish the
+two states it is named for is not a weak check; it is a constant function
+wearing an assertion's clothing.
+
+That this recurred **inside the remedy for its own prior occurrence**, by
+the same author, within the same working session, is the finding. The
+pattern is not a knowledge gap. Knowing about it in the abstract, having
+written it up twice, and being actively on guard for it were together not
+sufficient.
+
+### The rule, stated generally
+
+> **A guard must be demonstrated to fail on a constructed violation and to
+> pass on a constructed compliance. Satisfiability is not evidence.**
+
+Both halves are load-bearing, and each catches a different bug:
+
+- **Fails on a constructed violation** — catches the guard that asserts
+  nothing (instance 6: returned early; a predicate matching nothing).
+- **Passes on a constructed compliance** — catches the guard that asserts
+  everything (instance 8: a predicate matching everything, which would
+  block every correct change while appearing vigilant).
+
+A guard that only ever fails is as uninformative as one that only ever
+passes; both are constant functions. The test of a guard is that it is a
+**function of the property**, and the only way to show that is to exhibit
+both outputs.
+
+Implemented as `test_hoisting_guard_would_catch_an_unwrapped_policy`, which
+builds a deliberately unwrapped policy on a scratch table, asserts the
+predicate flags it, then rebuilds the same policy wrapped and asserts the
+predicate does **not** flag it. Both directions, in one test, against live
+PostgreSQL deparse output rather than an assumption about it.
+
+The corrected predicate checks that each accessor call is immediately
+preceded by `SELECT`, which is how — and only how — a hoisted call deparses.
+It was additionally verified end-to-end by unwrapping one real site in
+`rls_fee_payments` on the live database and confirming the failure names the
+table, the policy and the accessor, then restoring from the seed file and
+confirming it passes again.
+
+### For the paper
+
+This is the strongest available support for §9's thesis, precisely because
+it is the least flattering. The claim is not that this project's authors
+were careless; it is that **verification code fails silently in ways
+ordinary code does not**, because its output is a boolean that looks the
+same whether it was computed or merely returned. Eight instances, the last
+one occurring inside the fix for the sixth, in a session where the
+phenomenon was the explicit subject of attention.
+
+The mitigation that has actually worked, across all eight, is not more
+tests. It is (a) treating an implausible number as a defect in the
+measurement until proven otherwise, and (b) requiring every guard to
+exhibit both of its outputs before it is trusted.
