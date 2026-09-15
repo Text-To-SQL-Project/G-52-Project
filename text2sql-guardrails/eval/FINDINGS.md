@@ -522,6 +522,16 @@ each instance; ask the live connection which role it is; compare row
 identity rather than row count; reintroduce the bug and watch the test
 fail.
 
+### A note on where this pattern goes next
+
+**§15 is the same shape one layer further on**, in the *confidence* pipeline
+rather than the verification infrastructure: a correctly-scoped result
+inflated 39.8x by a self-join, where the duplicate detector could not run
+(its guard requires GROUP BY) and the only issue raised pointed the reader
+the wrong way. A detector that misses a defect and stays silent is a false
+negative; one that misses it, fires on something adjacent, and thereby
+raises apparent legitimacy fails in the flattering direction.
+
 ### Instance 2 again, one layer out: when the bad value outlives the bug
 
 §1 recorded the double-calibration bug's effect on *re-derivations* — the
@@ -1079,3 +1089,196 @@ mislabelled figure into three user-facing surfaces, where it survived nine
 days and two documentation passes. The bug was fixed on 2026-09-03; the
 number it produced was not retired until 2026-09-15. **A wrong number is
 more durable than the bug that produced it.**
+
+
+## 15. A correctly-scoped answer, inflated 39.8x, with no signal (2026-09-15)
+
+The first case in this document where **every safety layer did its job and
+the answer was still badly wrong** — and the confidence layer, whose entire
+purpose is to say so, scored it 0.90.
+
+### What happened
+
+`faculty1` asked *"Which students are in my sections?"* and received 1,000
+rows. The correct answer is 265 students. 1,000 is the guardrail's injected
+row cap, so the display was truncated as well as wrong.
+
+```sql
+SELECT s.student_id, s.first_name, s.last_name, s.roll_number
+FROM students AS s
+JOIN student_section_mapping AS msm    ON s.student_id  = msm.student_id
+JOIN student_section_mapping AS my_msm ON msm.section_id = my_msm.section_id
+LIMIT 1000;
+```
+
+`my_msm` is joined on `section_id` with **no predicate scoping it to
+anything**, and there is no `DISTINCT`. The model wrote a self-join where it
+needed a de-duplication.
+
+### The true shape of the result
+
+| | rows | distinct students | ratio |
+|---|---|---|---|
+| `faculty1` (scoped) | **10,541** | **265** | **39.8x** |
+| `admin` (unscoped, for scale) | 96,336 | 2,000 | 48.2x |
+
+### The arithmetic proof that this is pure within-section fan-out
+
+Not asserted from inspection — derived. Each visible section contributes
+n² rows, where n is the number of mappings the querying principal can see
+in that section:
+
+```
+section  3    56 mappings  ->   3,136 rows
+section 32    45 mappings  ->   2,025 rows
+section  4    43 mappings  ->   1,849 rows
+section  2    35 mappings  ->   1,225 rows
+section 31    34 mappings  ->   1,156 rows
+                      ... 8 visible sections in total
+
+sum of n^2 over all visible sections :  10,541
+actual rows returned                 :  10,541      exact
+```
+
+And the degenerate case, an unconstrained self-cross-join with no join
+predicate at all:
+
+```sql
+SELECT count(*) FROM student_section_mapping a, student_section_mapping b;
+-- 70,225   and   265^2 = 70,225      exact
+```
+
+The row count is **fully** explained by the cross-product. The join to
+`students` removes nothing further, because every taught student is also in
+the department roster.
+
+### Containment held completely — this is not a leak
+
+Confirmed on the self-join shape specifically, since §10 established that
+query shape is where RLS's per-*reference* enforcement earns its keep:
+
+| | |
+|---|---|
+| sections visible to `faculty1` (single-table read) | 8 |
+| sections reached via `my_msm` **inside** the self-join | 8 |
+| sections that exist in total (admin) | 48 |
+
+If only `msm` were filtered, `my_msm` would have ranged over all 2,000
+mappings and pulled in the other 40 sections. It did not. `265^2 = 70,225`
+above is the same fact stated arithmetically: **both aliases were
+independently filtered to the same 265-row set.**
+
+Identity, not cardinality:
+
+```
+teaching relation (expected)     : 265
+distinct students in the result  : 265
+EXACT SET EQUALITY               : True
+extra beyond teaching relation   : none
+missing from teaching relation   : none
+dept-but-not-taught students leaked (46 available) : 0
+```
+
+**The generated SQL scoped nothing. The policy did all of it.** That is the
+architecture working as designed — and it is precisely why the failure is
+interesting.
+
+### Why no detector fired
+
+`result_sanity` has a duplicate check. It did not run:
+
+```python
+if has_agg and has_group:        # <- both required
+    ...  # duplicate_agg_rows
+```
+
+`duplicate_agg_rows` is gated on the SQL having **both an aggregate and a
+GROUP BY**, because it was written to catch fan-out in aggregate results
+where a many-to-many join inflates a SUM. This query has neither. The check
+is not wrong; its guard simply describes a different query shape.
+
+The only issue raised was `row_cap_hit`, penalty **0.10**, a WARN-tier
+finding whose message is *"more matching rows may exist beyond it"* — which
+is true, and points the reader in exactly the wrong direction. It suggests
+the answer is **incomplete** when the answer is **inflated**. The fused
+score came out around 0.90.
+
+`row_cap_hit` is not in `_ROW_COUNT_SENSITIVE`, so row scoping did not
+suppress it. The detector ran, reported, and reported something misleading.
+
+### Why this belongs in §9's family
+
+§9 collects checks that succeeded while not exercising what they appeared
+to. This is the same shape moved one layer over — out of the *verification*
+infrastructure and into the *confidence* pipeline, the layer whose stated
+job is telling a user which answers to distrust.
+
+And it fails in the flattering direction. A detector that misses a defect
+and stays silent is a false negative. A detector that misses the defect,
+fires on something adjacent, and thereby **raises** apparent legitimacy is
+worse: the user sees a plausible table, a WARN about truncation, and a
+confidence around 0.90. Every one of those signals is individually
+defensible. Together they describe a correct answer that is 39.8x wrong.
+
+This is also the sharpest available illustration of the §7 claim that
+correct scoping is not correct answering. Here they are cleanly separated:
+**containment was perfect and the answer was useless.**
+
+### Feasibility of detecting it — measured, not speculated
+
+Whether this is a fixable gap or an inherent limit determines whether it is
+future work or a stated limitation, so the false-positive question was
+measured against the golden set rather than argued. All 135 answerable
+`gold_sql` queries were executed unscoped (no LLM calls) and their
+rows-to-distinct-rows ratio recorded. **Gold SQL is correct by
+construction, so anything that fires is a false positive.**
+
+```
+gold queries returning ANY duplicate row : 16 / 135  (11.9%)
+
+  ratio >=  1.5x : fires on 2 legitimate queries  (1.5% FP)
+  ratio >=  2.0x : fires on 1 legitimate query    (0.7% FP)
+  ratio >=  3.0x : fires on 1 legitimate query    (0.7% FP)
+  ratio >=  5.0x : fires on 1 legitimate query    (0.7% FP)
+  ratio >= 10.0x : fires on 1 legitimate query    (0.7% FP)
+  ratio >= 39.8x : fires on 0 legitimate queries  (0.0% FP)
+```
+
+Three things follow.
+
+**A naive "any duplicate" check is unusable** — it would fire on 1 in 8
+correct queries. Duplicates are ordinary. A *ratio* is not.
+
+**Duplicates concentrate exactly where fan-out lives.** 15 of the 16 are
+`multi_join` (31.2% of that category); 1 is `aggregation` (2.3%); no other
+category produces any.
+
+**The single persistent false positive is a different phenomenon**, and the
+distinction matters for any future design. `g094` — *"Show the section,
+semester type, and academic year for sections with more than 65
+max_students"* — returns 48 rows / 4 distinct = 12.0x. That is
+**projection-induced**: the query deliberately drops the identifying
+columns, so genuinely distinct sections collapse into identical output
+rows. It is not fan-out, and the result is correct. Any ratio check would
+need to tolerate it or distinguish projection collapse from join
+multiplication.
+
+**Conjunction is strictly more specific than either signal alone.** Exactly
+one gold query hits the 1,000-row cap, and its ratio is below 2.0. So
+`row_cap_hit AND high-ratio` has **zero** false positives on the golden
+set, while either alone has one or more. The observed failure trips both.
+
+**The check would not need the suppressed set.** The ratio is computed from
+returned rows only, and it survives scoping: 39.8x for `faculty1` against
+48.2x for `admin` on the identical query. The defect is visible at both
+scopes without any reference to filtered-away rows — which matters, because
+a detector that had to consult the suppressed set would be a detector that
+reintroduces the inference channel RLS exists to close.
+
+**Conclusion: a fixable gap, not an inherent limit.** The signal is present
+in the returned rows, cheap to compute (one pass, hashing each row tuple —
+the same work `duplicate_agg_rows` already does, merely without the
+aggregate gate), and separable from legitimate duplication at a
+false-positive rate under 1%. It belongs in the paper as **future work**
+with these numbers attached, not as a stated limitation. Nothing has been
+implemented; this section is diagnosis only.
