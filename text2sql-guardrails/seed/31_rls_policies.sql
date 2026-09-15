@@ -12,9 +12,41 @@
 -- asserts, per table, that no policy expression contains current_setting.
 --
 -- FAIL-CLOSED BY CONSTRUCTION. The accessors return NULL when there is no
--- valid mapping, so `student_id = app.current_student_id()` evaluates to
--- NULL, not TRUE, and the row is excluded. An unbound session sees zero
--- rows everywhere, without a guard clause anyone could forget.
+-- valid mapping, so `student_id = (SELECT app.current_student_id())`
+-- evaluates to NULL, not TRUE, and the row is excluded. An unbound session
+-- sees zero rows everywhere, without a guard clause anyone could forget.
+--
+-- EVERY SCALAR ACCESSOR CALL BELOW IS WRAPPED IN `(SELECT ...)`. THIS IS
+-- LOAD-BEARING FOR PERFORMANCE AND MUST NOT BE "SIMPLIFIED" AWAY.
+--
+-- The accessors are STABLE, but STABLE does NOT mean hoisted: it licenses
+-- the planner to treat the value as fixed within one statement, and
+-- nothing more. PostgreSQL re-invokes a bare function call in a qual once
+-- PER ROW. Only a SUBQUERY becomes an InitPlan evaluated once. Wrapping
+-- the call converts `Filter: (... app.current_session() ...)` into
+-- `InitPlan` + `Filter: ($0 OR (student_id = $1))`, comparing against
+-- constants.
+--
+-- Measured on 40,000 rows: 7,712 ms unwrapped against 22 ms wrapped, a
+-- 345x difference; on attendance's 150,000 rows the unwrapped form took
+-- 54 seconds. The cost is per row, so it is invisible on the small result
+-- sets a request normally touches and severe on any scan. See
+-- eval/FINDINGS.md section 17.
+--
+-- tests/test_rls_policies.py::test_every_policy_hoists_its_accessors fails
+-- if any site here is unwrapped. One missed wrap reverts that policy to
+-- the slow path with NO functional symptom -- same rows, same isolation,
+-- silently 345x slower.
+--
+-- The set-returning accessors (current_faculty_offerings,
+-- current_faculty_taught_students) are deliberately NOT wrapped: they
+-- already sit in the FROM of a subquery and are already hoisted as a
+-- hashed SubPlan.
+--
+-- Semantics are unchanged. Evaluating once per statement is correct
+-- because identity is keyed on (pid, backend_start), both fixed for the
+-- life of the backend, so it cannot change mid-statement -- the same fact
+-- that justifies STABLE in the first place.
 --
 -- FORCE ROW LEVEL SECURITY is deliberately NOT set. `app` owns these
 -- tables and is used only for introspection, history and the session map --
@@ -120,9 +152,9 @@ GRANT EXECUTE ON FUNCTION app.current_faculty_taught_students() TO readonly_app;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_students ON students;
 CREATE POLICY rls_students ON students FOR SELECT USING (
-    app.current_is_admin()
- OR student_id    = app.current_student_id()
- OR department_id = app.current_faculty_department()
+    (SELECT app.current_is_admin())
+ OR student_id    = (SELECT app.current_student_id())
+ OR department_id = (SELECT app.current_faculty_department())
 );
 
 -- ---------------------------------------------------------------------------
@@ -131,9 +163,9 @@ CREATE POLICY rls_students ON students FOR SELECT USING (
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_attendance ON attendance;
 CREATE POLICY rls_attendance ON attendance FOR SELECT USING (
-    app.current_is_admin()
- OR student_id = app.current_student_id()
- OR faculty_id = app.current_faculty_id()
+    (SELECT app.current_is_admin())
+ OR student_id = (SELECT app.current_student_id())
+ OR faculty_id = (SELECT app.current_faculty_id())
 );
 
 -- ---------------------------------------------------------------------------
@@ -158,8 +190,8 @@ DROP POLICY IF EXISTS rls_marks ON marks;
 -- the rest of that same student's transcript in subjects they do not teach.
 -- exams carries no policy of its own, so this EXISTS reads it unfiltered.
 CREATE POLICY rls_marks ON marks FOR SELECT USING (
-    app.current_is_admin()
-    OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin())
+    OR student_id = (SELECT app.current_student_id())
     OR EXISTS (
         SELECT 1
           FROM exams e
@@ -172,19 +204,19 @@ CREATE POLICY rls_marks ON marks FOR SELECT USING (
 ALTER TABLE fee_payments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_fee_payments ON fee_payments;
 CREATE POLICY rls_fee_payments ON fee_payments FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin()) OR student_id = (SELECT app.current_student_id())
 );
 
 ALTER TABLE library_transactions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_library_transactions ON library_transactions;
 CREATE POLICY rls_library_transactions ON library_transactions FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin()) OR student_id = (SELECT app.current_student_id())
 );
 
 ALTER TABLE placement_applications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_placement_applications ON placement_applications;
 CREATE POLICY rls_placement_applications ON placement_applications FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin()) OR student_id = (SELECT app.current_student_id())
 );
 
 -- student_enrollments: DELIBERATELY CLOSED TO FACULTY, and the reasoning is
@@ -206,7 +238,7 @@ CREATE POLICY rls_placement_applications ON placement_applications FOR SELECT US
 ALTER TABLE student_enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_student_enrollments ON student_enrollments;
 CREATE POLICY rls_student_enrollments ON student_enrollments FOR SELECT USING (
-    app.current_is_admin() OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin()) OR student_id = (SELECT app.current_student_id())
 );
 
 ALTER TABLE student_section_mapping ENABLE ROW LEVEL SECURITY;
@@ -221,8 +253,8 @@ DROP POLICY IF EXISTS rls_student_section_mapping ON student_section_mapping;
 -- and year) was measured and rejected: it admits students in the cohort I do
 -- not teach, which is a wider relation wearing a narrower name.
 CREATE POLICY rls_student_section_mapping ON student_section_mapping FOR SELECT USING (
-    app.current_is_admin()
-    OR student_id = app.current_student_id()
+    (SELECT app.current_is_admin())
+    OR student_id = (SELECT app.current_student_id())
     OR student_id IN (SELECT t.student_id
                         FROM app.current_faculty_taught_students() t)
 );
@@ -239,12 +271,12 @@ CREATE POLICY rls_student_section_mapping ON student_section_mapping FOR SELECT 
 ALTER TABLE placement_offers ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_placement_offers ON placement_offers;
 CREATE POLICY rls_placement_offers ON placement_offers FOR SELECT USING (
-    app.current_is_admin()
+    (SELECT app.current_is_admin())
  OR EXISTS (
         SELECT 1
           FROM placement_applications pa
          WHERE pa.application_id = placement_offers.application_id
-           AND pa.student_id = app.current_student_id()
+           AND pa.student_id = (SELECT app.current_student_id())
     )
 );
 
@@ -262,9 +294,9 @@ CREATE POLICY rls_placement_offers ON placement_offers FOR SELECT USING (
 ALTER TABLE faculty ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_faculty ON faculty;
 CREATE POLICY rls_faculty ON faculty FOR SELECT USING (
-    app.current_is_admin()
- OR faculty_id = app.current_faculty_id()
- OR app.current_role_name() IS NOT NULL
+    (SELECT app.current_is_admin())
+ OR faculty_id = (SELECT app.current_faculty_id())
+ OR (SELECT app.current_role_name()) IS NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
@@ -275,9 +307,9 @@ CREATE POLICY rls_faculty ON faculty FOR SELECT USING (
 ALTER TABLE faculty_subject_assignments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rls_faculty_subject_assignments ON faculty_subject_assignments;
 CREATE POLICY rls_faculty_subject_assignments ON faculty_subject_assignments FOR SELECT USING (
-    app.current_is_admin()
- OR faculty_id = app.current_faculty_id()
- OR app.current_role_name() IS NOT NULL
+    (SELECT app.current_is_admin())
+ OR faculty_id = (SELECT app.current_faculty_id())
+ OR (SELECT app.current_role_name()) IS NOT NULL
 );
 
 -- ---------------------------------------------------------------------------

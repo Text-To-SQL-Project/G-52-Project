@@ -19,6 +19,8 @@ they refuse outright if the insecure test fallback is active.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 from sqlalchemy import text
 
@@ -373,3 +375,124 @@ def test_faculty_branches_did_not_widen_student_scope():
         owners = {r[0] for r in run_as(
             STUDENT_A, f"SELECT DISTINCT student_id FROM {table}")}
         assert owners <= {STUDENT_A.student_id}, f"{table} widened for students: {owners}"
+
+
+# --- the accessors must stay hoisted ---------------------------------------
+
+# Scalar accessors only. The set-returning ones
+# (current_faculty_offerings, current_faculty_taught_students) already sit
+# in the FROM of a subquery and are hoisted as a hashed SubPlan, so they are
+# correctly NOT wrapped.
+_SCALAR_ACCESSORS = [
+    "current_is_admin",
+    "current_student_id",
+    "current_faculty_id",
+    "current_role_name",
+    "current_faculty_department",
+]
+
+
+def test_every_policy_hoists_its_accessors():
+    """Every scalar accessor call must sit inside a subquery.
+
+    WHY THIS TEST EXISTS, and why it asserts on plan shape rather than on
+    source text. The accessors are STABLE, and STABLE does NOT mean hoisted
+    -- it licenses the planner to treat the value as fixed within one
+    statement and nothing more. A bare call in a qual is re-invoked once PER
+    ROW. Only a subquery becomes an InitPlan evaluated once.
+
+    Unwrapped, `SELECT count(*) FROM marks` took 7,712 ms; wrapped, 22 ms.
+    On attendance's 150,000 rows the unwrapped form took 54 seconds.
+
+    The failure this guards is silent: one missed `(SELECT ...)` among 26
+    hand-edited sites returns the SAME ROWS with the SAME isolation, just
+    345x slower. No test of correctness can see it, and nothing in the
+    application surfaces it until a table grows.
+
+    PostgreSQL rewrites a hoisted call into `(SubPlan N)` or `$N` in the
+    stored qual, so a surviving bare `app.current_<scalar>(` in pg_policies
+    is exactly the unwrapped case.
+    """
+    rows = run_as(ADMIN, """
+        SELECT tablename, policyname, qual
+          FROM pg_policies
+         WHERE schemaname = 'college_erp'
+         ORDER BY tablename
+    """)
+    assert rows, "no policies found -- the guard would pass vacuously"
+
+    offenders = []
+    for table, policy, qual in rows:
+        for fn in _SCALAR_ACCESSORS:
+            for m in re.finditer(rf"app\.{fn}\s*\(", qual or ""):
+                # A hoisted call deparses as "( SELECT app.fn() AS fn)", so
+                # the call is immediately preceded by "SELECT ". Anything
+                # else -- "(student_id = app.fn())" -- is a bare per-row
+                # call. Checking mere SUBSTRING PRESENCE would match the
+                # wrapped form too and pass vacuously; that mistake was made
+                # once while writing this guard.
+                before = (qual or "")[:m.start()]
+                if not before.rstrip().endswith("SELECT"):
+                    offenders.append(f"{table}.{policy}: bare app.{fn}()")
+    assert not offenders, (
+        "policy accessor(s) not hoisted -- these are re-invoked per row and "
+        "will be ~345x slower on a scan, with no functional symptom:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_hoisting_guard_would_catch_an_unwrapped_policy():
+    """The guard above must be able to fail.
+
+    Builds a deliberately-unwrapped policy on a scratch table and asserts
+    the same predicate the guard uses flags it. Without this, a guard that
+    silently matched nothing would pass forever -- the exact shape recorded
+    in FINDINGS section 9 as instance 6, where assert_bypasses_rls() was a
+    no-op for a day while its tests stayed green.
+    """
+    priv = get_engine()
+    with priv.begin() as c:
+        c.exec_driver_sql("DROP TABLE IF EXISTS college_erp.hoist_guard_probe")
+        c.exec_driver_sql(
+            "CREATE TABLE college_erp.hoist_guard_probe (student_id int)")
+        c.exec_driver_sql(
+            "ALTER TABLE college_erp.hoist_guard_probe ENABLE ROW LEVEL SECURITY")
+        # deliberately NOT wrapped
+        c.exec_driver_sql(
+            "CREATE POLICY p ON college_erp.hoist_guard_probe FOR SELECT "
+            "USING (student_id = app.current_student_id())")
+    try:
+        qual = run_as(ADMIN, """
+            SELECT qual FROM pg_policies
+             WHERE schemaname = 'college_erp'
+               AND tablename = 'hoist_guard_probe'
+        """)[0][0]
+        flagged = [
+            m for m in re.finditer(r"app\.current_student_id\s*\(", qual)
+            if not qual[:m.start()].rstrip().endswith("SELECT")
+        ]
+        assert flagged, (
+            "the guard's predicate did not flag a deliberately unwrapped "
+            "policy -- the guard cannot fail and is therefore worthless. "
+            f"qual was: {qual}"
+        )
+
+        # ...and the same predicate must NOT flag the wrapped form, or the
+        # guard would be unsatisfiable rather than merely useless.
+        with priv.begin() as c:
+            c.exec_driver_sql("DROP POLICY p ON college_erp.hoist_guard_probe")
+            c.exec_driver_sql(
+                "CREATE POLICY p ON college_erp.hoist_guard_probe FOR SELECT "
+                "USING (student_id = (SELECT app.current_student_id()))")
+        qual2 = run_as(ADMIN, """
+            SELECT qual FROM pg_policies
+             WHERE schemaname = 'college_erp'
+               AND tablename = 'hoist_guard_probe'
+        """)[0][0]
+        still = [
+            m for m in re.finditer(r"app\.current_student_id\s*\(", qual2)
+            if not qual2[:m.start()].rstrip().endswith("SELECT")
+        ]
+        assert not still, f"guard flags the correctly-wrapped form: {qual2}"
+    finally:
+        with priv.begin() as c:
+            c.exec_driver_sql("DROP TABLE IF EXISTS college_erp.hoist_guard_probe")

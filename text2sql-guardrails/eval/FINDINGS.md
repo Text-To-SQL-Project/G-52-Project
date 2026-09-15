@@ -524,6 +524,14 @@ fail.
 
 ### A note on where this pattern goes next
 
+**S17 adds an axis**: a gap between MICROBENCHMARK AND PRODUCTION SCALE.
+S12 measured the session-binding control at 3.26 ms on the real request
+path and was correct -- for a bound request over a handful of rows. The
+cost is paid per row, so a scan multiplies it: 54 seconds for a count over
+attendance. A per-row cost is invisible in every measurement that does not
+scan.
+
+
 **S16 is the purest form of it**: over-refusal -- a model declining a
 question it could have answered -- is invisible to every layer at once. The
 guardrail counts a refusal as the safest outcome, refusal_accuracy has no
@@ -799,6 +807,14 @@ removes the "a clever query shape defeats the filter" class of attack. It
 does not by itself remove the "a clever query rewrites who you are" class.**
 
 ## 12. The limitation in section 11, closed: backend-keyed session identity
+
+> **Read §17 alongside this section.** The overhead measured below — 3.26 ms
+> median on the real request path — is correct, and it is *not* the whole
+> cost of this control. It measures a bound request against a handful of
+> rows. The cost is paid **per row**, so on a scan it is linear: a
+> `count(*)` over `attendance` took **54 seconds** under the design as first
+> written. §17 records the diagnosis and the fix. This section should not be
+> read as a clean performance result standing alone.
 
 Sections 10 and 11 establish two things. Generated SQL can rewrite the
 session GUC an RLS policy reads, in nine of ten query shapes tested. And
@@ -1510,3 +1526,210 @@ the reasons above — a before/after comparison against the current
 `results.jsonl` would not be valid, because the prompt that produced it no
 longer exists. Any future report of this change must re-run both providers
 and say so.
+
+
+## 17. The security control that was only cheap at small n (2026-09-15)
+
+`SELECT count(*) FROM attendance` as a scoped user took **54 seconds**. The
+row-level security design of §12 is correct, was measured, and the
+measurement was honest. The cost was still invisible until table size made
+it obvious.
+
+### What was actually slow
+
+The policy expression called `app.current_session()` **once per row, twice
+over**:
+
+```
+Filter: (COALESCE(((app.current_session()).role = 'admin'), false)
+         OR (student_id = (app.current_session()).student_id)
+         OR (hashed SubPlan 2))
+```
+
+Measured cost of one invocation, forced correlated so the planner could not
+hoist it:
+
+```
+current_session().role, correlated   526.1 us per call
+  pg_stat_activity lookup alone        4.8 us
+  session_map lookup alone             4.6 us
+```
+
+**Neither table lookup is the cost.** `app.current_session()` is a SQL
+function returning the composite type `app.session_map` with a subquery in
+its body, so PostgreSQL cannot inline it; every call plans and executes a
+nested query. 526 µs × 2 calls × 150,000 rows ≈ 158 seconds of function
+invocation for a query whose raw scan floor is 63 ms.
+
+The cost was uniform across every policied table and absent from
+unpolicied ones:
+
+| table | rows | scoped `count(*)` | per row |
+|---|---|---|---|
+| `student_section_mapping` | 2,000 | 466 ms | 233 µs |
+| `fee_payments` | 8,000 | 1,897 ms | 237 µs |
+| `library_transactions` | 12,000 | 3,250 ms | 271 µs |
+| `marks` | 40,000 | 9,410 ms | 235 µs |
+| `attendance` | 150,000 | **54,112 ms** | 361 µs |
+| `exams` (no policy) | 456 | 8 ms | — |
+| `subjects` (no policy) | 80 | 10 ms | — |
+
+`students` was the outlier at 3,162 µs/row, because its policy additionally
+calls `current_faculty_department()` — another non-inlinable function — per
+row.
+
+### Why §12's measurement did not catch it, and why it was not wrong
+
+§12 reports 3.26 ms median overhead on the real request path, of which
+2.14 ms is the control. That number is accurate. It measured a **bound
+request returning a handful of rows**, which is what the application
+normally does — a student's 19 marks, a faculty member's 2,410 attendance
+rows. At that scale two function calls per surviving row is genuinely
+negligible.
+
+The claim it could not support is the one a reader takes away: *this control
+is cheap*. It is cheap **per row**, and a scan multiplies it by the table.
+§12 also reports the policy lookup compiling to an `InitPlan` at `loops=1`
+against a 150,000-row table — also true, also about a different function
+(`current_faculty_department()`'s helper), and it is exactly the kind of
+adjacent true statement that makes a reader stop looking.
+
+This is §9's family with a new axis. Instances 1–7 are gaps between what a
+check asserted and what a reader concluded. This one is a gap between
+**microbenchmark and production scale**: the measurement was right, the
+extrapolation was never made, and nothing in the system surfaced the
+difference until a table grew. A per-row cost is invisible in every
+measurement that does not scan.
+
+### The misconception worth recording: STABLE does not mean hoisted
+
+The natural diagnosis — and the one held when this investigation started —
+was that the accessors must be missing a volatility marker, since a `STABLE`
+function with constant arguments *should* be evaluated once. All eight
+accessors were already `STABLE` (`provolatile = 's'`), which made the
+behaviour look like a planner bug.
+
+It is not. **`STABLE` is a promise, not an instruction.** It guarantees the
+function returns the same value throughout one statement, which licenses the
+planner to use it in an index condition and to avoid re-planning. It does
+**not** cause PostgreSQL to memoize the call or hoist it out of a qual. A
+bare function call in a `WHERE` or a policy `USING` clause is re-invoked per
+row regardless of volatility class.
+
+Only a **subquery** becomes an `InitPlan` evaluated once. That is why
+`current_faculty_offerings()` was already hoisted — it sits in
+`IN (SELECT ... FROM app.current_faculty_offerings() o)`, a subquery — while
+`current_student_id()` beside it was not.
+
+Three candidate causes were considered and all three are wrong: it is not
+the composite return type, not the subquery inside the function body, and
+not a missing volatility marker. The call site's *syntactic form* is what
+decides.
+
+### What was rejected
+
+**Splitting into scalar accessors so PostgreSQL can inline them** — already
+true and already happening. `current_student_id()` is
+`SELECT (app.current_session()).student_id`, a simple SQL function which
+PostgreSQL does inline; the EXPLAIN filter shows `(app.current_session())
+.student_id`, the inlined body. Inlining succeeded and merely exposed the
+non-inlinable base function. Expected gain: zero.
+
+**Caching the session per transaction** — the `InitPlan` already is a
+per-statement cache, computed by the planner with no new state. Every real
+cache needs somewhere to live: a GUC (reopens §10), a temp table (requires
+granting `CREATE TEMP` to `readonly_app`, widening the privilege the design
+deliberately minimises), or a session variable (unavailable across
+statements). A benchmarked variant inlining the `session_map` lookup
+directly into each policy was marginally faster (18.5 ms against 22.4 ms)
+and was rejected: it duplicates accessor logic across 11 policies, which is
+what the accessors exist to prevent, and widens the review surface the
+`current_setting` guard exists to protect.
+
+### The fix: wrap every scalar accessor call in a scalar subquery
+
+Policy text only. **26 call sites across 11 policies.** No change to the 8
+accessors, to `app.session_map`, to `session_scope.py`, or to any
+application code.
+
+```sql
+-- before
+app.current_is_admin() OR student_id = app.current_student_id()
+-- after
+(SELECT app.current_is_admin()) OR student_id = (SELECT app.current_student_id())
+```
+
+The plan changes shape:
+
+```
+InitPlan 1 (returns $0)  ->  Result (actual time=2.349..2.350 rows=1 loops=1)
+InitPlan 2 (returns $1)  ->  Result (actual time=2.278..2.279 rows=1 loops=1)
+->  Seq Scan on marks
+      Filter: ($0 OR (student_id = $1) OR (hashed SubPlan 4))
+```
+
+The filter compares against constants. Two evaluations per statement instead
+of 80,000.
+
+The two set-returning accessors (`current_faculty_offerings`,
+`current_faculty_taught_students`) are deliberately **not** wrapped — they
+already sit in the `FROM` of a subquery and were already hoisted.
+
+### Measured, on the real tables
+
+| table | principal | before | after | speedup |
+|---|---|---|---|---|
+| `marks` | faculty1 | 9,410 ms | **27 ms** | 352× |
+| `marks` | student1 | 10,177 ms | **20 ms** | 520× |
+| `attendance` | faculty1 | 54,112 ms | **54 ms** | 1002× |
+| `attendance` | student1 | 9,627 ms | **49 ms** | 197× |
+| `students` | faculty1 | 6,324 ms | **17 ms** | 383× |
+
+A side effect worth recording: **the test suite fell from 693 s to 54 s.**
+The isolation tests were paying the same per-row cost on every assertion,
+and nobody had read an 11-minute suite as a symptom of anything.
+
+### Isolation is unchanged, and that was verified rather than assumed
+
+- **Fail-closed** — preserved. A NULL `InitPlan` result still makes
+  `student_id = NULL` evaluate to NULL, not TRUE. An unbound session returns
+  0 rows on every table.
+- **No mutable GUC** — untouched. Identity still resolves through
+  `app.session_map` keyed on `(pid, backend_start)`, neither settable from
+  SQL. §10 and §12 hold exactly as written.
+- **Once-per-statement is semantically correct, not a relaxation.** The
+  `InitPlan` is safe precisely because `pid` and `backend_start` are fixed
+  for the life of the backend, so identity cannot change mid-statement —
+  the same fact that justifies `STABLE`.
+- **Row identity re-verified**, not row counts: student1's marks are exactly
+  `{32}`, student2's exactly `{87}`, the two are disjoint, and faculty1's
+  section-mapping set is exactly the teaching relation. The full
+  four-principal table is unchanged: students 1/311/2000, marks
+  19/467/40000, attendance 79/2410/150000, section mapping 1/265/2000, and
+  all five closed tables return the empty set.
+
+### The guard, and the guard's own failure test
+
+26 hand-edited sites where one miss reverts that policy to the slow path
+with **no functional symptom** — same rows, same isolation, silently 345×
+slower — is precisely the failure class of §9.
+
+`test_every_policy_hoists_its_accessors` reads every policy's `qual` from
+`pg_policies` and asserts each scalar accessor call is immediately preceded
+by `SELECT`, which is how a hoisted call deparses.
+
+**The first version of that guard was itself wrong**, and in the way this
+document keeps recording. It tested substring presence — `if "app.current_is_admin(" in qual` — which matches the *wrapped* form too, since the
+hoisted expression deparses as `( SELECT app.current_is_admin() AS ...)`.
+It would have passed on every input, unwrapped included. Caught within
+minutes by running it against the freshly-rewritten policies and noticing
+it reported 11 bare calls where there were none — but it is instance 6's
+shape exactly, in a guard written *for* that shape.
+
+So the guard ships with `test_hoisting_guard_would_catch_an_unwrapped_policy`,
+which builds a deliberately unwrapped policy on a scratch table, asserts the
+predicate flags it, then rebuilds it wrapped and asserts the predicate does
+*not* — proving the guard can both fail and pass rather than merely being
+satisfiable. The guard was additionally verified by unwrapping one real site
+in `rls_fee_payments` and confirming the failure names the table, policy and
+accessor.
