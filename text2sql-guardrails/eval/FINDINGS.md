@@ -524,6 +524,14 @@ fail.
 
 ### A note on where this pattern goes next
 
+**S16 is the purest form of it**: over-refusal -- a model declining a
+question it could have answered -- is invisible to every layer at once. The
+guardrail counts a refusal as the safest outcome, refusal_accuracy has no
+term for wrongly refusing an answerable question, and EX collapses it with
+generation error. Not a check that passed for the wrong reason, but a
+success criterion that never included the failure.
+
+
 **§15 is the same shape one layer further on**, in the *confidence* pipeline
 rather than the verification infrastructure: a correctly-scoped result
 inflated 39.8x by a self-join, where the duplicate detector could not run
@@ -1282,3 +1290,223 @@ aggregate gate), and separable from legitimate duplication at a
 false-positive rate under 1%. It belongs in the paper as **future work**
 with these numbers attached, not as a stated limitation. Nothing has been
 implemented; this section is diagnosis only.
+
+
+## 16. Over-refusal: a failure mode no layer can see (2026-09-15)
+
+A model declines a question it could have answered. Every layer in this
+system reads that as a success, or cannot distinguish it from something
+else. The rate was measured on the banked results before any change was
+made, so the figures below are a clean before-baseline.
+
+### Invisible to every layer, by construction
+
+| layer | what it does with an over-refusal |
+|---|---|
+| AST guardrail | Nothing reaches it — there is no SQL to parse. A refusal is the safest possible outcome by its measure. |
+| `refusal_accuracy` | Measures whether **unsafe** questions are refused. It has no term for an answerable question wrongly refused; a false refusal cannot lower it. |
+| `clarification_accuracy` | Measures whether **ambiguous** questions ask for clarification. Same blindness in the other direction. |
+| Execution accuracy (EX) | Scores it incorrect — correctly — but **collapses it with generation error**. A refusal and a wrong join are one number. |
+| `result_sanity` | Never runs. No result set exists. |
+| Confidence fusion | Never runs on a refusal path. |
+
+Every individual layer is behaving as specified. The gap is that no metric
+in the suite has a term for *declined something it could have done*, so the
+quantity was never a number at all until it was computed deliberately. This
+is §9's pattern in its purest form: not a check that passed for the wrong
+reason, but a check whose success criterion never included the failure.
+
+### Definition, and a correction that matters
+
+Genuine over-refusal is:
+
+```
+answerable = true  AND  category != 'ambiguous'  AND  status IN (clarification, refused)
+```
+
+**The `ambiguous` exclusion is not a convenience — without it the figure is
+inflated by construction.** The 5 `ambiguous` questions carry
+`answerable=true` but exist precisely to exercise the clarification path.
+Declining them is the *correct* outcome and is exactly what
+`clarification_accuracy` scores at 1.000 for both providers. Counting them
+as over-refusal would mean penalising a model for the behaviour a different
+published metric rewards it for, in the same run. On the Gemini headline
+that error would have reported 15 over-refusals instead of 10 — a 50%
+overstatement — and on the full banked set 33 instead of 18.
+
+An over-refusal is therefore a question with **real gold SQL** that the
+model declined to attempt.
+
+### The measurement
+
+```
+ANTHROPIC  claude-sonnet-5, repeats=3          n = 390 scorable answerable records
+  correct                              283
+  wrong SQL (attempted, executed)      107
+  OVER-REFUSAL                           0        0.0%
+  ambiguous declined as designed      0 / 15
+
+GEMINI     gemini-flash-lite, repeats=1        n = 130 scorable answerable records
+  correct                               82
+  wrong SQL (attempted, executed)       38
+  OVER-REFUSAL                          10        7.7%
+  ambiguous declined as designed       5 / 5
+```
+
+Anthropic's 40 declines land entirely on `unanswerable` (24) and
+`adversarial` (16) — perfect discrimination, not one answerable question
+refused across 390 records.
+
+**Share of reported error.** The over-refusal *count* is label-invariant: a
+declined question has no SQL to execute, so it is incorrect under permissive
+and strict alike. What the label definition changes is its share, because
+strict reclassifies many permissively-correct rows as incorrect.
+
+| Gemini run=1 | EX | approx. errors | over-refusal share |
+|---|---|---|---|
+| permissive | 0.607 | ~51 | **19.6%** |
+| strict | 0.363 | ~83 | **12.0%** |
+
+**Roughly one fifth of Gemini's permissive EX gap is refusal rather than
+generation error.** Anthropic's is 0.0% under both. If every over-refusal
+were answered correctly, Gemini's permissive ceiling is 0.607 → **0.685
+(+0.078)**; Anthropic's is unchanged.
+
+Across all banked Gemini records including the partial runs 2 and 3:
+18 / 225 = 8.0%, over 11 unique questions — **3 refused on every repeat, 8
+intermittently.** Mostly non-deterministic, which bears directly on what a
+prompt change could be expected to fix.
+
+### Provider-specific, and that is the finding
+
+**0.0% Anthropic against 7.7% Gemini on an identical prompt, identical
+schema and an identical golden set.** The two runs differ in the model and
+nothing else that touches this behaviour.
+
+That asymmetry is what makes this a **generation-quality property rather
+than an architectural inevitability**. If both providers had over-refused at
+a similar rate, the honest reading would be that the schema representation
+is inadequate and the architecture forces the failure. One provider scoring
+zero rules that out: the information required to answer these questions is
+evidently recoverable from the prompt as it stands, because one model
+recovers it.
+
+**And it is visible only because two providers were evaluated.** On a
+single-provider evaluation this number is either 0.0% and invisible, or
+7.7% and indistinguishable from generation error inside EX. Multi-provider
+evaluation is usually justified as a generalisation check; here it was the
+only thing that separated a model behaviour from a system property. That is
+a reportable argument for the methodology, independent of the finding.
+
+### Where it concentrates, and the root cause
+
+Of the 11 unique over-refused questions: **8 `multi_join`**, 3 `date_filter`,
+1 `aggregation`. `g063`, `g066` and `g072` are refused on all three repeats
+and all three are `multi_join`.
+
+Multi-hop joins are exactly where a missing relationship graph would bite,
+and the prompt has no relationship graph. `app/schema/introspect.py`
+collects the full foreign-key structure — `ColumnInfo` carries
+`is_primary_key`, `is_foreign_key` and `references`, all correctly populated
+for all **43 FK edges** across 25 tables. `build_system_prompt()` then
+discards every one of them one function later:
+
+```python
+columns = ", ".join(f"{c.name} ({c.data_type})" for c in table.columns)
+lines.append(f"- {table.name}({columns})")
+```
+
+Only name and type survive. The rendered prompt contains no foreign key, no
+primary key and no reference wording of any kind — verified by searching the
+built prompt for "foreign key", "references" and "->", all absent. The model
+is instructed to use *only* the listed tables and columns, and is then shown
+a schema with every relationship stripped, left to re-infer the join graph
+from naming convention on each request.
+
+A worked instance, observed live rather than in the golden set: `faculty1`
+asked *"For each student, what is their highest mark in each semester?"* and
+received `CLARIFICATION_NEEDED` three times. The third attempt's own reason
+traced the path correctly — *"linked via subject_offerings, which connect to
+semesters"* — and declined anyway. The path
+`marks.exam_id → exams.offering_id → subject_offerings.semester_id` is a
+clean three-hop FK chain with no branching, and the obvious query returns
+4,000 rows as admin and 265 under `faculty1`'s scoping. The refusal was
+simply wrong.
+
+### Token-count correction
+
+A figure of **~2,391 tokens** for the system prompt has been in informal
+use. It is wrong and should not propagate. Measured with `tiktoken`
+`cl100k_base`:
+
+| | tokens |
+|---|---|
+| System prompt (schema + rules) | **1,589** |
+| Few-shot examples (5) | 461 |
+| **System + few-shot** | **2,050** |
+
+2,391 appears nowhere in this repository. The nearest recorded figure is the
+`2011` per-call input estimate in `eval/README.md`'s Gemini cost
+calculation, which is consistent with the 2,050 measured here to within 2%
+and needs no correction.
+
+### Decision: not re-running, and why
+
+**This is a decision, not an omission.** A fix is available and is *not*
+being applied, for a reason that survives writing down:
+
+1. **Anthropic is already at 0.0%.** A prompt change cannot improve a rate
+   that is zero. Its only effect on the primary baseline would be to
+   invalidate it.
+2. **The FK graph is not orthogonal to the task**, so it cannot be made
+   conditional the way `_ROW_SCOPED_INSTRUCTION` was. That instruction is
+   gated on `row_scoped`, and eval and admin requests get a byte-identical
+   prompt to the one that produced `results.jsonl` and
+   `results_gemini.jsonl` — three tests enforce it. A flag defaulting off
+   during evaluation would technically preserve the baseline while
+   **guaranteeing that published EX never measures the shipped
+   configuration** — the exact defect `b091f6b` fixed when the harness was
+   forcing `MULTI_QUERY_ENABLED=true` against what production ran.
+   Reintroducing it knowingly would be worse than the bug.
+3. **Reporting the fix therefore requires a full re-run on both
+   providers**, 161 questions × repeats. At `LLM_DAILY_CALL_LIMIT=450` and
+   ~2 calls per question with back-translation enabled, one repeat is ~320
+   calls — one repeat fits a day, three do not.
+4. **The realistic upside is smaller than the ceiling.** The measurable gain
+   is confined to Gemini's 10 records, and 8 of the 11 affected questions
+   are intermittent, so some would resolve on any re-run regardless of the
+   prompt. +0.078 is an upper bound that assumes every over-refusal becomes
+   a correct answer.
+
+Spending the primary baseline's comparability to chase a bounded improvement
+on the secondary provider is not a good trade. The rate is measured,
+published here, and cited as a known limitation instead.
+
+### Future work (proposed, not implemented)
+
+**Variant A — inline FK annotation.** Render each foreign-key column with
+its target at the point of use:
+
+```
+- marks(marks_id (BIGINT), exam_id (INTEGER) -> exams.exam_id,
+        student_id (INTEGER) -> students.student_id, marks_obtained (NUMERIC(6,2)), ...)
+```
+
+Cost, measured on the real schema:
+
+| variant | added tokens | new total | increase |
+|---|---|---|---|
+| **A. inline `-> tbl.col`** | **+273** | **1,862** | **+17.2%** |
+| C. compact per-table FK list | +452 | 2,041 | +28.4% |
+| B. separate "Relationships" block | +532 | 2,121 | +33.5% |
+
+A is preferred on two grounds: it is the cheapest by a wide margin, and it
+places the reference where the model is already reading rather than in a
+separate block requiring cross-reference. B and C both restate every table
+name, which is why they cost roughly double for the same 43 edges.
+
+**Measuring it properly requires a fresh baseline on both providers**, for
+the reasons above — a before/after comparison against the current
+`results.jsonl` would not be valid, because the prompt that produced it no
+longer exists. Any future report of this change must re-run both providers
+and say so.
