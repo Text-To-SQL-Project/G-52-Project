@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { gsap } from "gsap";
 import { ApiError, login } from "../api/client";
 import { setToken } from "../hooks/useAuthToken";
 
@@ -7,19 +8,16 @@ const DEMO_PERSONAS = [
     name: "Student",
     username: "student1",
     password: "twX92dZcZCL-dXuLATX7S-LoJH2b",
-    color: "border-cyan-400/40 hover:bg-cyan-500/10 text-cyan-300",
   },
   {
     name: "Faculty",
     username: "faculty1",
     password: "FJ82fzygY8AAP538JaizvbORHgK4",
-    color: "border-indigo-400/40 hover:bg-indigo-500/10 text-indigo-300",
   },
   {
     name: "Admin",
     username: "admin",
     password: "BHe3TjQIgh7zL0zOr9B7Z1SNaHP8",
-    color: "border-purple-400/40 hover:bg-purple-500/10 text-purple-300",
   },
 ];
 
@@ -28,6 +26,47 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (formRef.current) {
+      const children = formRef.current.children;
+      gsap.fromTo(
+        children,
+        { opacity: 0, y: 30 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: 0.6,
+          stagger: 0.1,
+          ease: "expo.out",
+          delay: 0.3,
+        }
+      );
+    }
+  }, []);
+
+  // Magnetic button
+  useEffect(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const onMove = (e: MouseEvent) => {
+      const rect = btn.getBoundingClientRect();
+      const x = e.clientX - rect.left - rect.width / 2;
+      const y = e.clientY - rect.top - rect.height / 2;
+      gsap.to(btn, { x: x * 0.15, y: y * 0.15, duration: 0.3, ease: "power2.out" });
+    };
+    const onLeave = () => {
+      gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.4)" });
+    };
+    btn.addEventListener("mousemove", onMove);
+    btn.addEventListener("mouseleave", onLeave);
+    return () => {
+      btn.removeEventListener("mousemove", onMove);
+      btn.removeEventListener("mouseleave", onLeave);
+    };
+  }, []);
 
   const submit = async (u = username, p = password) => {
     if (!u || !p || loading) return;
@@ -47,143 +86,192 @@ export function LoginScreen() {
     }
   };
 
-  const handleSelectPersona = (persona: typeof DEMO_PERSONAS[0], autoLogin = false) => {
+  const handleSelectPersona = (persona: typeof DEMO_PERSONAS[0]) => {
     setUsername(persona.username);
     setPassword(persona.password);
     setError(null);
-    if (autoLogin) {
-      submit(persona.username, persona.password);
-    }
   };
 
   return (
-    <div className="relative z-[1] flex min-h-screen items-center justify-center px-4 py-12 sm:px-6">
-      <div className="animate-rise w-full max-w-md">
-        <div className="glass-card relative overflow-hidden rounded-3xl border border-white/[0.12] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
-          {/* Subtle top glow */}
-          <div className="pointer-events-none absolute -top-24 left-1/2 h-48 w-48 -translate-x-1/2 rounded-full bg-indigo-500/20 blur-3xl" />
+    <div
+      className="relative z-[1] flex min-h-screen items-center justify-center px-5 py-12"
+    >
+      {/* Ambient orb glow behind the form */}
+      <div
+        className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2"
+        style={{
+          width: "500px",
+          height: "500px",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(34, 211, 238, 0.06) 0%, transparent 70%)",
+          animation: "glow-pulse 4s ease-in-out infinite",
+        }}
+      />
 
-          {/* Header & Brand */}
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-indigo-500/30 bg-indigo-600/20 shadow-[0_0_25px_rgba(99,102,241,0.3)]">
-              <span className="material-symbols-outlined text-[26px] text-indigo-400">terminal</span>
-            </div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-white">
-              SQL.AI <span className="gradient-text font-semibold">Guardrails</span>
-            </h1>
-            <p className="mt-1.5 font-sans text-xs text-white/50">
-              Sign in to access your secure Text-to-SQL workspace
+      <div ref={formRef} className="w-full max-w-md space-y-0">
+        {/* Brand — oversized, editorial */}
+        <div className="mb-10 text-center" style={{ opacity: 0 }}>
+          <div
+            className="mx-auto mb-4 flex h-10 w-10 items-center justify-center"
+            style={{
+              border: "1px solid var(--border-accent)",
+              background: "var(--accent-dim)",
+              borderRadius: "2px",
+              boxShadow: "0 0 25px rgba(34, 211, 238, 0.15)",
+            }}
+          >
+            <span className="material-symbols-outlined text-[24px]" style={{ color: "var(--accent)" }}>
+              terminal
+            </span>
+          </div>
+          <h1
+            className="font-display font-bold text-white"
+            style={{ fontSize: "clamp(1.75rem, 5vw, 2.5rem)", letterSpacing: "-0.04em" }}
+          >
+            SQL<span style={{ color: "var(--accent)" }}>.</span>AI{" "}
+            <span className="gradient-text">Guardrails</span>
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
+            Sign in to access your secure Text-to-SQL workspace
+          </p>
+        </div>
+
+        {/* Demo personas — hairline-divided row, not cards */}
+        <div className="mb-8" style={{ opacity: 0 }}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Demo Accounts
             </p>
+            <span className="pill-tag px-2 py-0.5 font-mono text-[9px]">Click to fill</span>
           </div>
-
-          {/* Demo Persona Quick-Fill Chips */}
-          <div className="mt-6 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
-            <div className="mb-2.5 flex items-center justify-between">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">
-                Demo Accounts (Click to Fill)
-              </p>
-              <span className="pill-tag-indigo rounded-full px-2 py-0.5 font-mono text-[9px]">
-                Auto-Credentials
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {DEMO_PERSONAS.map((persona) => (
-                <button
-                  key={persona.username}
-                  type="button"
-                  onClick={() => handleSelectPersona(persona, false)}
-                  className={`flex flex-col items-center rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-2 transition hover:bg-white/[0.08] ${
-                    username === persona.username ? "border-indigo-400/80 bg-indigo-500/15" : ""
-                  }`}
-                >
-                  <span className="font-sans text-xs font-semibold text-white/90">
-                    {persona.name}
-                  </span>
-                  <span className={`font-mono text-[10px] ${persona.color}`}>
-                    {persona.username}
-                  </span>
-                </button>
-              ))}
-            </div>
+          <div className="flex gap-0" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+            {DEMO_PERSONAS.map((persona, i) => (
+              <button
+                key={persona.username}
+                type="button"
+                onClick={() => handleSelectPersona(persona)}
+                className="flex flex-1 flex-col items-center py-3 transition-colors duration-200 focus-visible:outline-none"
+                style={{
+                  background:
+                    username === persona.username ? "var(--accent-dim)" : "transparent",
+                  borderRight:
+                    i < DEMO_PERSONAS.length - 1 ? "1px solid var(--border-subtle)" : "none",
+                  color:
+                    username === persona.username ? "var(--accent)" : "var(--text-secondary)",
+                }}
+                onMouseEnter={(e) => {
+                  if (username !== persona.username) {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                    e.currentTarget.style.color = "var(--text-primary)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (username !== persona.username) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }
+                }}
+              >
+                <span className="font-sans text-xs font-semibold">{persona.name}</span>
+                <span className="font-mono text-[10px]" style={{ opacity: 0.7 }}>
+                  {persona.username}
+                </span>
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* Form */}
-          <div className="mt-6 space-y-4">
-            <div>
-              <label
-                htmlFor="username"
-                className="mb-1.5 block font-mono text-[11px] uppercase tracking-wider text-white/50"
-              >
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                autoFocus
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                }}
-                className="w-full rounded-xl border border-white/10 bg-[#060c18]/80 px-4 py-2.5 font-sans text-sm text-white placeholder:text-white/25 focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/20"
-                placeholder="e.g. student1"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block font-mono text-[11px] uppercase tracking-wider text-white/50"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                }}
-                className="w-full rounded-xl border border-white/10 bg-[#060c18]/80 px-4 py-2.5 font-sans text-sm text-white placeholder:text-white/25 focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/20"
-                placeholder="••••••••"
-              />
-            </div>
-
-            {error && (
-              <div className="animate-rise flex items-center gap-2.5 rounded-xl border border-rose-500/30 bg-rose-950/30 px-3.5 py-2.5 text-xs text-rose-200">
-                <span className="material-symbols-outlined text-[16px] text-rose-400">error</span>
-                <span>{error}</span>
-              </div>
-            )}
-
-            <button
-              onClick={() => submit()}
-              disabled={loading || !username || !password}
-              className="glow-button mt-2 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 font-sans text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+        {/* Form — line-draw inputs */}
+        <div className="space-y-6" style={{ opacity: 0 }}>
+          <div>
+            <label
+              htmlFor="username"
+              className="mb-2 block font-mono text-[11px] uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
             >
-              {loading ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  <span>Authenticating…</span>
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[18px]">lock_open</span>
-                  <span>Sign In</span>
-                </>
-              )}
-            </button>
+              Username
+            </label>
+            <input
+              id="username"
+              type="text"
+              autoFocus
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              className="signal-input"
+              placeholder="e.g. student1"
+            />
           </div>
 
-          {/* Sweep bar */}
-          <div className="relative -mx-8 -mb-8 mt-6 h-[2px] overflow-hidden bg-white/[0.06]">
-            {loading && (
-              <div className="animate-sweep absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-cyan-400 to-transparent" />
-            )}
+          <div>
+            <label
+              htmlFor="password"
+              className="mb-2 block font-mono text-[11px] uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              className="signal-input"
+              placeholder="••••••••"
+            />
           </div>
+
+          {error && (
+            <div
+              className="animate-rise flex items-center gap-2.5 py-2.5 text-xs"
+              style={{
+                borderLeft: "2px solid var(--danger)",
+                paddingLeft: "12px",
+                color: "#fca5a5",
+              }}
+            >
+              <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--danger)" }}>
+                error
+              </span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            ref={buttonRef}
+            onClick={() => submit()}
+            disabled={loading || !username || !password}
+            className="glow-button mt-4 flex w-full items-center justify-center gap-2 py-3 font-sans text-sm font-semibold transition"
+            style={{ borderRadius: "2px" }}
+          >
+            {loading ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+                <span>Authenticating…</span>
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-[18px]">lock_open</span>
+                <span>Sign In</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Bottom accent line */}
+        <div
+          className="relative mt-8 h-[1px] overflow-hidden"
+          style={{ background: "var(--border-subtle)", opacity: 0 }}
+        >
+          {loading && (
+            <div
+              className="animate-sweep absolute inset-y-0 w-1/3"
+              style={{ background: `linear-gradient(to right, transparent, var(--accent), transparent)` }}
+            />
+          )}
         </div>
       </div>
     </div>

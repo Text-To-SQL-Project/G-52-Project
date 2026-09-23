@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -9,6 +9,29 @@ interface Props {
   columnsUsed: string[];
   onRerun?: (editedSql: string) => void;
   rerunning?: boolean;
+}
+
+/** Typewriter hook — reveals text character by character */
+function useTypewriter(text: string, speed = 15) {
+  const [displayed, setDisplayed] = useState("");
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setDisplayed("");
+    setDone(false);
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) {
+        clearInterval(interval);
+        setDone(true);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed]);
+
+  return { displayed, done };
 }
 
 export function SqlPanel({
@@ -22,8 +45,24 @@ export function SqlPanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sql ?? "");
   const [copied, setCopied] = useState(false);
+  const [hasRevealed, setHasRevealed] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+
+  const { displayed: typewriterSql, done: typewriterDone } = useTypewriter(
+    hasRevealed ? "" : (sql ?? ""),
+    12
+  );
+
+  // After first typewriter completes, mark as revealed
+  useEffect(() => {
+    if (typewriterDone && !hasRevealed && sql) {
+      setHasRevealed(true);
+    }
+  }, [typewriterDone, hasRevealed, sql]);
 
   if (!sql) return null;
+
+  const displaySql = hasRevealed ? sql : typewriterSql;
 
   const startEditing = () => {
     setDraft(sql);
@@ -48,11 +87,14 @@ export function SqlPanel({
   };
 
   return (
-    <section className="glass-card animate-rise overflow-hidden rounded-2xl">
-      <header className="flex items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.02] px-6 py-3.5">
+    <section ref={panelRef} className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+      <header
+        className="flex items-center justify-between gap-3 px-6 py-3.5"
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+      >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-indigo-300">code</span>
-          <h3 className="font-mono text-xs font-semibold uppercase tracking-wider text-white/70">
+          <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>code</span>
+          <h3 className="font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
             Generated SQL
           </h3>
         </div>
@@ -61,7 +103,21 @@ export function SqlPanel({
           <button
             onClick={handleCopy}
             title="Copy SQL to clipboard"
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-xs text-white/70 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none"
+            className="flex items-center gap-1.5 px-2.5 py-1 font-mono text-xs transition duration-200 focus-visible:outline-none"
+            style={{
+              border: "1px solid var(--border-subtle)",
+              background: "transparent",
+              color: "var(--text-secondary)",
+              borderRadius: "2px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-accent)";
+              e.currentTarget.style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-subtle)";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }}
           >
             <span className="material-symbols-outlined text-[15px]">
               {copied ? "check" : "content_copy"}
@@ -72,7 +128,21 @@ export function SqlPanel({
           {onRerun && !editing && (
             <button
               onClick={startEditing}
-              className="flex items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 font-sans text-xs font-medium text-indigo-200 transition hover:bg-indigo-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/50"
+              className="flex items-center gap-1 px-3 py-1 font-sans text-xs font-medium transition duration-200 focus-visible:outline-none"
+              style={{
+                border: "1px solid var(--border-accent)",
+                background: "var(--accent-dim)",
+                color: "var(--accent)",
+                borderRadius: "2px",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(34, 211, 238, 0.15)";
+                e.currentTarget.style.color = "var(--accent-bright)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--accent-dim)";
+                e.currentTarget.style.color = "var(--accent)";
+              }}
             >
               <span className="material-symbols-outlined text-[15px]">edit</span>
               <span>Edit &amp; Re-run</span>
@@ -89,17 +159,19 @@ export function SqlPanel({
               onChange={(e) => setDraft(e.target.value)}
               rows={8}
               spellCheck={false}
-              className="sql-editor-card w-full resize-y rounded-xl p-4 font-mono text-[13px] leading-relaxed text-[#dde2f8] focus:border-indigo-400/50 focus:outline-none focus:ring-1 focus:ring-indigo-400/30"
+              className="sql-editor-card w-full resize-y p-4 font-mono text-[13px] leading-relaxed focus:outline-none"
+              style={{ color: "var(--text-primary)" }}
             />
             <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
               <button
                 onClick={runEdited}
                 disabled={rerunning || !draft.trim()}
-                className="glow-button flex items-center gap-2 rounded-lg px-4 py-2 font-sans text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+                className="glow-button flex items-center gap-2 px-4 py-2 font-sans text-xs font-semibold transition"
+                style={{ borderRadius: "2px" }}
               >
                 {rerunning ? (
                   <>
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
                     <span>Running…</span>
                   </>
                 ) : (
@@ -112,18 +184,24 @@ export function SqlPanel({
               <button
                 onClick={() => setEditing(false)}
                 disabled={rerunning}
-                className="rounded-lg border border-white/15 bg-white/[0.04] px-4 py-2 font-sans text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white focus-visible:outline-none"
+                className="px-4 py-2 font-sans text-xs font-semibold transition focus-visible:outline-none"
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  borderRadius: "2px",
+                }}
               >
                 Cancel
               </button>
             </div>
-            <p className="mt-2.5 text-[11px] leading-relaxed text-white/40">
-              Runs via <span className="font-mono text-white/60">sql_override</span> — bypasses
+            <p className="mt-2.5 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              Runs via <span className="font-mono" style={{ color: "var(--text-secondary)" }}>sql_override</span> — bypasses
               LLM generation but strictly runs through AST security and read-only guardrails.
             </p>
           </div>
         ) : (
-          <div className="sql-editor-card overflow-hidden rounded-xl">
+          <div className="sql-editor-card overflow-hidden">
             <SyntaxHighlighter
               language="sql"
               style={oneDark}
@@ -137,28 +215,43 @@ export function SqlPanel({
               codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
               wrapLongLines
             >
-              {sql}
+              {displaySql}
             </SyntaxHighlighter>
+            {!hasRevealed && !typewriterDone && (
+              <span className="typewriter-cursor" />
+            )}
           </div>
         )}
 
         {explanation && !editing && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-            <span className="material-symbols-outlined mt-0.5 text-[18px] text-indigo-300">
+          <div
+            className="mt-4 flex items-start gap-2.5 p-3.5"
+            style={{
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "2px",
+              background: "rgba(255,255,255,0.01)",
+            }}
+          >
+            <span className="material-symbols-outlined mt-0.5 text-[18px]" style={{ color: "var(--accent)" }}>
               lightbulb
             </span>
-            <p className="max-w-prose text-sm leading-relaxed text-white/75">{explanation}</p>
+            <p className="max-w-prose text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {explanation}
+            </p>
           </div>
         )}
 
         {!editing && (tablesUsed.length > 0 || columnsUsed.length > 0) && (
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-white/[0.08] pt-4">
-            <span className="font-mono text-[11px] text-white/40">Entities:</span>
+          <div
+            className="mt-4 flex flex-wrap items-center gap-2 pt-4"
+            style={{ borderTop: "1px solid var(--border-subtle)" }}
+          >
+            <span className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>Entities:</span>
             {tablesUsed.map((t) => (
               <span
                 key={t}
                 title="Database Table"
-                className="pill-tag flex items-center gap-1 rounded-md px-2.5 py-1 font-mono text-[11px]"
+                className="pill-tag flex items-center gap-1 px-2.5 py-1 font-mono text-[11px]"
               >
                 <span className="material-symbols-outlined text-[13px]">table_rows</span>
                 {t}
@@ -168,7 +261,8 @@ export function SqlPanel({
               <span
                 key={c}
                 title="Table Column"
-                className="pill-tag-indigo flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px]"
+                className="pill-tag flex items-center gap-1 px-2 py-0.5 font-mono text-[11px]"
+                style={{ opacity: 0.7 }}
               >
                 <span className="material-symbols-outlined text-[12px]">view_column</span>
                 {c}

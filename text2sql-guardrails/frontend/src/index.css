@@ -1,141 +1,168 @@
 @import "tailwindcss";
 
-/* Typography tokens matching Stitch MCP 'Syntactic Deep' design system */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIGNAL — Design System
+   SQL.AI Guardrails · Dark cinematic control-room aesthetic
+   Palette derived from AiOrb shader: cyan accent only in UI chrome
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* ── Typography ───────────────────────────────────────────────────────── */
+  --font-sans: "Outfit", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-display: "Syne", sans-serif;
 
-
-  /* Motion system.
-   *
-   * One rule governs all of it: every terminal state animates identically.
-   * SUCCESS does not get a celebratory pop and BLOCKED does not get an alarmed
-   * shake, because motion energy would then become a sixth status signal --
-   * one that carries a verdict before the viewer has read the label. Which
-   * state a query reached is told by colour, badge silhouette and text, and
-   * never by how eagerly the panel arrives.
-   *
-   * Durations stay under ~420ms for anything gating a read. The only looping
-   * animations are the ambient background and the indeterminate loading sweep;
-   * both are suppressed under prefers-reduced-motion at the bottom of this
-   * file. Each keyframe declares only `from`, so the implicit `to` is the
-   * element's own computed style -- an entrance can never fight an inline
-   * width or a utility class for the final value. */
+  /* ── Motion tokens ───────────────────────────────────────────────────── */
   --animate-rise: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-fade: fade 300ms ease-out both;
   --animate-chip: chip 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-bar: bar 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-sweep: sweep 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-glow-pulse: glow-pulse 3s ease-in-out infinite;
+  --animate-scan-line: scan-line 8s linear infinite;
+  --animate-text-reveal: text-reveal 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-wipe-in: wipe-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-up: slide-up 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
 
   @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
+    from { opacity: 0; transform: translateY(10px); }
   }
-
   @keyframes fade {
-    from {
-      opacity: 0;
-    }
+    from { opacity: 0; }
   }
-
   @keyframes chip {
-    from {
-      opacity: 0;
-      transform: translateY(5px) scale(0.97);
-    }
+    from { opacity: 0; transform: translateY(5px) scale(0.97); }
   }
-
-  /* Confidence bars grow from nothing to whatever inline width the score sets. */
   @keyframes bar {
-    from {
-      width: 0;
-    }
+    from { width: 0; }
   }
-
-  /* Sweeps a highlight across a skeleton placeholder. This is the app's one
-     signature live animation, and it is the same on all five screens. */
-  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
-
   @keyframes shimmer {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(100%);
-    }
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
   }
-
-  /* Indeterminate: deliberately not a progress bar. The backend reports no
-     progress during generation, so nothing here should imply a fraction done. */
   @keyframes sweep {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(320%);
-    }
+    from { transform: translateX(-100%); }
+    to { transform: translateX(320%); }
+  }
+  @keyframes glow-pulse {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.05); }
+  }
+  @keyframes scan-line {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(200vh); }
+  }
+  @keyframes text-reveal {
+    from { opacity: 0; transform: translateY(100%); }
+  }
+  @keyframes wipe-in {
+    from { clip-path: inset(0 100% 0 0); }
+    to { clip-path: inset(0 0 0 0); }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(40px); }
   }
 }
 
+/* ── CSS Custom Properties (not Tailwind theme — runtime vars) ─────────── */
+:root {
+  /* Palette: cyan-only accent, derived from AiOrb #22d3ee */
+  --bg-void: #06080f;
+  --bg-surface: #0a0e1a;
+  --bg-elevated: #10152a;
+  --bg-hover: #151c34;
+
+  --accent: #22d3ee;
+  --accent-dim: rgba(34, 211, 238, 0.12);
+  --accent-glow: rgba(34, 211, 238, 0.25);
+  --accent-bright: #5de6ff;
+
+  --text-primary: #e8ecf4;
+  --text-secondary: #8891a8;
+  --text-muted: #6b7394;   /* ≥4.5:1 on --bg-void */
+  --text-ghost: #3d4560;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --border-accent: rgba(34, 211, 238, 0.3);
+
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+
+  /* Easings */
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-circ: cubic-bezier(0, 0.55, 0.45, 1);
+
+  /* Durations */
+  --dur-fast: 200ms;
+  --dur-normal: 400ms;
+  --dur-slow: 700ms;
+  --dur-glacial: 1200ms;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
 body {
-  background: #0b1120;
-  color: #e6e8eb;
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
-/* ---------------------------------------------------------------------------
-   Live wallpaper. Markup in components/LiveBackground.tsx, which documents the
-   layer stack and the constraints; this file holds the paint and the motion.
+::selection {
+  background-color: rgba(34, 211, 238, 0.3);
+  color: white;
+}
 
-   Every animation below moves `transform` only. Nothing is blurred with a
-   filter, nothing animates a colour, and nothing animates a size -- so the
-   compositor can hand the whole wallpaper to the GPU and leave the main
-   thread free for the results table. All of it stops under the
-   prefers-reduced-motion block at the foot of this file.
-   --------------------------------------------------------------------------- */
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.15) transparent;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: rgba(34, 211, 238, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(34, 211, 238, 0.25);
+}
 
-/* 2. Depth: sinks the page toward the bottom so panels feel lit from above. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIVE WALLPAPER — from LiveBackground.tsx
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .bg-depth {
   background:
-    linear-gradient(to bottom, rgba(2, 6, 23, 0) 0%, rgba(2, 6, 23, 0.55) 100%),
-    radial-gradient(120% 80% at 50% -10%, rgba(30, 41, 82, 0.55) 0%, rgba(11, 17, 32, 0) 60%);
+    linear-gradient(to bottom, rgba(6, 8, 15, 0) 0%, rgba(6, 8, 15, 0.7) 100%),
+    radial-gradient(120% 80% at 50% -10%, rgba(16, 21, 42, 0.5) 0%, rgba(6, 8, 15, 0) 60%);
 }
 
-/* 3. Grid: the technical lattice. Drifts exactly one 56px tile per cycle, so
-      the loop is seamless, and is masked to nothing well before the viewport
-      edge so it never terminates in a visible hard line. */
 .bg-grid {
   background-image:
-    linear-gradient(to right, rgba(148, 163, 184, 0.07) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
-  background-size: 56px 56px;
-  -webkit-mask-image: radial-gradient(ellipse 75% 58% at 50% 38%, #000 15%, transparent 72%);
-  mask-image: radial-gradient(ellipse 75% 58% at 50% 38%, #000 15%, transparent 72%);
+    linear-gradient(to right, rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 38%, #000 10%, transparent 70%);
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 38%, #000 10%, transparent 70%);
   will-change: transform;
-  animation: grid-drift 44s linear infinite;
+  animation: grid-drift 50s linear infinite;
 }
 
 @keyframes grid-drift {
-  to {
-    transform: translate3d(56px, 56px, 0);
-  }
+  to { transform: translate3d(64px, 64px, 0); }
 }
 
-/* 4. Blooms: soft colour fields. Soft because the gradient stops are long, not
-      because of `filter: blur()` -- a blurred element that moves has to be
-      re-rasterised, one that is merely a gradient does not.
-
-      Indigo, violet and blue only. No green anywhere in the wallpaper: green
-      means SUCCESS and PASS, and a wash of it behind a REFUSED chip would
-      undercut the most important thing this interface says.
-
-      The three periods (37s / 43s / 53s) share no common factor, so the
-      composition takes over half an hour to repeat itself exactly. */
+/* Blooms: cyan-tinted now to match the single-accent system */
 .bg-bloom {
   position: absolute;
   border-radius: 9999px;
@@ -143,278 +170,391 @@ body {
 }
 
 .bg-bloom-a {
-  width: 60rem;
-  height: 46rem;
-  left: -14rem;
-  bottom: -18rem;
-  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.30), rgba(99, 102, 241, 0) 100%);
+  width: 60rem; height: 46rem;
+  left: -14rem; bottom: -18rem;
+  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.08), rgba(34, 211, 238, 0) 100%);
   animation: bloom-a 37s ease-in-out infinite alternate;
 }
-
 .bg-bloom-b {
-  width: 52rem;
-  height: 42rem;
-  right: -12rem;
-  bottom: -14rem;
-  background: radial-gradient(closest-side, rgba(139, 92, 246, 0.26), rgba(139, 92, 246, 0) 100%);
+  width: 52rem; height: 42rem;
+  right: -12rem; bottom: -14rem;
+  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.05), rgba(34, 211, 238, 0) 100%);
   animation: bloom-b 43s ease-in-out infinite alternate;
 }
-
 .bg-bloom-c {
-  width: 46rem;
-  height: 36rem;
-  left: 32%;
-  top: -14rem;
-  background: radial-gradient(closest-side, rgba(37, 99, 235, 0.22), rgba(37, 99, 235, 0) 100%);
+  width: 46rem; height: 36rem;
+  left: 32%; top: -14rem;
+  background: radial-gradient(closest-side, rgba(34, 211, 238, 0.06), rgba(34, 211, 238, 0) 100%);
   animation: bloom-c 53s ease-in-out infinite alternate;
 }
 
 @keyframes bloom-a {
-  from {
-    transform: translate3d(-3%, 2%, 0) scale(1);
-  }
-  to {
-    transform: translate3d(8%, -5%, 0) scale(1.12);
-  }
+  from { transform: translate3d(-3%, 2%, 0) scale(1); }
+  to { transform: translate3d(8%, -5%, 0) scale(1.12); }
 }
-
 @keyframes bloom-b {
-  from {
-    transform: translate3d(4%, 0, 0) scale(1.08);
-  }
-  to {
-    transform: translate3d(-6%, -6%, 0) scale(1);
-  }
+  from { transform: translate3d(4%, 0, 0) scale(1.08); }
+  to { transform: translate3d(-6%, -6%, 0) scale(1); }
 }
-
 @keyframes bloom-c {
-  from {
-    transform: translate3d(-5%, -2%, 0) scale(1);
-  }
-  to {
-    transform: translate3d(6%, 6%, 0) scale(1.15);
-  }
+  from { transform: translate3d(-5%, -2%, 0) scale(1); }
+  to { transform: translate3d(6%, 6%, 0) scale(1.15); }
 }
 
-/* 5. Scan: one faint band easing down the page. Alpha is deliberately near the
-      floor -- it should register as the surface breathing, not as an object
-      crossing the screen, and it passes under semi-opaque panels. */
 .bg-scan {
-  top: 0;
-  height: 45vh;
+  top: 0; height: 45vh;
   background: linear-gradient(
     to bottom,
-    rgba(96, 165, 250, 0) 0%,
-    rgba(96, 165, 250, 0.05) 50%,
-    rgba(96, 165, 250, 0) 100%
+    rgba(34, 211, 238, 0) 0%,
+    rgba(34, 211, 238, 0.03) 50%,
+    rgba(34, 211, 238, 0) 100%
   );
   will-change: transform;
   animation: scan 19s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-
 @keyframes scan {
-  from {
-    transform: translate3d(0, -50vh, 0);
-  }
-  to {
-    transform: translate3d(0, 145vh, 0);
-  }
+  from { transform: translate3d(0, -50vh, 0); }
+  to { transform: translate3d(0, 145vh, 0); }
 }
 
-/* 6. Grain: static, and the only layer that never moves. Wide dark gradients
-      band badly on projectors and cheap panels; a little noise breaks the
-      bands up and reads as texture rather than as a defect. */
 .bg-grain {
-  opacity: 0.05;
+  opacity: 0.04;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Staggered entrance for the response stack on the Workspace screen. Keyed to
-   position rather than passed down as a prop, so no panel needs to know where
-   it sits -- and because which panels render at all depends on the status, the
-   stagger stays contiguous whatever combination appears. Every step is the
-   same length for every state: a BLOCKED response arrives at exactly the pace
-   a SUCCESS one does. */
-.response-stack > *:nth-child(1) {
-  animation-delay: 0ms;
-}
-.response-stack > *:nth-child(2) {
-  animation-delay: 70ms;
-}
-.response-stack > *:nth-child(3) {
-  animation-delay: 140ms;
-}
-.response-stack > *:nth-child(4) {
-  animation-delay: 210ms;
-}
-.response-stack > *:nth-child(5) {
-  animation-delay: 280ms;
-}
-.response-stack > *:nth-child(n + 6) {
-  animation-delay: 350ms;
-}
-
-/* Loading placeholder. Size and round it with ordinary utilities
-   (`h-4 w-32 rounded-md skeleton`); do not pass a `bg-*` class, since the base
-   tint is set here and would win on source order.
-
-   The highlight is a transform on a pseudo-element, so it composites rather
-   than repainting -- a History screen showing eight placeholder rows is still
-   one cheap animation per row. Suppressed wholesale under the
-   prefers-reduced-motion block at the foot of this file, which leaves the
-   static tinted block as a perfectly readable "not loaded yet". */
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background-color: rgba(255, 255, 255, 0.055);
-}
-
-.skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.09),
-    transparent
-  );
-  animation: shimmer 1.6s ease-in-out infinite;
-}
-
-::selection {
-  background-color: #3b82f6;
-  color: white;
-}
-
-/* Results tables and the SQL block scroll horizontally on narrow viewports.
-   The default Chrome scrollbar is an opaque light slab on this palette, which
-   reads as a UI element rather than an affordance -- this tones it down. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.16);
-  border: 3px solid transparent;
-  background-clip: content-box;
-  border-radius: 9999px;
-}
-
-/* ===========================================================================
-   Stitch MCP - Syntactic Deep Design Tokens & Utilities
-   =========================================================================== */
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENT STYLES — SIGNAL Design System
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 .font-display {
   font-family: var(--font-display);
 }
 
+/* ── Panels — NO cards. Hairline-divided, transparent, layered light ──── */
+.signal-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  position: relative;
+}
+.signal-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.02) 0%, transparent 40%);
+  pointer-events: none;
+}
+
+/* Keep glass-card for backward compatibility during migration */
 .glass-card {
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
-  border-right: 1px solid rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--border-hairline);
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  border-right: 1px solid rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 2px;
 }
 
 .glass-panel {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.015);
+  border-top: 1px solid var(--border-hairline);
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
   border-right: 1px solid rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.35), 0px 12px 28px rgba(0, 0, 0, 0.4);
+  border-radius: 2px;
 }
 
 .glass-panel-heavy {
-  background: rgba(13, 19, 34, 0.78);
+  background: rgba(10, 14, 26, 0.85);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0px 4px 14px rgba(0, 0, 0, 0.6), 0px 18px 40px rgba(0, 0, 0, 0.7);
-}
-
-.sql-editor-card {
-  background: rgba(5, 9, 18, 0.72);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid var(--border-hairline);
   border-left: 1px solid rgba(255, 255, 255, 0.05);
-  border-right: 1px solid rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-  box-shadow: inset 0px 2px 8px rgba(0, 0, 0, 0.6);
+  border-radius: 2px;
 }
 
+/* ── SQL Editor ─────────────────────────────────────────────────────────── */
+.sql-editor-card {
+  background: rgba(6, 8, 15, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  box-shadow: inset 0px 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
 .glow-button {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--accent);
+  color: #06080f;
+  font-weight: 600;
+  border: none;
+  border-radius: 2px;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.3), 0 0 60px rgba(34, 211, 238, 0.1);
+  transition: all 0.3s var(--ease-expo);
+  position: relative;
+  overflow: hidden;
 }
-
+.glow-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
 .glow-button:hover:not(:disabled) {
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.55);
-  transform: translateY(-1px);
+  box-shadow: 0 0 30px rgba(34, 211, 238, 0.5), 0 0 80px rgba(34, 211, 238, 0.2);
+  transform: translateY(-2px);
 }
-
+.glow-button:hover:not(:disabled)::before {
+  opacity: 1;
+}
 .glow-button:active:not(:disabled) {
-  transform: translateY(0px);
+  transform: translateY(0) scale(0.98);
+}
+.glow-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
+/* ── Tags / Pills ─────────────────────────────────────────────────────── */
 .pill-tag {
-  background-color: rgba(34, 211, 238, 0.1);
-  border: 1px solid rgba(34, 211, 238, 0.25);
-  color: #22d3ee;
+  background-color: var(--accent-dim);
+  border: 1px solid var(--border-accent);
+  color: var(--accent);
+  border-radius: 2px;
 }
 
 .pill-tag-indigo {
-  background-color: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  color: #c0c1ff;
+  background-color: var(--accent-dim);
+  border: 1px solid var(--border-accent);
+  color: var(--accent-bright);
+  border-radius: 2px;
 }
 
+/* ── Gradient Text ──────────────────────────────────────────────────────── */
 .gradient-text {
-  background: linear-gradient(135deg, #c0c1ff 0%, #8083ff 100%);
+  background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .gradient-text-cyan {
-  background: linear-gradient(135deg, #5de6ff 0%, #8083ff 100%);
+  background: linear-gradient(135deg, #5de6ff 0%, #22d3ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
+/* ── Radial Glow ──────────────────────────────────────────────────────── */
 .radial-glow-spot {
   position: absolute;
   pointer-events: none;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, rgba(0,0,0,0) 70%);
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.15) 0%, rgba(0,0,0,0) 70%);
 }
 
-/* Material Symbols alignment helper */
+/* ── Response Stack Stagger ──────────────────────────────────────────── */
+.response-stack > *:nth-child(1) { animation-delay: 0ms; }
+.response-stack > *:nth-child(2) { animation-delay: 80ms; }
+.response-stack > *:nth-child(3) { animation-delay: 160ms; }
+.response-stack > *:nth-child(4) { animation-delay: 240ms; }
+.response-stack > *:nth-child(5) { animation-delay: 320ms; }
+.response-stack > *:nth-child(n + 6) { animation-delay: 400ms; }
+
+/* ── Skeleton ────────────────────────────────────────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(34, 211, 238, 0.04);
+  border-radius: 2px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.08), transparent);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* ── Material Symbols ────────────────────────────────────────────────── */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
   vertical-align: middle;
   line-height: 1;
 }
+
+/* ── Inputs — line-draw style ────────────────────────────────────────── */
+.signal-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-hairline);
+  border-radius: 0;
+  padding: 0.75rem 0;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  transition: border-color 0.3s var(--ease-smooth);
+  outline: none;
+  width: 100%;
+}
+.signal-input:focus {
+  border-bottom-color: var(--accent);
+  box-shadow: 0 1px 0 0 var(--accent);
+}
+.signal-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── Orb ambient glow — applied from parent, not AiOrb.tsx ──────────── */
+.orb-frame {
+  position: relative;
+}
+.orb-frame::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.12) 0%, transparent 70%);
+  animation: glow-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+.orb-frame[data-status="loading"]::before {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.2) 0%, transparent 70%);
+  animation: glow-pulse 1.2s ease-in-out infinite;
+}
+.orb-frame[data-status="blocked"]::before {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.15) 0%, transparent 70%);
+}
+.orb-frame[data-status="error"]::before {
+  background: radial-gradient(circle, rgba(248, 113, 113, 0.12) 0%, transparent 70%);
+}
+.orb-frame[data-status="success"]::before {
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.15) 0%, transparent 70%);
+}
+
+/* ── Custom Cursor ──────────────────────────────────────────────────── */
+.cursor-follower {
+  position: fixed;
+  top: 0; left: 0;
+  width: 32px; height: 32px;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transition: width 0.3s var(--ease-expo),
+              height 0.3s var(--ease-expo),
+              border-color 0.3s,
+              background-color 0.3s,
+              opacity 0.3s;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: difference;
+}
+.cursor-follower.hovering {
+  width: 56px; height: 56px;
+  border-color: var(--accent);
+  background-color: rgba(34, 211, 238, 0.06);
+}
+.cursor-follower.clicking {
+  width: 24px; height: 24px;
+  border-color: var(--accent-bright);
+}
+.cursor-follower.input-hover {
+  width: 4px; height: 24px;
+  border-radius: 2px;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* ── Preloader ──────────────────────────────────────────────────────── */
+.preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--bg-void);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+.preloader-text {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.preloader-bar {
+  width: 120px;
+  height: 2px;
+  background: var(--border-subtle);
+  border-radius: 1px;
+  overflow: hidden;
+  position: relative;
+}
+.preloader-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: sweep 1s var(--ease-circ) infinite;
+}
+
+/* ── Typewriter effect for SQL streaming ─────────────────────────────── */
+.typewriter-cursor::after {
+  content: '▊';
+  color: var(--accent);
+  animation: blink-cursor 0.8s step-end infinite;
+  margin-left: 1px;
+}
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ── Route transition wipe ──────────────────────────────────────────── */
+.screen-wipe {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: var(--bg-void);
+  transform: translateY(100%);
+  pointer-events: none;
+}
+.screen-wipe.active {
+  animation: wipe-up 500ms var(--ease-expo) forwards;
+}
+@keyframes wipe-up {
+  0% { transform: translateY(100%); }
+  50% { transform: translateY(0%); }
+  100% { transform: translateY(-100%); }
+}
+
+/* ── Hairline divider ─────────────────────────────────────────────────── */
+.hairline {
+  height: 1px;
+  background: var(--border-hairline);
+  border: none;
+  margin: 0;
+}
+
+/* ── Ambient particle container ───────────────────────────────────────── */
+.ambient-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY & REDUCED MOTION
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -425,4 +565,11 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .cursor-follower { display: none !important; }
+  .preloader { display: none !important; }
+}
+
+/* Hide custom cursor on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  .cursor-follower { display: none !important; }
 }

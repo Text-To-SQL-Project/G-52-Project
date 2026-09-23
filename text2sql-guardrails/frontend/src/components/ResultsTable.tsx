@@ -4,7 +4,6 @@ function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
-    // Format numbers nicely with commas if integer or 2 decimals
     return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
   }
   return String(value);
@@ -58,10 +57,13 @@ export function ResultsTable({ results, executed }: Props) {
   };
 
   return (
-    <section className="glass-card animate-rise overflow-hidden rounded-2xl">
-      <header className="flex items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.02] px-6 py-3.5">
+    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+      <header
+        className="flex items-center justify-between gap-3 px-6 py-3.5"
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+      >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-indigo-300">table_chart</span>
+          <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>table_chart</span>
           <h3 className="font-display text-sm font-semibold tracking-tight text-white">
             Query Results
           </h3>
@@ -69,13 +71,22 @@ export function ResultsTable({ results, executed }: Props) {
 
         {executed && results && (
           <div className="flex items-center gap-3">
-            <span className="pill-tag-indigo flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px]">
+            <span className="flex items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--accent)" }}>
               <span className="font-semibold text-white">{results.row_count.toLocaleString()}</span>{" "}
               {results.row_count === 1 ? "row" : "rows"}
             </span>
 
             {results.truncated && (
-              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-300 uppercase">
+              <span
+                className="font-mono text-[10px] font-semibold uppercase"
+                style={{
+                  padding: "2px 8px",
+                  border: "1px solid rgba(251, 191, 36, 0.3)",
+                  background: "rgba(251, 191, 36, 0.06)",
+                  color: "var(--warning)",
+                  borderRadius: "2px",
+                }}
+              >
                 capped
               </span>
             )}
@@ -84,7 +95,21 @@ export function ResultsTable({ results, executed }: Props) {
               <button
                 onClick={handleExportCsv}
                 title="Export results as CSV"
-                className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-xs text-white/70 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                className="flex items-center gap-1 px-2.5 py-1 font-mono text-xs transition duration-200 focus-visible:outline-none"
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  borderRadius: "2px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-accent)";
+                  e.currentTarget.style.color = "var(--accent)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-subtle)";
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
               >
                 <span className="material-symbols-outlined text-[14px]">download</span>
                 <span>Export CSV</span>
@@ -96,35 +121,35 @@ export function ResultsTable({ results, executed }: Props) {
 
       {!executed || !results ? (
         <div className="px-6 py-12 text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04]">
-            <span className="material-symbols-outlined text-[20px] text-white/40">block</span>
-          </div>
-          <p className="font-display text-sm font-medium text-white/70">Query not executed</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-white/40">
+          <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>block</span>
+          <p className="font-display text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Query not executed</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
             No SQL was executed against the database.
           </p>
         </div>
       ) : results.rows.length === 0 ? (
         <div className="px-6 py-12 text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04]">
-            <span className="material-symbols-outlined text-[20px] text-white/40">search_off</span>
-          </div>
-          <p className="font-display text-sm font-medium text-white/70">No matching records</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-white/40">
+          <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>search_off</span>
+          <p className="font-display text-sm font-medium" style={{ color: "var(--text-secondary)" }}>No matching records</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
             The query executed successfully and matched 0 rows.
           </p>
         </div>
       ) : (
         <div className="max-h-[32rem] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-10 bg-[#0d1322]/95 backdrop-blur-md">
+            <thead className="sticky top-0 z-10" style={{ background: "rgba(6, 8, 15, 0.95)", backdropFilter: "blur(8px)" }}>
               <tr>
                 {results.columns.map((col, j) => (
                   <th
                     key={col}
-                    className={`border-b border-white/10 px-5 py-3 font-mono text-[11px] font-semibold tracking-wider whitespace-nowrap text-white/55 uppercase ${
+                    className={`px-5 py-3 font-mono text-[11px] font-semibold tracking-wider whitespace-nowrap uppercase ${
                       numeric[j] ? "text-right" : ""
                     }`}
+                    style={{
+                      color: "var(--text-muted)",
+                      borderBottom: "1px solid var(--border-hairline)",
+                    }}
                   >
                     {col}
                   </th>
@@ -135,22 +160,29 @@ export function ResultsTable({ results, executed }: Props) {
               {results.rows.map((row, i) => (
                 <tr
                   key={i}
-                  className={`border-b border-white/[0.04] transition-colors duration-150 hover:bg-white/[0.05] ${
-                    i % 2 === 1 ? "bg-white/[0.015]" : ""
-                  }`}
+                  className="transition-colors duration-150"
+                  style={{
+                    borderBottom: "1px solid rgba(255,255,255,0.03)",
+                    background: i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(34, 211, 238, 0.02)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent"; }}
                 >
                   {row.map((cell, j) => (
                     <td
                       key={j}
                       className={`px-5 py-2.5 font-mono text-[13px] whitespace-nowrap ${
                         numeric[j] ? "text-right tabular-nums" : ""
-                      } ${
-                        cell === null || cell === undefined
-                          ? "text-white/20 italic"
-                          : numeric[j]
-                          ? "text-[#5de6ff]"
-                          : "text-white/85"
                       }`}
+                      style={{
+                        color:
+                          cell === null || cell === undefined
+                            ? "var(--text-ghost)"
+                            : numeric[j]
+                            ? "var(--accent)"
+                            : "var(--text-primary)",
+                        fontStyle: cell === null || cell === undefined ? "italic" : "normal",
+                      }}
                     >
                       {formatCell(cell)}
                     </td>
@@ -163,7 +195,14 @@ export function ResultsTable({ results, executed }: Props) {
       )}
 
       {executed && results?.truncated && (
-        <div className="flex items-center gap-2 border-t border-amber-500/20 bg-amber-950/20 px-6 py-2.5 text-xs text-amber-300">
+        <div
+          className="flex items-center gap-2 px-6 py-2.5 text-xs"
+          style={{
+            borderTop: "1px solid rgba(251, 191, 36, 0.15)",
+            background: "rgba(251, 191, 36, 0.03)",
+            color: "var(--warning)",
+          }}
+        >
           <span className="material-symbols-outlined text-[16px]">info</span>
           <span>
             Output capped at {results.row_count} rows. Refine your query for more specific results.

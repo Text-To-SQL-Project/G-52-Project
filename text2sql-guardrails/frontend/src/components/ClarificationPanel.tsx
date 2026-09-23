@@ -7,28 +7,51 @@ interface Props {
 
 export function ClarificationPanel({ clarification, onSelect }: Props) {
   return (
-    /* Sky, matching CLARIFICATION_NEEDED's chip in StatusBanner. This panel
-       used to be amber, which is REFUSED's colour -- the two states appeared
-       on screen in the same hue despite meaning opposite things (one is a
-       question to the user, the other is a hard stop). */
-    <div className="animate-rise overflow-hidden rounded-2xl border border-sky-400/30 bg-sky-400/[0.08]">
-      <div className="flex items-start gap-3 px-5 py-4">
+    <div
+      className="animate-rise overflow-hidden"
+      style={{
+        borderLeft: "2px solid var(--info)",
+        padding: "16px 20px",
+        background: "rgba(56, 189, 248, 0.03)",
+      }}
+    >
+      <div className="flex items-start gap-3">
         <span
           aria-hidden
-          className="mt-px inline-flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full border border-sky-300/80 text-sky-200"
+          className="mt-px inline-flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full"
+          style={{ border: "1px solid rgba(56, 189, 248, 0.6)", color: "var(--info)" }}
         >
           <span className="block text-[10px] font-bold leading-none">?</span>
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-sky-200">Clarification needed</h3>
-          <p className="mt-1 text-sm leading-relaxed text-sky-100/75">{clarification.reason}</p>
+          <h3 className="text-sm font-semibold" style={{ color: "var(--info)" }}>Clarification needed</h3>
+          <p className="mt-1 text-sm leading-relaxed" style={{ color: "rgba(56, 189, 248, 0.75)" }}>
+            {clarification.reason}
+          </p>
           <div className="mt-3.5 flex flex-wrap gap-2">
             {clarification.options.map((option, i) => (
               <button
                 key={i}
                 onClick={() => onSelect(option)}
-                style={{ animationDelay: `${140 + i * 70}ms` }}
-                className="animate-rise rounded-lg border border-sky-300/30 bg-sky-300/[0.07] px-3.5 py-2 text-left text-sm text-sky-100 transition duration-200 hover:-translate-y-px hover:border-sky-300/50 hover:bg-sky-300/15 hover:shadow-[0_6px_18px_-8px_rgba(56,189,248,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/60 active:translate-y-0"
+                style={{
+                  animationDelay: `${140 + i * 70}ms`,
+                  border: "1px solid rgba(56, 189, 248, 0.25)",
+                  background: "rgba(56, 189, 248, 0.04)",
+                  color: "rgba(56, 189, 248, 0.9)",
+                  borderRadius: "2px",
+                  padding: "8px 14px",
+                }}
+                className="animate-rise text-left text-sm transition duration-200 focus-visible:outline-none"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(56, 189, 248, 0.5)";
+                  e.currentTarget.style.background = "rgba(56, 189, 248, 0.08)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(56, 189, 248, 0.25)";
+                  e.currentTarget.style.background = "rgba(56, 189, 248, 0.04)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
               >
                 {option}
               </button>
