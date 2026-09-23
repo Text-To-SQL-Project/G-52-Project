@@ -1,44 +1,76 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { ApiError, getAdminConfig, getBlockedQueries } from "../api/client";
+import {
+  ApiError,
+  getAdminConfig,
+  getAdminEvalMetrics,
+  getAdminRlsDemo,
+  getBlockedQueries,
+} from "../api/client";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { LoadingStatus, SkeletonLine, SkeletonList } from "../components/Skeleton";
 import { ForbiddenPanel } from "../components/ForbiddenPanel";
-import type { AdminConfigResponse, BlockedQueryItem } from "../types/api";
+import { AurocChart } from "../components/admin/AurocChart";
+import { RlsRowCountChart } from "../components/admin/RlsRowCountChart";
+import { SafetyLayerBreakdown } from "../components/admin/SafetyLayerBreakdown";
+import type {
+  AdminConfigResponse,
+  BlockedQueryItem,
+  EvalMetricsResponse,
+  RlsDemoResponse,
+} from "../types/api";
 
-function SectionLabel({ children }: { children: string }) {
+function SectionLabel({ children, icon }: { children: string; icon?: string }) {
   return (
-    <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-white/45">
-      {children}
-    </h3>
+    <div className="mb-3 flex items-center gap-2">
+      {icon && <span className="material-symbols-outlined text-[16px] text-indigo-400">{icon}</span>}
+      <h3 className="font-mono text-xs font-semibold tracking-wider text-white/60 uppercase">
+        {children}
+      </h3>
+    </div>
   );
 }
 
-function Panel({ children }: { children: ReactNode }) {
+function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className="rounded-2xl border border-white/[0.09] bg-[#0f1728]/85 px-5 py-4 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+    <div className={`glass-card rounded-2xl p-6 ${className}`}>
       {children}
     </div>
   );
 }
 
-function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatTile({
+  label,
+  value,
+  hint,
+  icon,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  icon?: string;
+}) {
   return (
-    <div className="rounded-xl border border-white/[0.09] bg-[#0f1728]/85 px-4 py-3.5 transition-colors duration-200 hover:border-white/[0.16] hover:bg-[#16203a]/92">
-      <p className="text-[11px] leading-snug text-white/40">{label}</p>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-[-0.01em] text-white">
-        {value}
-      </p>
-      {hint && <p className="mt-1 text-[11px] text-white/30">{hint}</p>}
+    <div className="glass-card flex flex-col justify-between rounded-2xl p-4 transition-all duration-200 hover:border-white/[0.18] hover:bg-white/[0.06]">
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-sans text-xs text-white/50">{label}</p>
+        {icon && (
+          <span className="material-symbols-outlined text-[16px] text-indigo-300/60">{icon}</span>
+        )}
+      </div>
+      <div className="mt-3">
+        <p className="font-display text-2xl font-bold tracking-tight text-white">{value}</p>
+        {hint && <p className="mt-1 font-mono text-[10px] text-white/35">{hint}</p>}
+      </div>
     </div>
   );
 }
 
 function ConfigRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/[0.05] py-2.5 text-sm last:border-0">
-      <span className="text-white/50">{label}</span>
-      <span className="text-right font-mono text-[13px] tabular-nums text-white/90">{value}</span>
+    <div className="flex items-center justify-between gap-4 border-b border-white/[0.05] py-2.5 text-xs last:border-0">
+      <span className="text-white/60">{label}</span>
+      <span className="font-mono text-white/90 tabular-nums">{value}</span>
     </div>
   );
 }
@@ -62,10 +94,10 @@ function BlockedQueriesSection() {
 
   return (
     <Panel>
-      <SectionLabel>Recent blocked queries</SectionLabel>
-      <p className="mb-4 max-w-prose text-xs leading-relaxed text-white/35">
-        Real, unredacted SQL the AST guardrail caught — visible here only, never in the Workspace
-        response body (see Task 1). Across all sessions.
+      <SectionLabel icon="shield">Recent Blocked Queries (AST Guardrail Log)</SectionLabel>
+      <p className="mb-4 max-w-prose font-sans text-xs leading-relaxed text-white/40">
+        Raw, unredacted SQL caught by safety guardrails — visible here to administrators only,
+        never in user query responses.
       </p>
 
       {forbidden && <ForbiddenPanel what="the blocked-query log" />}
@@ -78,28 +110,33 @@ function BlockedQueriesSection() {
       )}
       {items && items.length === 0 && (
         <p className="animate-fade py-8 text-center text-sm text-white/35">
-          No blocked queries yet.
+          No blocked queries recorded yet.
         </p>
       )}
       {items && items.length > 0 && (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {items.map((item, i) => (
             <div
               key={item.query_id}
-              style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}
-              className="animate-rise overflow-hidden rounded-xl border border-red-400/25 bg-red-500/[0.07] transition-colors duration-200 hover:border-red-400/40 hover:bg-red-500/[0.11]"
+              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+              className="animate-rise overflow-hidden rounded-xl border border-rose-500/25 bg-rose-950/20 p-4 transition-all hover:border-rose-500/40 hover:bg-rose-950/30"
             >
-              <p className="px-4 pt-3.5 text-sm leading-relaxed text-white/85">{item.question}</p>
-              <div className="px-4 pt-2.5">
-                <code className="block truncate rounded-lg border border-red-400/15 bg-[#020617]/60 px-3 py-2 font-mono text-xs text-red-200">
-                  {item.sql ?? "(no SQL recorded)"}
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-sans text-sm font-medium text-white/90">{item.question}</p>
+                <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-300 uppercase">
+                  Blocked
+                </span>
+              </div>
+              <div className="mt-2.5">
+                <code className="block truncate rounded-lg border border-rose-400/15 bg-black/40 px-3 py-2 font-mono text-xs text-rose-200">
+                  {item.sql ?? "(no SQL generated)"}
                 </code>
               </div>
-              <p className="mt-3 border-t border-red-400/12 px-4 py-2 text-[11px] text-white/35">
-                {item.blocked_reason}
-                <span className="mx-1.5 text-white/15">·</span>
-                <span className="tabular-nums">{new Date(item.timestamp).toLocaleString()}</span>
-              </p>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-rose-400/10 pt-2 font-mono text-[11px] text-white/40">
+                <span className="text-rose-300/80">{item.blocked_reason}</span>
+                <span className="mx-1 text-white/20">·</span>
+                <span>{new Date(item.timestamp).toLocaleString()}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -110,28 +147,30 @@ function BlockedQueriesSection() {
 
 export function AdminScreen() {
   const [config, setConfig] = useState<AdminConfigResponse | null>(null);
+  const [evalMetrics, setEvalMetrics] = useState<EvalMetricsResponse | null>(null);
+  const [rlsDemo, setRlsDemo] = useState<RlsDemoResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
-    getAdminConfig()
-      .then(setConfig)
+    Promise.all([getAdminConfig(), getAdminEvalMetrics(), getAdminRlsDemo()])
+      .then(([cfg, metrics, rls]) => {
+        setConfig(cfg);
+        setEvalMetrics(metrics);
+        setRlsDemo(rls);
+      })
       .catch((e) => {
-        // 403 is not a failure to report as one: the caller authenticated
-        // fine and is simply not an administrator, which happens legitimately
-        // when a role changes mid-session. It gets its own state rather than
-        // a red error box, and never a blank screen.
         if (e instanceof ApiError && e.status === 403) {
           setForbidden(true);
           return;
         }
-        setError(e instanceof ApiError ? e.message : "Failed to load admin config.");
+        setError(e instanceof ApiError ? e.message : "Failed to load admin dashboard data.");
       });
   }, []);
 
   if (forbidden) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-8 md:px-8">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:px-8">
         <ForbiddenPanel what="the Admin screen" />
       </div>
     );
@@ -139,7 +178,7 @@ export function AdminScreen() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-5xl px-6 py-8 md:px-8">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:px-8">
         <ErrorPanel message={error} />
       </div>
     );
@@ -147,17 +186,15 @@ export function AdminScreen() {
 
   if (!config) {
     return (
-      <div className="mx-auto max-w-5xl space-y-5 px-6 py-8 md:px-8">
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 md:px-8">
         <LoadingStatus label="Loading admin configuration" />
         <div className="space-y-2">
           <SkeletonLine w="w-56" h="h-4" />
           <SkeletonLine w="w-32" h="h-3" />
         </div>
-        {/* Placeholder tiles match the eval grid below, so the page does not
-            jump when the real numbers land. */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4" aria-hidden>
           {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} className="rounded-xl border border-white/[0.07] bg-[#0f1728]/70 px-4 py-3.5">
+            <div key={i} className="glass-card rounded-2xl p-4">
               <SkeletonLine w="w-3/4" h="h-3" />
               <div className="mt-3">
                 <SkeletonLine w="w-1/2" h="h-6" />
@@ -173,59 +210,108 @@ export function AdminScreen() {
   const ev = config.eval_summary;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-6 py-8 md:px-8">
-      <div className="animate-fade">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
-          {config.app_name} <span className="font-normal text-white/35">v{config.version}</span>
-        </h2>
-        <p className="mt-0.5 text-xs text-white/35">
-          Model <span className="font-mono text-white/50">{config.llm_model}</span>
-        </p>
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 md:px-8">
+      {/* Header Bar */}
+      <div className="glass-card flex flex-wrap items-center justify-between gap-4 rounded-2xl px-6 py-4">
+        <div>
+          <h2 className="font-display text-lg font-semibold tracking-tight text-white">
+            {config.app_name} <span className="font-normal text-white/40">v{config.version}</span>
+          </h2>
+          <p className="font-sans text-xs text-white/50">
+            System health, safety layer metrics, and model configuration
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="pill-tag-indigo rounded-full px-3 py-1 font-mono text-xs">
+            Model: {config.llm_model}
+          </span>
+          <span className="pill-tag rounded-full px-3 py-1 font-mono text-xs">
+            Admin Console
+          </span>
+        </div>
       </div>
 
-      <section className="animate-rise">
-        <SectionLabel>Published eval results</SectionLabel>
+      {/* Eval Results Grid */}
+      <section className="animate-rise space-y-3">
+        <SectionLabel icon="analytics">Published Evaluation Benchmarks</SectionLabel>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile label="Execution accuracy" value={ev.execution_accuracy.toFixed(3)} />
-          <StatTile label="Fused AUROC" value={ev.fused_auroc.toFixed(3)} />
+          <StatTile
+            label="Execution Accuracy"
+            value={ev.execution_accuracy.toFixed(3)}
+            icon="verified"
+          />
+          <StatTile label="Fused AUROC" value={ev.fused_auroc.toFixed(3)} icon="show_chart" />
           <StatTile
             label="Held-out ECE"
             value={ev.held_out_ece.toFixed(3)}
             hint="isotonic-calibrated"
+            icon="tune"
           />
-          <StatTile label="Guardrail block rate" value={ev.guardrail_block_rate} />
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile
-            label="Destructive queries executed"
+            label="Guardrail Block Rate"
+            value={ev.guardrail_block_rate}
+            icon="g shield"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile
+            label="Destructive Queries Run"
             value={String(ev.destructive_queries_executed)}
+            icon="dangerous"
           />
           <StatTile
-            label="Adversarial-executed flags"
+            label="Adversarial Flags"
             value={String(ev.adversarial_executed_flags)}
-            hint="raw heuristic, see note"
+            hint="raw heuristic"
+            icon="flag"
           />
-          <StatTile label="Golden set size" value={String(ev.golden_set_size)} />
+          <StatTile label="Golden Set Size" value={String(ev.golden_set_size)} icon="star" />
           <StatTile
-            label="Unique answerable questions"
+            label="Unique Answerable"
             value={String(ev.unique_answerable_questions)}
+            icon="quiz"
           />
         </div>
-        <p className="mt-3 max-w-prose text-xs leading-relaxed text-white/35">{ev.note}</p>
+        <p className="font-sans text-xs leading-relaxed text-white/40">{ev.note}</p>
       </section>
 
-      <div className="animate-rise grid gap-4 sm:grid-cols-2 [animation-delay:70ms]">
+      {/* Charts */}
+      {evalMetrics && (
+        <div className="animate-rise space-y-6 [animation-delay:50ms]">
+          <AurocChart
+            comparison={evalMetrics.auroc_comparison}
+            ablationCells={evalMetrics.ablation_cells}
+            perSignalAuroc={evalMetrics.per_signal_auroc}
+          />
+          {rlsDemo && (
+            <RlsRowCountChart principals={rlsDemo.principals} caveat={rlsDemo.caveat} />
+          )}
+          <SafetyLayerBreakdown metrics={evalMetrics.safety_breakdown} />
+        </div>
+      )}
+
+      {/* Config Grids */}
+      <div className="animate-rise grid gap-6 sm:grid-cols-2 [animation-delay:70ms]">
         <Panel>
-          <SectionLabel>Guardrail config</SectionLabel>
-          <ConfigRow label="Default row limit" value={String(config.guardrail.default_row_limit)} />
-          <ConfigRow label="Max subquery depth" value={String(config.guardrail.max_subquery_depth)} />
-          <ConfigRow label="Statement timeout" value={`${config.guardrail.statement_timeout_ms} ms`} />
+          <SectionLabel icon="security">AST Guardrail Parameters</SectionLabel>
+          <ConfigRow
+            label="Default row limit"
+            value={String(config.guardrail.default_row_limit)}
+          />
+          <ConfigRow
+            label="Max subquery depth"
+            value={String(config.guardrail.max_subquery_depth)}
+          />
+          <ConfigRow
+            label="Statement timeout"
+            value={`${config.guardrail.statement_timeout_ms} ms`}
+          />
         </Panel>
 
         <Panel>
-          <SectionLabel>Detection config</SectionLabel>
+          <SectionLabel icon="settings_suggest">Detection &amp; Calibration</SectionLabel>
           <ConfigRow
-            label="Back-translation"
+            label="Back-translation check"
             value={config.detection.back_translation_enabled ? "enabled" : "disabled"}
           />
           <ConfigRow
@@ -236,32 +322,37 @@ export function AdminScreen() {
                 : "disabled"
             }
           />
-          <ConfigRow label="Fail-score cap" value={config.detection.fail_score_cap.toFixed(2)} />
           <ConfigRow
-            label="Calibration"
-            value={config.detection.calibration_loaded ? "loaded" : "not loaded (raw score)"}
+            label="Fail-score cap"
+            value={config.detection.fail_score_cap.toFixed(2)}
+          />
+          <ConfigRow
+            label="Calibration status"
+            value={config.detection.calibration_loaded ? "loaded (isotonic)" : "raw score"}
           />
         </Panel>
       </div>
 
-      <div className="animate-rise [animation-delay:140ms]">
+      {/* Weights */}
+      <div className="animate-rise [animation-delay:120ms]">
         <Panel>
-          <SectionLabel>Confidence-fusion weights</SectionLabel>
-          <div className="space-y-3">
+          <SectionLabel icon="balance">Confidence-Fusion Weights</SectionLabel>
+          <div className="space-y-3.5 pt-1">
             {Object.entries(config.detection.confidence_weights).map(([key, weight], i) => (
               <div key={key}>
                 <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-                  <span className="truncate text-white/65">{key}</span>
-                  <span className="shrink-0 font-mono tabular-nums text-white/45">
+                  <span className="font-mono text-white/70">{key}</span>
+                  <span className="font-mono text-indigo-300 tabular-nums">
                     {weight.toFixed(2)}
                   </span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                  {/* Same growth animation as the Workspace confidence bars:
-                      these are weights, not verdicts, so blue throughout. */}
+                <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
                   <div
-                    className="animate-bar h-full rounded-full bg-blue-500"
-                    style={{ width: `${weight * 100}%`, animationDelay: `${200 + i * 70}ms` }}
+                    className="glow-button h-full rounded-full"
+                    style={{
+                      width: `${weight * 100}%`,
+                      animationDelay: `${200 + i * 50}ms`,
+                    }}
                   />
                 </div>
               </div>
@@ -270,7 +361,7 @@ export function AdminScreen() {
         </Panel>
       </div>
 
-      <div className="animate-rise [animation-delay:210ms]">
+      <div className="animate-rise [animation-delay:160ms]">
         <BlockedQueriesSection />
       </div>
     </div>

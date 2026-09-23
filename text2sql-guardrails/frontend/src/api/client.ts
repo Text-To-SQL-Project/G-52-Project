@@ -2,12 +2,14 @@ import { clearToken, getToken } from "../hooks/useAuthToken";
 import type {
   AdminConfigResponse,
   BlockedQueriesResponse,
+  EvalMetricsResponse,
   HistoryResponse,
   LoginRequest,
   LoginResponse,
   MeResponse,
   QueryRequest,
   QueryResponse,
+  RlsDemoResponse,
   SchemaResponse,
 } from "../types/api";
 
@@ -94,4 +96,12 @@ export function getAdminConfig(): Promise<AdminConfigResponse> {
 
 export function getBlockedQueries(limit = 50): Promise<BlockedQueriesResponse> {
   return request<BlockedQueriesResponse>(`/v1/admin/blocked-queries?limit=${limit}`);
+}
+
+export function getAdminEvalMetrics(): Promise<EvalMetricsResponse> {
+  return request<EvalMetricsResponse>("/v1/admin/eval-metrics");
+}
+
+export function getAdminRlsDemo(): Promise<RlsDemoResponse> {
+  return request<RlsDemoResponse>("/v1/admin/rls-demo");
 }

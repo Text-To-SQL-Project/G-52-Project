@@ -27,7 +27,11 @@ export default function App() {
     // prop-drilling a setter through every screen that can hit a 401.
     const onAuthChanged = () => setTokenState(getToken());
     window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
-    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    window.addEventListener("storage", onAuthChanged);
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+      window.removeEventListener("storage", onAuthChanged);
+    };
   }, []);
 
   const refreshMe = useCallback(() => {
@@ -99,7 +103,7 @@ export default function App() {
                 reload starts from scratch. Keep this a display toggle --
                 `visibility` or `opacity` would leave the panels in layout. */}
             <div className={screen === "workspace" ? undefined : "hidden"}>
-              <WorkspaceScreen />
+              <WorkspaceScreen isAdmin={isAdmin} />
             </div>
             {screen === "history" && <HistoryScreen />}
             {screen === "schema" && <SchemaScreen />}

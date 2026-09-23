@@ -3,17 +3,32 @@ import { useState } from "react";
 interface Props {
   onSubmit: (question: string) => void;
   loading: boolean;
+  isAdmin?: boolean;
 }
 
 function Key({ children }: { children: string }) {
   return (
-    <kbd className="rounded border border-white/15 bg-white/[0.06] px-1.5 py-px font-sans text-[10px] font-medium text-white/55">
+    <kbd className="rounded border border-white/15 bg-white/[0.07] px-1.5 py-0.5 font-mono text-[10px] font-medium text-white/60">
       {children}
     </kbd>
   );
 }
 
-export function QuestionInput({ onSubmit, loading }: Props) {
+const DEFAULT_SAMPLE_QUERIES = [
+  "Which students have attendance below 75%?",
+  "List average GPA by department",
+  "Find faculty members teaching more than 2 courses",
+  "Show enrollment counts by semester",
+];
+
+const ADMIN_SAMPLE_QUERIES = [
+  "Which students have attendance below 75%?",
+  "List average GPA by department",
+  "Create table audit_log (id int, note text)",
+  "Delete from attendance where status = 'absent'",
+];
+
+export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
   const [value, setValue] = useState("");
 
   const submit = () => {
@@ -21,21 +36,41 @@ export function QuestionInput({ onSubmit, loading }: Props) {
     if (trimmed && !loading) onSubmit(trimmed);
   };
 
-  return (
-    /* The command bar carries the brightest surface and the only large type on
-       the screen: it is where every demo starts, so it should win the page
-       before the response panels below it exist. The focus-within glow is the
-       one piece of motion here that is functional rather than decorative --
-       it confirms the caret landed in the box from across a room. */
-    <div className="animate-rise rounded-2xl border border-white/[0.14] bg-[#131d33]/88 shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset,0_20px_48px_-28px_rgba(0,0,0,0.9)] transition duration-300 focus-within:border-blue-400/40 focus-within:shadow-[0_1px_0_0_rgba(255,255,255,0.08)_inset,0_0_0_1px_rgba(96,165,250,0.18),0_24px_60px_-28px_rgba(37,99,235,0.45)]">
-      <label
-        htmlFor="question"
-        className="block px-5 pt-4 text-[11px] font-semibold uppercase tracking-[0.09em] text-white/45"
-      >
-        Ask a question about the database
-      </label>
+  const handleSelectSample = (query: string) => {
+    setValue(query);
+  };
 
-      <div className="px-5 pt-2.5">
+  const sampleQueries = isAdmin ? ADMIN_SAMPLE_QUERIES : DEFAULT_SAMPLE_QUERIES;
+
+  return (
+    <div className="glass-card animate-rise relative flex flex-col rounded-2xl p-6 transition-all duration-300 focus-within:border-indigo-400/40 focus-within:shadow-[0_0_30px_rgba(99,102,241,0.2)]">
+      {/* Decorative top-left highlight */}
+      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent" />
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-lg font-semibold tracking-tight text-white md:text-xl">
+          {isAdmin ? "Admin Console — Full DB Access" : "Ask anything about your data..."}
+        </h2>
+        <div className="flex items-center gap-1.5">
+          <span className="pill-tag flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[11px]">
+            <span className="material-symbols-outlined text-[13px]">database</span>
+            college_erp
+          </span>
+          {isAdmin ? (
+            <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-mono text-[11px] text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]">
+              <span className="material-symbols-outlined text-[13px]">admin_panel_settings</span>
+              Admin: Full Access (Guardrails Bypassed)
+            </span>
+          ) : (
+            <span className="pill-tag-indigo flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[11px]">
+              <span className="material-symbols-outlined text-[13px]">verified_user</span>
+              Guardrails Active
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="relative my-1 flex-1">
         <textarea
           id="question"
           value={value}
@@ -46,31 +81,50 @@ export function QuestionInput({ onSubmit, loading }: Props) {
               submit();
             }
           }}
-          placeholder="e.g. Which students have an attendance percentage below 75%?"
-          rows={2}
-          className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-white placeholder:text-white/25 focus:outline-none"
+          placeholder="e.g. Which students have an attendance percentage below 75% across departments?"
+          rows={3}
+          className="w-full resize-none bg-transparent font-sans text-[15px] leading-relaxed text-white placeholder:text-white/30 focus:outline-none"
         />
       </div>
 
-      <div className="mt-1 flex items-center justify-between gap-4 border-t border-white/[0.07] px-5 py-3">
-        <p className="text-[11px] text-white/35">
-          <Key>Enter</Key> to run
-          <span className="mx-1.5 text-white/20">·</span>
-          <Key>Shift</Key>
-          <span className="mx-0.5 text-white/25">+</span>
-          <Key>Enter</Key> for a new line
+      {/* Suggested quick prompt chips */}
+      <div className="mt-1 mb-3 flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-medium text-white/40">Try:</span>
+        {sampleQueries.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => handleSelectSample(q)}
+            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-left font-sans text-xs text-white/60 transition duration-150 hover:border-indigo-400/40 hover:bg-white/[0.08] hover:text-white"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.08] pt-3.5">
+        <p className="flex items-center gap-1 text-[11px] text-white/40">
+          <Key>Enter</Key> <span>to run</span>
+          <span className="mx-1 text-white/20">·</span>
+          <Key>Shift</Key> <span className="text-white/30">+</span> <Key>Enter</Key> <span>new line</span>
         </p>
+
         <button
           onClick={submit}
           disabled={loading || !value.trim()}
-          className="relative shrink-0 overflow-hidden rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition duration-200 before:absolute before:inset-0 before:-translate-x-full before:bg-gradient-to-r before:from-transparent before:via-white/25 before:to-transparent before:transition-transform before:duration-700 before:content-[''] hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1120] enabled:hover:-translate-y-px enabled:hover:shadow-[0_8px_20px_-8px_rgba(37,99,235,0.7)] enabled:hover:before:translate-x-full enabled:active:translate-y-0 disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-white/25"
+          className="glow-button flex items-center gap-2 rounded-xl px-6 py-2.5 font-sans text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
         >
-          <span className="relative flex items-center gap-2">
-            {loading && (
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/25 border-t-white" />
-            )}
-            {loading ? "Running…" : "Run"}
-          </span>
+          {loading ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <span>Checking &amp; Generating…</span>
+            </>
+          ) : (
+            <>
+              <span className="material-symbols-outlined text-[18px]">bolt</span>
+              <span>Run Query</span>
+            </>
+          )}
         </button>
       </div>
     </div>

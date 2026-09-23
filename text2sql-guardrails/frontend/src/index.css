@@ -1,14 +1,11 @@
 @import "tailwindcss";
 
-/* Typography tokens. Overriding Tailwind's theme vars (rather than setting
-   font-family on body) means the `font-sans` / `font-mono` utilities and the
-   preflight default all resolve to the same stacks -- no panel can drift onto
-   a different mono face than the SQL block next to it. */
+/* Typography tokens matching Stitch MCP 'Syntactic Deep' design system */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono",
-    Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+
 
   /* Motion system.
    *
@@ -316,14 +313,109 @@ body {
   border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.28);
+/* ===========================================================================
+   Stitch MCP - Syntactic Deep Design Tokens & Utilities
+   =========================================================================== */
+
+.font-display {
+  font-family: var(--font-display);
 }
 
-/* Honour the OS setting rather than animating through a presentation. The
-   delay reset matters as much as the duration one: entrance animations are
-   staggered with animation-delay, and a delay left standing would hold a
-   panel at its invisible `from` keyframe for the length of the stagger. */
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.45), 0px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.35), 0px 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+.glass-panel-heavy {
+  background: rgba(13, 19, 34, 0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0px 4px 14px rgba(0, 0, 0, 0.6), 0px 18px 40px rgba(0, 0, 0, 0.7);
+}
+
+.sql-editor-card {
+  background: rgba(5, 9, 18, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0px 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.glow-button {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glow-button:hover:not(:disabled) {
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.55);
+  transform: translateY(-1px);
+}
+
+.glow-button:active:not(:disabled) {
+  transform: translateY(0px);
+}
+
+.pill-tag {
+  background-color: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  color: #22d3ee;
+}
+
+.pill-tag-indigo {
+  background-color: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: #c0c1ff;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #c0c1ff 0%, #8083ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-text-cyan {
+  background: linear-gradient(135deg, #5de6ff 0%, #8083ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.radial-glow-spot {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, rgba(0,0,0,0) 70%);
+}
+
+/* Material Symbols alignment helper */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+  vertical-align: middle;
+  line-height: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

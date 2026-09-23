@@ -55,38 +55,59 @@ def build_system_prompt(
     schema: SchemaResponse,
     extra_instructions: str | None = None,
     row_scoped: bool = False,
+    is_admin: bool = False,
 ) -> str:
-    lines = [
-        "You are a PostgreSQL expert that translates a natural-language "
-        "question into a single read-only SQL query, using ONLY the tables "
-        "and columns listed below -- never invent a table or column name.",
-        "",
-        "Rules:",
-        "- Output a single SELECT statement only (no DDL, no DML, no "
-        "multiple statements).",
-        # Some columns are withheld from the schema below because the
-        # executing role has no privilege on them (see
-        # app/schema/introspect.py::RESTRICTED_COLUMNS). A wildcard expands
-        # to include them and the statement is then refused at execution,
-        # which reaches the user as a generic error and looks like a bug.
-        # Listing columns explicitly avoids that entirely.
-        "- Never use SELECT * -- list the columns you need explicitly, "
-        "choosing only from the columns listed below.",
-        "- Do NOT add a LIMIT clause unless the question explicitly asks "
-        "for a top-N or a specific number of rows. The system enforces "
-        "its own row cap.",
-        "- If the question cannot be answered from the schema below, or "
-        "asks for a destructive/unsafe operation (DELETE, DROP, UPDATE, "
-        "etc.), you MUST decline: set \"refusal\": true, \"sql\": null, "
-        "and \"refusal_kind\" to \"unsafe\" for a destructive/DDL/"
-        "permission request, or \"ambiguous\" for anything underspecified, "
-        "subjective, or unanswerable from this schema. Do NOT invent a "
-        "placeholder query (e.g. a SELECT that trivially returns nothing, "
-        "or an unrelated substitute query) to avoid answering -- an "
-        "explicit refusal is required, not a disguised one.",
-        "- Respond with ONLY a JSON object, no prose, no markdown fences, "
-        f"matching exactly this shape: {_RESPONSE_SHAPE}",
-    ]
+    if is_admin:
+        lines = [
+            "You are a PostgreSQL expert that translates a natural-language "
+            "question into a PostgreSQL statement for an Administrator with "
+            "full database permissions, using the tables and columns listed below.",
+            "",
+            "Rules:",
+            "- As an administrator with full privileges, you are authorized to output "
+            "any SQL statement requested by the user, including DDL (CREATE, ALTER, DROP, "
+            "TRUNCATE) and DML (INSERT, UPDATE, DELETE) statements as well as SELECT queries.",
+            "- Output a single PostgreSQL statement.",
+            "- Do NOT refuse administrative or destructive requests (such as DROP TABLE, "
+            "DELETE FROM, TRUNCATE, or UPDATE). You MUST generate the exact SQL requested "
+            "with \"refusal\": false.",
+            "- Only decline if the request is completely ambiguous, subjective, or underspecified: "
+            "set \"refusal\": true, \"sql\": null, and \"refusal_kind\": \"ambiguous\".",
+            "- Respond with ONLY a JSON object, no prose, no markdown fences, "
+            f"matching exactly this shape: {_RESPONSE_SHAPE}",
+        ]
+    else:
+        lines = [
+            "You are a PostgreSQL expert that translates a natural-language "
+            "question into a single read-only SQL query, using ONLY the tables "
+            "and columns listed below -- never invent a table or column name.",
+            "",
+            "Rules:",
+            "- Output a single SELECT statement only (no DDL, no DML, no "
+            "multiple statements).",
+            # Some columns are withheld from the schema below because the
+            # executing role has no privilege on them (see
+            # app/schema/introspect.py::RESTRICTED_COLUMNS). A wildcard expands
+            # to include them and the statement is then refused at execution,
+            # which reaches the user as a generic error and looks like a bug.
+            # Listing columns explicitly avoids that entirely.
+            "- Never use SELECT * -- list the columns you need explicitly, "
+            "choosing only from the columns listed below.",
+            "- Do NOT add a LIMIT clause unless the question explicitly asks "
+            "for a top-N or a specific number of rows. The system enforces "
+            "its own row cap.",
+            "- If the question cannot be answered from the schema below, or "
+            "asks for a destructive/unsafe operation (DELETE, DROP, UPDATE, "
+            "etc.), you MUST decline: set \"refusal\": true, \"sql\": null, "
+            "and \"refusal_kind\" to \"unsafe\" for a destructive/DDL/"
+            "permission request, or \"ambiguous\" for anything underspecified, "
+            "subjective, or unanswerable from this schema. Do NOT invent a "
+            "placeholder query (e.g. a SELECT that trivially returns nothing, "
+            "or an unrelated substitute query) to avoid answering -- an "
+            "explicit refusal is required, not a disguised one.",
+            "- Respond with ONLY a JSON object, no prose, no markdown fences, "
+            f"matching exactly this shape: {_RESPONSE_SHAPE}",
+        ]
     # Conditional, never unconditional. eval/ and admin requests carry
     # row_scoped=False and therefore get a BYTE-IDENTICAL prompt to the one
     # that produced results.jsonl and results_gemini.jsonl, so those

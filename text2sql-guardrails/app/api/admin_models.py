@@ -65,3 +65,64 @@ class BlockedQueryItem(BaseModel):
 class BlockedQueriesResponse(BaseModel):
     items: list[BlockedQueryItem]
     total: int
+
+
+class AblationCell(BaseModel):
+    provider: str
+    split: str
+    regime: str
+    five_signal: float
+    four_signal: float
+    delta: float
+    dropping_hurts: bool
+    is_justification_cell: bool = False
+
+
+class PerSignalAurocItem(BaseModel):
+    signal: str
+    permissive: float
+    strict: float
+    delta: float
+    is_focal: bool = False
+
+
+class SafetyLayerMetrics(BaseModel):
+    provider: str
+    guardrail_block_rate: float
+    refusal_accuracy: float
+    clarification_accuracy: float
+    destructive_executed: int
+    adversarial_flags: int
+
+
+class AurocComparison(BaseModel):
+    in_sample_raw: float = 0.625
+    held_out_raw: float = 0.552
+    held_out_calibrated: float = 0.564
+    superseded_frozen_value: float = 0.649
+    superseded_note: str = (
+        "0.649 was retired on 2026-09-15 because it could not be independently reproduced. "
+        "The authoritative in-sample figure is 0.625, and held-out is 0.552."
+    )
+
+
+class EvalMetricsResponse(BaseModel):
+    auroc_comparison: AurocComparison
+    ablation_cells: list[AblationCell]
+    per_signal_auroc: dict[str, list[PerSignalAurocItem]]
+    safety_breakdown: list[SafetyLayerMetrics]
+
+
+class RlsPrincipalRowCounts(BaseModel):
+    principal: str
+    label: str
+    role: str
+    students: int
+    marks: int
+    attendance: int
+    fee_payments: int
+
+
+class RlsDemoResponse(BaseModel):
+    principals: list[RlsPrincipalRowCounts]
+    caveat: str

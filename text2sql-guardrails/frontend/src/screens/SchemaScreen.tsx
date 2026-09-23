@@ -8,39 +8,46 @@ function TableCard({ table }: { table: TableInfo }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0f1728]/85 transition-colors duration-200 hover:border-white/[0.16]">
+    <div className="glass-card overflow-hidden rounded-2xl transition-all duration-200 hover:border-white/[0.18]">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors duration-200 hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400/50"
+        className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none"
       >
-        <div className="flex min-w-0 items-baseline gap-2.5">
-          <span className="truncate font-mono text-sm text-white">{table.name}</span>
-          <span className="shrink-0 text-xs tabular-nums text-white/35">
-            {table.columns.length} columns
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04]">
+            <span className="material-symbols-outlined text-[17px] text-cyan-300">table_rows</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="truncate font-mono text-sm font-semibold text-white">
+              {table.name}
+            </span>
+            <span className="font-mono text-[11px] text-white/40">
+              {table.columns.length} columns
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`material-symbols-outlined text-[20px] text-white/40 transition-transform duration-200 ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            expand_more
           </span>
         </div>
-        {/* One glyph rotated rather than swapping + for −, so the control reads
-            as the same object changing state. */}
-        <span
-          aria-hidden
-          className={`shrink-0 text-lg leading-none text-white/35 transition-transform duration-200 ${
-            open ? "rotate-45" : ""
-          }`}
-        >
-          +
-        </span>
       </button>
 
       {open && (
-        <div className="animate-fade overflow-x-auto border-t border-white/[0.07]">
+        <div className="animate-fade overflow-x-auto border-t border-white/[0.08] bg-black/20">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr>
-                {["Column", "Type", "Keys", "Sample values"].map((h) => (
+              <tr className="bg-white/[0.02]">
+                {["Column", "Type", "Key", "Sample values"].map((h) => (
                   <th
                     key={h}
-                    className="border-b border-white/[0.07] bg-white/[0.03] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-white/40"
+                    className="border-b border-white/[0.08] px-6 py-3 font-mono text-[10px] font-semibold uppercase tracking-wider text-white/45"
                   >
                     {h}
                   </th>
@@ -51,38 +58,39 @@ function TableCard({ table }: { table: TableInfo }) {
               {table.columns.map((col) => (
                 <tr
                   key={col.name}
-                  className="border-b border-white/[0.04] transition-colors duration-150 last:border-0 hover:bg-white/[0.04]"
+                  className="border-b border-white/[0.04] transition-colors last:border-0 hover:bg-white/[0.04]"
                 >
-                  <td className="whitespace-nowrap px-4 py-2 font-mono text-white/85">
+                  <td className="whitespace-nowrap px-6 py-2.5 font-mono text-white/90">
                     {col.name}
                     {!col.nullable && (
-                      <span className="ml-1 text-white/30" title="NOT NULL">
+                      <span className="ml-1.5 text-rose-400/80" title="NOT NULL">
                         *
                       </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2 font-mono text-white/45">
+                  <td className="whitespace-nowrap px-6 py-2.5 font-mono text-indigo-300/80">
                     {col.data_type}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2">
-                    {/* Violet, not amber: amber is REFUSED in the status
-                        palette, and a primary key is not a warning. */}
+                  <td className="whitespace-nowrap px-6 py-2.5">
                     {col.is_primary_key && (
-                      <span className="mr-1 rounded border border-violet-400/25 bg-violet-400/10 px-1.5 py-0.5 font-mono text-violet-200">
+                      <span className="mr-1.5 rounded border border-purple-400/30 bg-purple-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-purple-200">
                         PK
                       </span>
                     )}
                     {col.is_foreign_key && (
                       <span
-                        className="rounded border border-blue-400/25 bg-blue-400/10 px-1.5 py-0.5 font-mono text-blue-200"
+                        className="rounded border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-cyan-200"
                         title={col.references ?? undefined}
                       >
                         FK → {col.references}
                       </span>
                     )}
+                    {!col.is_primary_key && !col.is_foreign_key && (
+                      <span className="text-white/20">—</span>
+                    )}
                   </td>
-                  <td className="max-w-xs truncate px-4 py-2 font-mono text-white/40">
-                    {col.sample_values.join(", ")}
+                  <td className="max-w-md truncate px-6 py-2.5 font-mono text-white/50">
+                    {col.sample_values.length > 0 ? col.sample_values.join(", ") : "—"}
                   </td>
                 </tr>
               ))}
@@ -117,19 +125,27 @@ export function SchemaScreen() {
   }, [schema, filter]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 px-6 py-8 md:px-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-white/45">
-          Schema Explorer
-        </h2>
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 md:px-8">
+      {/* Header Bar */}
+      <div className="glass-card flex flex-wrap items-center justify-between gap-4 rounded-2xl px-6 py-4">
+        <div>
+          <h2 className="font-display text-lg font-semibold tracking-tight text-white">
+            Schema Explorer
+          </h2>
+          <p className="font-sans text-xs text-white/50">
+            Browse tables, columns, constraints, and relationships in the active database
+          </p>
+        </div>
         {schema && (
-          <span className="text-xs text-white/35">
-            <span className="font-mono">{schema.database}</span>
-            <span className="mx-1.5 text-white/15">·</span>
-            <span className="tabular-nums">{schema.total_tables}</span> tables
-            <span className="mx-1.5 text-white/15">·</span>
-            <span className="tabular-nums">{schema.total_columns}</span> columns
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="pill-tag rounded-full px-3 py-1 font-mono text-xs">
+              <span className="material-symbols-outlined mr-1 text-[14px]">database</span>
+              {schema.database}
+            </span>
+            <span className="pill-tag-indigo rounded-full px-3 py-1 font-mono text-xs">
+              {schema.total_tables} tables · {schema.total_columns} columns
+            </span>
+          </div>
         )}
       </div>
 
@@ -144,22 +160,33 @@ export function SchemaScreen() {
 
       {schema && (
         <>
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by table or column name…"
-            className="w-full rounded-xl border border-white/10 bg-[#020617]/60 px-4 py-2.5 text-sm text-white transition duration-200 placeholder:text-white/25 focus:border-blue-400/50 focus:bg-[#020617]/80 focus:outline-none focus:ring-2 focus:ring-blue-400/20"
-          />
-          <div className="space-y-2.5">
+          {/* Search Bar */}
+          <div className="relative">
+            <span className="material-symbols-outlined pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-[18px] text-white/40">
+              search
+            </span>
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search tables or column names (e.g. students, gpa, department_id)…"
+              className="w-full rounded-xl border border-white/10 bg-[#060c18]/80 py-3 pr-4 pl-11 font-sans text-sm text-white placeholder:text-white/30 focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/20"
+            />
+          </div>
+
+          <div className="space-y-3">
             {filteredTables.map((table, i) => (
-              <div key={table.name} style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }} className="animate-rise">
+              <div
+                key={table.name}
+                style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
+                className="animate-rise"
+              >
                 <TableCard table={table} />
               </div>
             ))}
             {filteredTables.length === 0 && (
-              <p className="animate-fade rounded-2xl border border-white/[0.07] bg-[#0f1728]/70 py-12 text-center text-sm text-white/35">
-                No tables match "{filter}".
-              </p>
+              <div className="glass-card rounded-2xl py-12 text-center text-sm text-white/40">
+                No tables or columns match "{filter}".
+              </div>
             )}
           </div>
         </>

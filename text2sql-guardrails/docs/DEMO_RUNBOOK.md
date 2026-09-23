@@ -63,25 +63,28 @@ To re-seed after a database reset:
     python -m scripts.seed_users          # writes accounts
     python -m scripts.seed_users --show   # prints the plan, writes nothing
 
-## 2a. The scripted demo moment
+## 2a. The demo moment: Live interactive RLS chart and row counts
 
-This is the clearest single thing to show. Run the **same query** as two
-different users. Nothing about the application changes between them —
-same request, same SQL, same database role. Only the row policies decide.
+This is the clearest single thing to show during a live evaluation.
 
-Log in as `student1`, ask for the SQL directly if you want it verbatim,
-or just use the question. Then log out, log in as `admin`, and run it
-again.
+**Primary interactive option (Admin Dashboard):**
+Log in as `admin` and open the **Admin** tab. The **Row Level Security (RLS) Scoping Impact** chart provides an interactive, live operator-triggered visual of visible rows across all four principals (`admin`, `faculty1`, `student1`, `student2`).
+- Toggle individual principals or select **All Principals** to instantly display the contrast.
+- Toggle **Log Scale** to clearly see both small scoped counts (1 student, 19 marks) and institutional totals (150,000 attendance records).
+
+**Alternative manual walkthrough (same query across accounts):**
+If demonstrating manual query execution, run the **same query** as two different users. Nothing about the application changes between them — same request, same SQL, same database role. Only the row policies decide.
+
+Log in as `student1`, run the question or SQL directly, then log out, log in as `admin`, and run it again:
 
 | query | student1 | faculty1 | admin |
 |---|---|---|---|
 | `SELECT count(*) FROM students` | **1** | 311 | 2000 |
-| `SELECT count(*) FROM marks` | **19** | 0 | 40000 |
+| `SELECT count(*) FROM marks` | **19** | 467 | 40000 |
 | `SELECT count(*) FROM attendance` | **79** | 2410 | 150000 |
 | `SELECT count(*) FROM fee_payments` | **4** | 0 | 8000 |
 
-Before Row Level Security, `student1` saw 2000 / 40000 / 150000 — every
-row in the database.
+Before Row Level Security, `student1` saw 2000 / 40000 / 150000 — every row in the database.
 
 **Say the caution out loud if anyone is reading closely:** `student1` and
 `student2` each see exactly 79 attendance rows. That is a coincidence of

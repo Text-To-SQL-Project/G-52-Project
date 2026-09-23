@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ApiError, postQuery } from "../api/client";
+import { AiOrb } from "../components/AiOrb";
 import { ClarificationPanel } from "../components/ClarificationPanel";
 import { ConfidenceCard } from "../components/ConfidenceCard";
 import { ErrorPanel } from "../components/ErrorPanel";
@@ -12,26 +13,40 @@ import { WarningsList } from "../components/WarningsList";
 import { getSessionId } from "../hooks/useSessionId";
 import type { QueryResponse } from "../types/api";
 
-/** Shown while the query is in flight. The sweep is indeterminate on purpose:
- * the backend reports no progress through generation, guardrails and execution,
- * so a filling bar would be inventing a number. Nothing here previews the
- * shape of the answer either -- a skeleton results table would promise rows to
- * a question that may be about to come back BLOCKED. */
-function RunningPanel() {
+function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <div className="animate-rise overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0f1728]/85">
-      <div className="flex items-center gap-3 px-5 py-4 text-sm text-white/55">
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/15 border-t-blue-400" />
-        Generating and checking SQL…
+    <div className="glass-card animate-rise overflow-hidden rounded-2xl">
+      <div className="flex items-center justify-between px-6 py-4 text-sm">
+        <div className="flex items-center gap-3 text-white/85">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-[#22d3ee]" />
+          <span className="font-display font-medium text-white/90">
+            {isAdmin
+              ? "Executing administrative operation (privileged mode)…"
+              : "Validating schema & checking AST security guardrails…"}
+          </span>
+        </div>
+        <span
+          className={
+            isAdmin
+              ? "hidden rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-mono text-[11px] text-amber-300 sm:inline-flex"
+              : "pill-tag-indigo hidden rounded-full px-2.5 py-0.5 font-mono text-[11px] sm:inline-flex"
+          }
+        >
+          {isAdmin ? "Admin Superuser Engine" : "Dual AST + Learned Confidence Pipeline"}
+        </span>
       </div>
       <div className="relative h-[2px] overflow-hidden bg-white/[0.06]">
-        <div className="animate-sweep absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
+        <div className="animate-sweep absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#22d3ee] to-transparent" />
       </div>
     </div>
   );
 }
 
-export function WorkspaceScreen() {
+interface Props {
+  isAdmin?: boolean;
+}
+
+export function WorkspaceScreen({ isAdmin = false }: Props) {
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
@@ -55,40 +70,57 @@ export function WorkspaceScreen() {
     }
   };
 
+  const orbStatus = loading
+    ? "loading"
+    : response?.status === "success"
+    ? "success"
+    : response?.status === "blocked"
+    ? "blocked"
+    : response?.status === "error"
+    ? "error"
+    : "ready";
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-6 py-8 md:px-8">
-      <QuestionInput onSubmit={(q) => run(q)} loading={loading} />
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 md:px-8">
+      {/* Hero Zone: Input bar + 3D Shader Orb from Stitch */}
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-4">
+        <div className="lg:col-span-3">
+          <QuestionInput onSubmit={(q) => run(q)} loading={loading} isAdmin={isAdmin} />
+        </div>
+        <div className="flex h-full min-h-[220px] lg:col-span-1">
+          <AiOrb status={orbStatus} className="h-full w-full" />
+        </div>
+      </div>
 
       {clientError && <ErrorPanel message={clientError} />}
 
-      {loading && <RunningPanel />}
+      {loading && <RunningPanel isAdmin={isAdmin} />}
 
       {response && !loading && (
-        /* The status chip is the heading of the response, not one card among
-           several: it sits outside the panel stack, at the largest type on the
-           page after the question itself, because on this project the state of
-           a query matters more than its output.
-
-           `response-stack` staggers the entrance of the direct children below
-           (see index.css). The stack unmounts whenever a query is in flight, so
-           each new response replays its entrance without needing a key. */
-        <div className="response-stack space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="response-stack space-y-6">
+          {/* Status Chip & Execution Metrics */}
+          <div className="glass-card flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl px-6 py-3.5">
             <StatusBanner
               status={response.status}
               reason={response.status === "clarification" ? null : response.status_reason}
             />
             {response.execution_time_ms != null && (
-              <span className="animate-fade shrink-0 pt-1.5 text-xs tabular-nums text-white/35 [animation-delay:200ms]">
-                {response.execution_time_ms.toFixed(0)} ms
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] text-white/40">timer</span>
+                <span className="font-mono text-xs tabular-nums text-white/60">
+                  {response.execution_time_ms.toFixed(0)} ms
+                </span>
+              </div>
             )}
           </div>
 
           <WarningsList warnings={response.warnings} />
 
           {response.status === "clarification" && response.clarification && (
-            <ClarificationPanel clarification={response.clarification} onSelect={(opt) => run(opt)} />
+            <ClarificationPanel
+              clarification={response.clarification}
+              onSelect={(opt) => run(opt)}
+            />
           )}
 
           {response.status === "error" && <ErrorPanel message={response.error_message} />}

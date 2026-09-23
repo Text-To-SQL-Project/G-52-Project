@@ -221,3 +221,65 @@ export interface MeResponse {
   student_id?: number | null;
   faculty_id?: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// GET /v1/admin/eval-metrics & GET /v1/admin/rls-demo
+// ---------------------------------------------------------------------------
+
+export interface AblationCell {
+  provider: string;
+  split: string;
+  regime: string;
+  five_signal: number;
+  four_signal: number;
+  delta: number;
+  dropping_hurts: boolean;
+  is_justification_cell?: boolean;
+}
+
+export interface PerSignalAurocItem {
+  signal: string;
+  permissive: number;
+  strict: number;
+  delta: number;
+  is_focal?: boolean;
+}
+
+export interface SafetyLayerMetrics {
+  provider: string;
+  guardrail_block_rate: number;
+  refusal_accuracy: number;
+  clarification_accuracy: number;
+  destructive_executed: number;
+  adversarial_flags: number;
+}
+
+export interface AurocComparison {
+  in_sample_raw: number;
+  held_out_raw: number;
+  held_out_calibrated: number;
+  superseded_frozen_value: number;
+  superseded_note: string;
+}
+
+export interface EvalMetricsResponse {
+  auroc_comparison: AurocComparison;
+  ablation_cells: AblationCell[];
+  per_signal_auroc: Record<string, PerSignalAurocItem[]>;
+  safety_breakdown: SafetyLayerMetrics[];
+}
+
+export interface RlsPrincipalRowCounts {
+  principal: string;
+  label: string;
+  role: string;
+  students: number;
+  marks: number;
+  attendance: number;
+  fee_payments: number;
+}
+
+export interface RlsDemoResponse {
+  principals: RlsPrincipalRowCounts[];
+  caveat: string;
+}

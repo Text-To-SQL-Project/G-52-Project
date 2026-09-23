@@ -28,6 +28,16 @@ no exceptions. The previously frozen 0.649 and 0.118 were retired from
 values survive only as superseded entries in FINDINGS §5 and §14, and as
 comments at the constants recording why they changed.
 
+### Evaluation Figures
+
+<p align="center">
+  <img src="eval/figures/fig1_permissive_vs_strict_ex.png" alt="Permissive vs Strict Execution Accuracy" width="48%">
+  <img src="eval/figures/fig2_ablation_inversion.png" alt="The Ablation Inversion" width="48%">
+</p>
+
+*Figure 1 (left): Permissive vs. Strict Execution Accuracy (neither number is wrong — they score different criteria; both are reported together).*
+*Figure 2 (right): The Ablation Inversion across 8 measured configurations (dropping multi_query_agreement hurts in 6 of 8 cells).*
+
 ## Architecture
 
 ```
