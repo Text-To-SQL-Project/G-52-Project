@@ -68,7 +68,10 @@ export default function App() {
   }, []);
 
   const isAdmin = me?.role === "admin";
-  const currentScreen: Screen = screen === "admin" && me !== null && !isAdmin ? "workspace" : screen;
+  const currentScreen: Screen =
+    (screen === "admin" || screen === "schema") && me !== null && !isAdmin
+      ? "workspace"
+      : screen;
 
   // Screen change with wipe transition
   const handleScreenChange = useCallback(
@@ -109,7 +112,7 @@ export default function App() {
               <WorkspaceScreen isAdmin={isAdmin} />
             </div>
             {currentScreen === "history" && <HistoryScreen />}
-            {currentScreen === "schema" && <SchemaScreen />}
+            {currentScreen === "schema" && isAdmin && <SchemaScreen />}
             {currentScreen === "admin" && <AdminScreen />}
           </main>
         </div>

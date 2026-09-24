@@ -15,7 +15,7 @@ interface Tab {
 const TABS: Tab[] = [
   { key: "workspace", label: "Workspace", icon: "terminal" },
   { key: "history", label: "History", icon: "history" },
-  { key: "schema", label: "Schema Explorer", icon: "schema" },
+  { key: "schema", label: "Schema Explorer", icon: "schema", visibleTo: ["admin"] },
   { key: "admin", label: "Admin", icon: "admin_panel_settings", visibleTo: ["admin"] },
 ];
 
