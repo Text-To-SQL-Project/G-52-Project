@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 
 /**
  * Custom cursor follower — a ring that trails the mouse and morphs
@@ -11,24 +11,23 @@ export function CustomCursor() {
   const targetRef = useRef({ x: -100, y: -100 });
   const rafRef = useRef<number>(0);
 
-  const updatePosition = useCallback(() => {
-    const el = cursorRef.current;
-    if (!el) return;
-
-    // Smooth lerp
-    posRef.current.x += (targetRef.current.x - posRef.current.x) * 0.15;
-    posRef.current.y += (targetRef.current.y - posRef.current.y) * 0.15;
-
-    el.style.left = `${posRef.current.x}px`;
-    el.style.top = `${posRef.current.y}px`;
-
-    rafRef.current = requestAnimationFrame(updatePosition);
-  }, []);
-
   useEffect(() => {
     // Don't render on touch devices
     if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    function renderLoop() {
+      const el = cursorRef.current;
+      if (el) {
+        // Smooth lerp
+        posRef.current.x += (targetRef.current.x - posRef.current.x) * 0.15;
+        posRef.current.y += (targetRef.current.y - posRef.current.y) * 0.15;
+
+        el.style.left = `${posRef.current.x}px`;
+        el.style.top = `${posRef.current.y}px`;
+      }
+      rafRef.current = requestAnimationFrame(renderLoop);
+    }
 
     const onMouseMove = (e: MouseEvent) => {
       targetRef.current.x = e.clientX;
@@ -58,41 +57,41 @@ export function CustomCursor() {
       }
     };
 
-    const onMouseDown = () => {
-      cursorRef.current?.classList.add("clicking");
-    };
-
-    const onMouseUp = () => {
-      cursorRef.current?.classList.remove("clicking");
-    };
-
-    const onMouseLeave = () => {
-      if (cursorRef.current) cursorRef.current.style.opacity = "0";
-    };
-
-    const onMouseEnter = () => {
-      if (cursorRef.current) cursorRef.current.style.opacity = "1";
-    };
-
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseover", onMouseOver);
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mouseup", onMouseUp);
-    document.documentElement.addEventListener("mouseleave", onMouseLeave);
-    document.documentElement.addEventListener("mouseenter", onMouseEnter);
-
-    rafRef.current = requestAnimationFrame(updatePosition);
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    document.addEventListener("mouseover", onMouseOver, { passive: true });
+    rafRef.current = requestAnimationFrame(renderLoop);
 
     return () => {
-      document.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseover", onMouseOver);
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.documentElement.removeEventListener("mouseleave", onMouseLeave);
-      document.documentElement.removeEventListener("mouseenter", onMouseEnter);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [updatePosition]);
+  }, []);
 
-  return <div ref={cursorRef} className="cursor-follower" />;
+  return (
+    <div
+      ref={cursorRef}
+      className="custom-cursor pointer-events-none fixed z-50 rounded-full"
+      style={{
+        width: "28px",
+        height: "28px",
+        border: "1px solid var(--accent)",
+        boxShadow: "0 0 12px var(--accent-dim), inset 0 0 6px var(--accent-dim)",
+        transform: "translate(-50%, -50%)",
+        transition: "width 0.2s var(--ease-snappy), height 0.2s var(--ease-snappy), border-color 0.2s, background-color 0.2s, border-radius 0.2s",
+        willChange: "left, top",
+      }}
+    >
+      <div
+        className="absolute top-1/2 left-1/2 rounded-full"
+        style={{
+          width: "4px",
+          height: "4px",
+          background: "var(--accent)",
+          boxShadow: "0 0 6px var(--accent)",
+          transform: "translate(-50%, -50%)",
+        }}
+      />
+    </div>
+  );
 }

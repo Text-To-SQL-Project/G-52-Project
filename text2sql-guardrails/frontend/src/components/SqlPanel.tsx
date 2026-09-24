@@ -12,25 +12,31 @@ interface Props {
 }
 
 /** Typewriter hook — reveals text character by character */
-function useTypewriter(text: string, speed = 15) {
-  const [displayed, setDisplayed] = useState("");
-  const [done, setDone] = useState(false);
+function useTypewriter(text: string, speed = 12) {
+  const [prevText, setPrevText] = useState(text);
+  const [charCount, setCharCount] = useState(0);
+
+  if (prevText !== text) {
+    setPrevText(text);
+    setCharCount(0);
+  }
 
   useEffect(() => {
-    setDisplayed("");
-    setDone(false);
-    let i = 0;
+    if (!text) return;
     const interval = setInterval(() => {
-      i++;
-      setDisplayed(text.slice(0, i));
-      if (i >= text.length) {
-        clearInterval(interval);
-        setDone(true);
-      }
+      setCharCount((prev) => {
+        if (prev >= text.length) {
+          clearInterval(interval);
+          return prev;
+        }
+        return prev + 1;
+      });
     }, speed);
     return () => clearInterval(interval);
   }, [text, speed]);
 
+  const displayed = text.slice(0, charCount);
+  const done = charCount >= text.length;
   return { displayed, done };
 }
 
@@ -45,20 +51,19 @@ export function SqlPanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sql ?? "");
   const [copied, setCopied] = useState(false);
-  const [hasRevealed, setHasRevealed] = useState(false);
+  const [revealedSql, setRevealedSql] = useState<string | null>(null);
   const panelRef = useRef<HTMLElement>(null);
+
+  const hasRevealed = Boolean(sql && revealedSql === sql);
 
   const { displayed: typewriterSql, done: typewriterDone } = useTypewriter(
     hasRevealed ? "" : (sql ?? ""),
     12
   );
 
-  // After first typewriter completes, mark as revealed
-  useEffect(() => {
-    if (typewriterDone && !hasRevealed && sql) {
-      setHasRevealed(true);
-    }
-  }, [typewriterDone, hasRevealed, sql]);
+  if (typewriterDone && sql && revealedSql !== sql) {
+    setRevealedSql(sql);
+  }
 
   if (!sql) return null;
 

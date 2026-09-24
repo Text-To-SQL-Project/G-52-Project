@@ -22,7 +22,14 @@ export default function App() {
   const { trigger, WipeOverlay } = useScreenTransition();
 
   useEffect(() => {
-    const onAuthChanged = () => setTokenState(getToken());
+    const onAuthChanged = () => {
+      const nextToken = getToken();
+      setTokenState(nextToken);
+      if (!nextToken) {
+        setMe(null);
+        setMeLoading(false);
+      }
+    };
     window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
     window.addEventListener("storage", onAuthChanged);
     return () => {
@@ -31,49 +38,48 @@ export default function App() {
     };
   }, []);
 
-  const refreshMe = useCallback(() => {
-    if (!getToken()) {
-      setMe(null);
-      return;
-    }
-    setMeLoading(true);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
     getMe()
-      .then(setMe)
+      .then((user) => {
+        if (!cancelled) setMe(user);
+      })
       .catch((e) => {
-        if (!(e instanceof ApiError && e.status === 401)) {
+        if (!cancelled && !(e instanceof ApiError && e.status === 401)) {
           setMe(null);
         }
       })
-      .finally(() => setMeLoading(false));
-  }, []);
+      .finally(() => {
+        if (!cancelled) setMeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
-    refreshMe();
-  }, [token, refreshMe]);
-
-  useEffect(() => {
-    const onFocus = () => refreshMe();
+    const onFocus = () => {
+      if (getToken()) {
+        getMe().then(setMe).catch(() => {});
+      }
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refreshMe]);
+  }, []);
 
   const isAdmin = me?.role === "admin";
-
-  useEffect(() => {
-    if (screen === "admin" && me !== null && !isAdmin) {
-      setScreen("workspace");
-    }
-  }, [screen, me, isAdmin]);
+  const currentScreen: Screen = screen === "admin" && me !== null && !isAdmin ? "workspace" : screen;
 
   // Screen change with wipe transition
   const handleScreenChange = useCallback(
     (newScreen: Screen) => {
-      if (newScreen === screen) return;
+      if (newScreen === currentScreen) return;
       trigger(() => {
         setScreen(newScreen);
       });
     },
-    [screen, trigger]
+    [currentScreen, trigger]
   );
 
   return (
@@ -94,19 +100,19 @@ export default function App() {
           }}
         >
           <NavBar
-            active={screen}
+            active={currentScreen}
             onChange={handleScreenChange}
             me={me}
             meLoading={meLoading}
           />
           <main>
             {/* Workspace stays mounted to preserve result state */}
-            <div className={screen === "workspace" ? undefined : "hidden"}>
+            <div className={currentScreen === "workspace" ? undefined : "hidden"}>
               <WorkspaceScreen isAdmin={isAdmin} />
             </div>
-            {screen === "history" && <HistoryScreen />}
-            {screen === "schema" && <SchemaScreen />}
-            {screen === "admin" && <AdminScreen />}
+            {currentScreen === "history" && <HistoryScreen />}
+            {currentScreen === "schema" && <SchemaScreen />}
+            {currentScreen === "admin" && <AdminScreen />}
           </main>
         </div>
       )}
