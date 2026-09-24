@@ -76,11 +76,17 @@ export function LoginScreen() {
       const resp = await login({ username: u, password: p });
       setToken(resp.token);
     } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? "Incorrect username or password."
-          : "Could not reach the server."
-      );
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          setError("Incorrect username or password.");
+        } else if (e.status === 0) {
+          setError("Cannot reach backend server. Please ensure the API is running on localhost:8000.");
+        } else {
+          setError(e.message || "Authentication failed.");
+        }
+      } else {
+        setError("Could not reach the server.");
+      }
     } finally {
       setLoading(false);
     }
