@@ -58,7 +58,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
     <header
       className="sticky top-0 z-30"
       style={{
-        background: "rgba(6, 8, 15, 0.85)",
+        background: "rgba(8, 8, 9, 0.85)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderBottom: "1px solid var(--border-subtle)",
@@ -73,7 +73,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
               borderRadius: "2px",
-              boxShadow: "0 0 15px rgba(34, 211, 238, 0.15)",
+              boxShadow: "0 0 15px var(--accent-glow)",
             }}
           >
             <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>

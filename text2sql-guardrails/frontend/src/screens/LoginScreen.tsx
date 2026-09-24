@@ -109,7 +109,7 @@ export function LoginScreen() {
           width: "500px",
           height: "500px",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(34, 211, 238, 0.06) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(245, 158, 11, 0.08) 0%, transparent 70%)",
           animation: "glow-pulse 4s ease-in-out infinite",
         }}
       />
@@ -123,7 +123,7 @@ export function LoginScreen() {
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
               borderRadius: "2px",
-              boxShadow: "0 0 25px rgba(34, 211, 238, 0.15)",
+              boxShadow: "0 0 25px var(--accent-glow)",
             }}
           >
             <span className="material-symbols-outlined text-[24px]" style={{ color: "var(--accent)" }}>

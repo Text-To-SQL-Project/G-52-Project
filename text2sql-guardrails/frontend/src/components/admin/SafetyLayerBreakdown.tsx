@@ -94,8 +94,8 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               ]}
             />
             <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-            <Bar dataKey="Anthropic" fill="#22d3ee" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="Gemini" fill="#34d399" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Anthropic" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Gemini" fill="#22c55e" radius={[2, 2, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

@@ -4,23 +4,21 @@
  *
  * Five stacked layers, all CSS, no canvas and no dependency:
  *
- *   1. base       deep void (#06080f), preventing any white flash on load
+ *   1. base       deep neutral void (#080809), preventing any white flash on load
  *   2. depth      a vertical gradient sinking the page toward the bottom
  *   3. grid       a fine technical lattice, drifting one tile per cycle so
  *                 the loop is seamless, radially masked to dissolve at edges
- *   4. blooms     three slow cyan fields on long, mutually prime cycles, so
+ *   4. blooms     three slow warm amber fields on long, mutually prime cycles, so
  *                 the composition never visibly repeats
  *   5. scan       one faint band easing down the page — the "alive" beat
  *   6. grain      static film grain, killing gradient banding on projectors
  *
  * Design constraints this layer has to respect:
  *
- * - Blooms use cyan only (the single UI accent, derived from the AiOrb).
- *   Green means SUCCESS and PASS — a wash of it behind a REFUSED chip
- *   would undercut the single most important thing this UI says.
- * - Everything animates `transform` or nothing at all. No `filter: blur()` on
- *   a moving element — the blooms are soft because they are radial gradients
- *   with long tails, not because they are blurred, keeping them GPU-composited.
+ * - Zero blue, zero purple across all background elements.
+ * - Blooms use warm amber only (the single UI accent).
+ * - Green is reserved strictly for SUCCESS/PASS status chips.
+ * - Everything animates `transform` or nothing at all, keeping it GPU-composited.
  * - Content panels are opaque enough to read over any frame of this.
  * - The whole thing freezes under prefers-reduced-motion (see index.css) and
  *   still looks deliberate when static.

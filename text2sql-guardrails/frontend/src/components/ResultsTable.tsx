@@ -138,7 +138,7 @@ export function ResultsTable({ results, executed }: Props) {
       ) : (
         <div className="max-h-[32rem] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-10" style={{ background: "rgba(6, 8, 15, 0.95)", backdropFilter: "blur(8px)" }}>
+            <thead className="sticky top-0 z-10" style={{ background: "rgba(8, 8, 9, 0.95)", backdropFilter: "blur(8px)" }}>
               <tr>
                 {results.columns.map((col, j) => (
                   <th
@@ -165,7 +165,7 @@ export function ResultsTable({ results, executed }: Props) {
                     borderBottom: "1px solid rgba(255,255,255,0.03)",
                     background: i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent",
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(34, 211, 238, 0.02)"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(245, 158, 11, 0.025)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent"; }}
                 >
                   {row.map((cell, j) => (

@@ -1,7 +1,7 @@
 import type { Warning, WarningLevel } from "../types/api";
 
 const LEVEL_STYLE: Record<WarningLevel, { borderColor: string; bg: string; text: string }> = {
-  info: { borderColor: "rgba(56, 189, 248, 0.5)", bg: "rgba(56, 189, 248, 0.03)", text: "rgba(56, 189, 248, 0.8)" },
+  info: { borderColor: "rgba(255, 255, 255, 0.25)", bg: "rgba(255, 255, 255, 0.025)", text: "var(--text-secondary)" },
   warning: { borderColor: "rgba(251, 191, 36, 0.6)", bg: "rgba(251, 191, 36, 0.04)", text: "rgba(251, 191, 36, 0.85)" },
   danger: { borderColor: "rgba(248, 113, 113, 0.7)", bg: "rgba(248, 113, 113, 0.05)", text: "rgba(248, 113, 113, 0.85)" },
 };

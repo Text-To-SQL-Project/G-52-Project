@@ -97,7 +97,7 @@ function TableRow({ table }: { table: TableInfo }) {
                         className="mr-1.5 font-mono text-[10px] font-semibold"
                         style={{
                           padding: "2px 8px",
-                          border: "1px solid rgba(34, 211, 238, 0.3)",
+                          border: "1px solid var(--border-accent)",
                           background: "var(--accent-dim)",
                           color: "var(--accent)",
                           borderRadius: "2px",
@@ -112,7 +112,7 @@ function TableRow({ table }: { table: TableInfo }) {
                         title={col.references ?? undefined}
                         style={{
                           padding: "2px 8px",
-                          border: "1px solid rgba(34, 211, 238, 0.2)",
+                          border: "1px solid var(--border-accent)",
                           background: "var(--accent-dim)",
                           color: "var(--accent-bright)",
                           borderRadius: "2px",

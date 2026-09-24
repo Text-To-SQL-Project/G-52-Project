@@ -29,19 +29,19 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
       name: "In-sample Raw",
       AUROC: comparison.in_sample_raw,
       citable: true,
-      fill: "#00f0ff",
+      fill: "#f59e0b",
     },
     {
       name: "Held-out Raw",
       AUROC: comparison.held_out_raw,
       citable: true,
-      fill: "#38bdf8",
+      fill: "#fbbf24",
     },
     {
       name: "Held-out Calibrated",
       AUROC: comparison.held_out_calibrated,
       citable: true,
-      fill: "#34d399",
+      fill: "#22c55e",
     },
     ...(showHistoricalDebug
       ? [
@@ -306,8 +306,8 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="5-Signal (with MQ)" fill="#00f0ff" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="4-Signal (dropped MQ)" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="5-Signal (with MQ)" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="4-Signal (dropped MQ)" fill="#71717a" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -386,8 +386,8 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="Permissive" fill="#00f0ff" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="Strict" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Permissive" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Strict" fill="#ea580c" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

@@ -22,12 +22,12 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
 
   const tables = ["students", "marks", "attendance", "fee_payments"];
 
-  // Functional colors for each principal (distinct, avoiding generic purple)
+  // Functional colors for each principal (distinct, zero blue and zero purple)
   const principalColors: Record<string, string> = {
-    admin: "#00f0ff",     // Cyan (Signal accent)
-    faculty1: "#38bdf8",  // Sky Blue
-    student1: "#34d399",  // Emerald
-    student2: "#fbbf24",  // Amber
+    admin: "#f59e0b",     // Solar Amber
+    faculty1: "#fbbf24",  // Radiant Gold
+    student1: "#22c55e",  // Emerald
+    student2: "#e2e8f0",  // Neutral Silver
   };
 
   // Prepare grouped data for recharts
@@ -164,7 +164,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 key={p.principal}
                 dataKey={p.principal}
                 name={`${p.principal} (${p.role})`}
-                fill={principalColors[p.principal] || "#00f0ff"}
+                fill={principalColors[p.principal] || "#f59e0b"}
                 radius={[2, 2, 0, 0]}
               />
             ))}

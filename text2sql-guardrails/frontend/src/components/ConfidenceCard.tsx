@@ -101,7 +101,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
             <div
               className="absolute inset-[-6px] rounded-full"
               style={{
-                background: `radial-gradient(circle, rgba(34, 211, 238, 0.08) 60%, transparent 100%)`,
+                background: `radial-gradient(circle, rgba(245, 158, 11, 0.1) 60%, transparent 100%)`,
               }}
             />
             <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 36 36">

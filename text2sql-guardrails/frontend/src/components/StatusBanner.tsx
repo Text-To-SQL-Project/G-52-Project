@@ -24,8 +24,8 @@ const STATUS_STYLE: Record<QueryStatus, StatusToken> = {
   },
   clarification: {
     label: "Needs clarification",
-    chip: "border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.06); color: var(--info);",
-    badge: "border: 1px solid rgba(56, 189, 248, 0.6); color: var(--info);",
+    chip: "border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.06); color: var(--accent);",
+    badge: "border: 1px solid rgba(245, 158, 11, 0.6); color: var(--accent);",
     silhouette: "ring",
   },
   blocked: {
