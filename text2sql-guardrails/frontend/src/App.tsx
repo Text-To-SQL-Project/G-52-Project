@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, getMe } from "./api/client";
-import { CustomCursor } from "./components/CustomCursor";
 import { LiveBackground } from "./components/LiveBackground";
 import { NavBar, type Screen } from "./components/NavBar";
 import { Preloader } from "./components/Preloader";
@@ -84,7 +83,6 @@ export default function App() {
 
   return (
     <>
-      <CustomCursor />
       <Preloader onComplete={() => setPreloaderDone(true)} />
       <LiveBackground />
       {WipeOverlay}
