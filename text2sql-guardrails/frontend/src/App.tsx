@@ -109,7 +109,7 @@ export default function App() {
           <main>
             {/* Workspace stays mounted to preserve result state */}
             <div className={currentScreen === "workspace" ? undefined : "hidden"}>
-              <WorkspaceScreen isAdmin={isAdmin} />
+              <WorkspaceScreen isAdmin={isAdmin} role={me?.role} />
             </div>
             {currentScreen === "history" && <HistoryScreen />}
             {currentScreen === "schema" && isAdmin && <SchemaScreen />}

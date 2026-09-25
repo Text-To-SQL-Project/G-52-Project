@@ -67,4 +67,15 @@ FEW_SHOT_EXAMPLES: list[dict[str, str]] = [
             "LIMIT 10;"
         ),
     },
+    {
+        "question": "List average GPA by department",
+        "sql": (
+            "SELECT d.department_name, ROUND(AVG(m.marks_obtained) / 10.0, 2) AS avg_gpa\n"
+            "FROM marks m\n"
+            "JOIN students s ON m.student_id = s.student_id\n"
+            "JOIN departments d ON s.department_id = d.department_id\n"
+            "GROUP BY d.department_name\n"
+            "ORDER BY avg_gpa DESC;"
+        ),
+    },
 ]

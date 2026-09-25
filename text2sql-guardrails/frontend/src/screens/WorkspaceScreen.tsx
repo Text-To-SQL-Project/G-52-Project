@@ -12,7 +12,7 @@ import { SqlPanel } from "../components/SqlPanel";
 import { StatusBanner } from "../components/StatusBanner";
 import { WarningsList } from "../components/WarningsList";
 import { getSessionId } from "../hooks/useSessionId";
-import type { QueryResponse } from "../types/api";
+import type { QueryResponse, UserRole } from "../types/api";
 
 function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
   return (
@@ -56,9 +56,10 @@ function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
 
 interface Props {
   isAdmin?: boolean;
+  role?: UserRole;
 }
 
-export function WorkspaceScreen({ isAdmin = false }: Props) {
+export function WorkspaceScreen({ isAdmin = false, role }: Props) {
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
@@ -117,7 +118,7 @@ export function WorkspaceScreen({ isAdmin = false }: Props) {
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-5">
         {/* Input — takes 3/5 of the width */}
         <div className="lg:col-span-3">
-          <QuestionInput onSubmit={(q) => run(q)} loading={loading} isAdmin={isAdmin} />
+          <QuestionInput onSubmit={(q) => run(q)} loading={loading} isAdmin={isAdmin} role={role} />
         </div>
 
         {/* Orb — centerpiece with ambient glow, framed from here (AiOrb.tsx untouched) */}

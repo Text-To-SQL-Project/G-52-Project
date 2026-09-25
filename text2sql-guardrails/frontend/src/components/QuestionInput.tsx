@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { gsap } from "gsap";
+import type { UserRole } from "../types/api";
 
 interface Props {
   onSubmit: (question: string) => void;
   loading: boolean;
   isAdmin?: boolean;
+  role?: UserRole;
 }
 
 function Key({ children }: { children: string }) {
@@ -24,21 +26,28 @@ function Key({ children }: { children: string }) {
   );
 }
 
-const DEFAULT_SAMPLE_QUERIES = [
+const STUDENT_SAMPLE_QUERIES = [
+  "What are my marks in each subject?",
+  "Show my attendance percentage",
+  "What is my fee payment history?",
+  "Which departments have the most students?",
+];
+
+const FACULTY_SAMPLE_QUERIES = [
+  "What is the average marks obtained per subject?",
   "Which students have attendance below 75%?",
   "List average GPA by department",
-  "Find faculty members teaching more than 2 courses",
-  "Show enrollment counts by semester",
+  "Which departments have the most students?",
 ];
 
 const ADMIN_SAMPLE_QUERIES = [
-  "Which students have attendance below 75%?",
+  "Which departments have the most students?",
   "List average GPA by department",
-  "Create table audit_log (id int, note text)",
-  "Delete from attendance where status = 'absent'",
+  "What is the average marks obtained per subject?",
+  "Which companies have made the most accepted placement offers?",
 ];
 
-export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
+export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Props) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const underlineRef = useRef<HTMLDivElement>(null);
@@ -101,7 +110,19 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
     }
   };
 
-  const sampleQueries = isAdmin ? ADMIN_SAMPLE_QUERIES : DEFAULT_SAMPLE_QUERIES;
+  const sampleQueries =
+    role === "student"
+      ? STUDENT_SAMPLE_QUERIES
+      : role === "faculty"
+      ? FACULTY_SAMPLE_QUERIES
+      : ADMIN_SAMPLE_QUERIES;
+
+  const placeholderText =
+    role === "student"
+      ? "e.g. What are my marks in each subject?"
+      : role === "faculty"
+      ? "e.g. What is the average marks obtained per subject?"
+      : "e.g. Which departments have the most students?";
 
   return (
     <div className="animate-rise relative flex flex-col">
@@ -116,10 +137,15 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
               Admin Console
               <span style={{ color: "var(--text-muted)", fontWeight: 600 }}> — Full DB Access</span>
             </>
+          ) : role === "faculty" ? (
+            <>
+              Faculty Portal
+              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}> — Department Scope</span>
+            </>
           ) : (
             <>
-              Ask anything about your data
-              <span style={{ color: "var(--accent)" }}>_</span>
+              Student Workspace
+              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}> — Scoped to Your Data</span>
             </>
           )}
         </h2>
@@ -142,10 +168,15 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
               <span className="material-symbols-outlined text-[13px]">admin_panel_settings</span>
               Admin: Full Access
             </span>
+          ) : role === "faculty" ? (
+            <span className="pill-tag flex items-center gap-1 px-2.5 py-0.5 font-mono text-[11px]">
+              <span className="material-symbols-outlined text-[13px]">school</span>
+              Faculty Scope
+            </span>
           ) : (
             <span className="pill-tag flex items-center gap-1 px-2.5 py-0.5 font-mono text-[11px]">
               <span className="material-symbols-outlined text-[13px]">verified_user</span>
-              Guardrails Active
+              Student Scope
             </span>
           )}
         </div>
@@ -166,7 +197,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false }: Props) {
           }}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          placeholder="e.g. Which students have an attendance percentage below 75% across departments?"
+          placeholder={placeholderText}
           rows={2}
           className="w-full resize-none bg-transparent font-sans leading-relaxed text-white focus:outline-none"
           style={{
