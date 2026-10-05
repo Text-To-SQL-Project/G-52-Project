@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ApiError, getMe } from "./api/client";
 import { LiveBackground } from "./components/LiveBackground";
 import { NavBar, type Screen } from "./components/NavBar";
 import { Preloader } from "./components/Preloader";
 import { AUTH_CHANGED_EVENT, getToken } from "./hooks/useAuthToken";
 import { useScreenTransition } from "./hooks/useScreenTransition";
-import { AdminScreen } from "./screens/AdminScreen";
-import { HistoryScreen } from "./screens/HistoryScreen";
 import { LoginScreen } from "./screens/LoginScreen";
-import { SchemaScreen } from "./screens/SchemaScreen";
-import { WorkspaceScreen } from "./screens/WorkspaceScreen";
+
+// Split per screen: the login page shouldn't download three.js (workspace
+// orb) or recharts (admin) before it can render.
+const WorkspaceScreen = lazy(() => import("./screens/WorkspaceScreen").then((m) => ({ default: m.WorkspaceScreen })));
+const HistoryScreen = lazy(() => import("./screens/HistoryScreen").then((m) => ({ default: m.HistoryScreen })));
+const SchemaScreen = lazy(() => import("./screens/SchemaScreen").then((m) => ({ default: m.SchemaScreen })));
+const AdminScreen = lazy(() => import("./screens/AdminScreen").then((m) => ({ default: m.AdminScreen })));
 import type { MeResponse } from "./types/api";
 
 export default function App() {
@@ -107,13 +110,18 @@ export default function App() {
             meLoading={meLoading}
           />
           <main>
+            {/* One boundary per screen: loading one chunk must not blank the others. */}
             {/* Workspace stays mounted to preserve result state */}
             <div className={currentScreen === "workspace" ? undefined : "hidden"}>
-              <WorkspaceScreen isAdmin={isAdmin} role={me?.role} />
+              <Suspense fallback={null}>
+                <WorkspaceScreen isAdmin={isAdmin} role={me?.role} />
+              </Suspense>
             </div>
-            {currentScreen === "history" && <HistoryScreen />}
-            {currentScreen === "schema" && isAdmin && <SchemaScreen />}
-            {currentScreen === "admin" && <AdminScreen />}
+            <Suspense fallback={null}>
+              {currentScreen === "history" && <HistoryScreen />}
+              {currentScreen === "schema" && isAdmin && <SchemaScreen />}
+              {currentScreen === "admin" && <AdminScreen />}
+            </Suspense>
           </main>
         </div>
       )}

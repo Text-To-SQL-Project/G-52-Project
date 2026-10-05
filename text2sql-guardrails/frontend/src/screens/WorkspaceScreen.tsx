@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef } from "react";
 import { gsap } from "gsap";
-import { ApiError, postQuery } from "../api/client";
-import { AiOrb } from "../components/AiOrb";
+import { ApiError, getQueryConfidence, postQuery } from "../api/client";
+// three.js is ~600 KB; let the input render first and stream the orb in.
+const AiOrb = lazy(() => import("../components/AiOrb").then((m) => ({ default: m.AiOrb })));
 import { ClarificationPanel } from "../components/ClarificationPanel";
 import { ConfidenceCard } from "../components/ConfidenceCard";
+import { LatencyMeter } from "../components/LatencyMeter";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { GuardrailBanner } from "../components/GuardrailBanner";
 import { QuestionInput } from "../components/QuestionInput";
@@ -12,7 +14,7 @@ import { SqlPanel } from "../components/SqlPanel";
 import { StatusBanner } from "../components/StatusBanner";
 import { WarningsList } from "../components/WarningsList";
 import { getSessionId } from "../hooks/useSessionId";
-import type { QueryResponse, UserRole } from "../types/api";
+import type { Confidence, QueryResponse, UserRole } from "../types/api";
 
 function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
   return (
@@ -64,6 +66,35 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
   const [loading, setLoading] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
   const responseRef = useRef<HTMLDivElement>(null);
+  // Final score from the background checks. Kept apart from `response` so
+  // its arrival doesn't replay the response stack's entrance animation.
+  const [final, setFinal] = useState<{ queryId: string; confidence: Confidence } | null>(null);
+  const finalConfidence = final && final.queryId === response?.query_id ? final.confidence : null;
+
+  useEffect(() => {
+    if (!response?.confidence_pending) return;
+    let cancelled = false;
+    let timer = 0;
+    const started = Date.now();
+    const poll = async () => {
+      try {
+        const update = await getQueryConfidence(response.query_id);
+        if (cancelled) return;
+        if (!update.pending && update.confidence) {
+          return setFinal({ queryId: response.query_id, confidence: update.confidence });
+        }
+      } catch {
+        return; // e.g. server restarted: keep the provisional score
+      }
+      // Under a provider RPM cap the check can be deferred ~1 min.
+      if (Date.now() - started < 90_000) timer = window.setTimeout(poll, 1500);
+    };
+    timer = window.setTimeout(poll, 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [response]);
 
   const run = async (question: string, sqlOverride?: string) => {
     setLoading(true);
@@ -78,7 +109,11 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
       setResponse(result);
     } catch (e) {
       setResponse(null);
-      setClientError(e instanceof ApiError ? e.message : "Unexpected client error.");
+      setClientError(
+        e instanceof ApiError && e.status === 429
+          ? `You're asking faster than the limit allows. Try again in ${e.retryAfter ?? 60} seconds.`
+          : e instanceof ApiError ? e.message : "Unexpected client error.",
+      );
     } finally {
       setLoading(false);
     }
@@ -128,7 +163,9 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
             data-status={orbStatus}
             style={{ width: "260px", height: "260px" }}
           >
-            <AiOrb status={orbStatus} className="h-full w-full" />
+            <Suspense fallback={null}>
+              <AiOrb status={orbStatus} className="h-full w-full" />
+            </Suspense>
           </div>
         </div>
       </div>
@@ -141,23 +178,16 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
         <div ref={responseRef} className="response-stack space-y-6">
           {/* Status & timing */}
           <div
-            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 py-3"
+            // relative z-30: the stack's children are GSAP-transformed (each its
+            // own stacking context), so the latency popover must sit above them.
+            className="relative z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 py-3"
             style={{ borderBottom: "1px solid var(--border-subtle)" }}
           >
             <StatusBanner
               status={response.status}
               reason={response.status === "clarification" ? null : response.status_reason}
             />
-            {response.execution_time_ms != null && (
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--text-muted)" }}>
-                  timer
-                </span>
-                <span className="font-mono text-xs tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                  {response.execution_time_ms.toFixed(0)} ms
-                </span>
-              </div>
-            )}
+            {response.timings_ms && <LatencyMeter timings={response.timings_ms} />}
           </div>
 
           <WarningsList warnings={response.warnings} />
@@ -186,7 +216,7 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
 
           <ResultsTable results={response.results} executed={response.status === "success"} />
 
-          <ConfidenceCard confidence={response.confidence} />
+          <ConfidenceCard confidence={finalConfidence ?? response.confidence} />
         </div>
       )}
     </div>

@@ -152,9 +152,28 @@ def run_startup_checks() -> None:
     """Called from app/main.py's lifespan. Logs what it verified, so the
     boot log records which role the process actually got rather than which
     one the configuration intended."""
+    check_production_config()
     info = check_readonly_role()
     logger.info(
         "Startup check OK: generated SQL executes as role=%r on database=%r "
         "(superuser=%s, bypassrls=%s)",
         info["role"], info["database"], info["is_superuser"], info["has_bypassrls"],
     )
+
+
+def check_production_config() -> None:
+    """ENV=prod refuses to boot on settings that are fine for a laptop but
+    unsafe on a server. Dev only warns, so local setups keep working."""
+    from app.config import settings
+
+    problems = []
+    if len(settings.SECRET_KEY) < 32:
+        problems.append("SECRET_KEY must be at least 32 characters (token forgery).")
+    if any(o.strip() == "*" for o in settings.CORS_ORIGINS):
+        problems.append("CORS_ORIGINS must list explicit origins, not '*'.")
+    if not problems:
+        return
+    if settings.ENV == "prod":
+        raise StartupCheckError("Refusing to start with ENV=prod: " + " ".join(problems))
+    for p in problems:
+        logger.warning("Not production-ready: %s", p)

@@ -11,11 +11,13 @@ to fake data, see get_schema()/get_history()'s own docstrings for why.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import text
 
 from app.api import client_messages
@@ -36,7 +38,9 @@ from app.api.admin_models import (
 )
 from app.api.models import (
     Clarification,
+    Confidence,
     ConfidenceSignal,
+    ConfidenceUpdate,
     GuardrailReport,
     HistoryResponse,
     QueryRequest,
@@ -71,8 +75,17 @@ import sqlglot
 from sqlglot import exp
 
 from app.generation.generator import generate_sql, is_noop_sql
+from app.generation.llm_client import use_provider, wait_for_background_room
+from app import llm_pool
+from app.http_guard import limit_query
 from app.users import Principal
-from app.history import read_blocked_queries, read_history, write_history_row
+from app.history import (
+    read_blocked_queries,
+    read_history,
+    update_history_confidence,
+    write_history_row,
+)
+from app.schema.introspect import invalidate_schema_cache
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
@@ -93,10 +106,85 @@ def _new_id() -> str:
     return f"q_{uuid.uuid4().hex[:12]}"
 
 
-@router.post("/query", response_model=QueryResponse)
+# --- background signals ------------------------------------------------------
+# Back-translation is two extra LLM round-trips (~2-4 s), more than the whole
+# interactive budget. It degrades gracefully and doesn't gate execution, so
+# /v1/query answers without it and the client polls
+# GET /v1/query/{id}/confidence for the final score.
+# ponytail: in-process store, so a poll must reach the worker that served the
+# query; move it to a query_history column before running multiple workers.
+_signal_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="signals")
+_pending_lock = threading.Lock()
+_pending: dict[str, tuple[int, float, Confidence | None]] = {}  # id -> (user_id, created, final)
+_PENDING_TTL_SECONDS = 600
+
+_BT_PENDING_SIGNAL = ConfidenceSignal(
+    key="back_translation_match", label="Back-translation Match", score=0.5,
+    status=SignalStatus.PENDING, detail="Measuring in the background.",
+)
+
+
+def _finish_back_translation(
+    query_id: str, question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool,
+    provider: str | None = None,
+) -> None:
+    with use_provider(provider):
+        _finish_back_translation_inner(query_id, question, sql, signals, row_scoped)
+
+
+def _finish_back_translation_inner(
+    query_id: str, question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool
+) -> None:
+    try:
+        if not wait_for_background_room():
+            raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for interactive queries")
+        bt = check_back_translation(question, sql)  # never raises by contract
+    except Exception as e:  # a background crash must still resolve the poll
+        bt = ConfidenceSignal(
+            key="back_translation_match", label="Back-translation Match", score=0.5,
+            status=SignalStatus.WARN, detail=f"Back-translation check could not run: {e}",
+        )
+    final = fuse_confidence(
+        [bt if s.key == "back_translation_match" else s for s in signals], row_scoped=row_scoped
+    )
+    with _pending_lock:
+        entry = _pending.get(query_id)
+        if entry:
+            _pending[query_id] = (entry[0], entry[1], final)
+    update_history_confidence(query_id, final.score)
+
+
+def _schedule_back_translation(
+    query_id: str, user_id: int, question: str, sql: str,
+    signals: list[ConfidenceSignal], row_scoped: bool, provider: str,
+) -> None:
+    now = time.monotonic()
+    with _pending_lock:
+        for k in [k for k, v in _pending.items() if now - v[1] > _PENDING_TTL_SECONDS]:
+            del _pending[k]
+        _pending[query_id] = (user_id, now, None)
+    _signal_pool.submit(
+        _finish_back_translation, query_id, question, sql, signals, row_scoped, provider
+    )
+
+
+@router.get("/query/{query_id}/confidence", response_model=ConfidenceUpdate)
+def get_query_confidence(
+    query_id: str, principal: Principal = Depends(require_auth)
+) -> ConfidenceUpdate:
+    with _pending_lock:
+        entry = _pending.get(query_id)
+    # Same 404 for unknown and for another user's id: never confirm it exists.
+    if entry is None or entry[0] != principal.user_id:
+        raise HTTPException(status_code=404, detail="Unknown query id.")
+    return ConfidenceUpdate(query_id=query_id, pending=entry[2] is None, confidence=entry[2])
+
+
+@router.post("/query", response_model=QueryResponse, dependencies=[Depends(limit_query)])
 def run_query(
     req: QueryRequest,
     principal: Principal = Depends(require_auth),
+    response: Response = None,  # injected by FastAPI; None when called directly (tests)
 ) -> QueryResponse:
     """Translate a natural-language question to SQL, run it safely, and
     return results + calibrated confidence.
@@ -112,6 +200,16 @@ def run_query(
     """
     query_id = _new_id()
     timestamp = datetime.now(timezone.utc)
+    timings: dict[str, float] = {}
+    clock = [time.perf_counter()]
+    # The admin key pool when it has keys, else the env provider (see
+    # APP_LLM_PROVIDER). Cached readiness check: ~0 ms on the hot path.
+    provider = llm_pool.app_provider()
+
+    def lap(stage: str) -> None:
+        now = time.perf_counter()
+        timings[stage] = round((now - clock[0]) * 1000, 1)
+        clock[0] = now
 
     # 1-2. schema retrieval + generation.
     if req.sql_override:
@@ -126,11 +224,20 @@ def run_query(
         try:
             # Same flag result_sanity uses, from the principal only. An
             # admin is not row-scoped, and is_admin allows DDL/DML operations.
-            gen = generate_sql(
-                req.question,
-                row_scoped=not principal.is_admin,
-                is_admin=principal.is_admin,
-            )
+            with use_provider(provider):
+                gen = generate_sql(
+                    req.question,
+                    row_scoped=not principal.is_admin,
+                    is_admin=principal.is_admin,
+                    timeout=settings.APP_LLM_TIMEOUT_SECONDS,
+                    max_attempts=settings.APP_LLM_MAX_ATTEMPTS,
+                    # A duplicate request only burns quota under the single
+                    # env key's RPM cap; the pool spreads it across keys.
+                    hedge_after=(
+                        None if settings.LLM_RPM_LIMIT and provider != "litellm"
+                        else settings.APP_LLM_HEDGE_SECONDS
+                    ),
+                )
         except Exception as e:
             logger.error("SQL generation failed for question=%r: %s", req.question, e)
             write_history_row(
@@ -223,6 +330,8 @@ def run_query(
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
             )
 
+    lap("generation")
+
     # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
     if principal.is_admin:
         # Admin bypasses AST guardrails for full administrative operations (DDL/DML/etc.)
@@ -296,6 +405,8 @@ def run_query(
     except Exception:
         pass
     is_select = isinstance(stmt, exp.Select) if stmt else False
+    lap("guardrails")
+    bt_pending = False
 
     # 4. app.detection (pre) -- schema alignment + back-translation
     if principal.is_admin and not is_select:
@@ -324,7 +435,11 @@ def run_query(
         ]
     else:
         alignment_signal = check_schema_alignment(safe_sql)
-        back_translation_signal = check_back_translation(req.question, safe_sql)
+        bt_pending = settings.BACK_TRANSLATION_ENABLED
+        back_translation_signal = (
+            _BT_PENDING_SIGNAL if bt_pending
+            else check_back_translation(req.question, safe_sql)  # the disabled placeholder
+        )
         signals = [
             ConfidenceSignal(
                 key="sql_validity", label="SQL Validity", score=1.0,
@@ -341,6 +456,8 @@ def run_query(
                 score=0.5, status=SignalStatus.WARN, detail="pending execution",
             ),
         ]
+
+    lap("pre_checks")
 
     # 5. Execution
     start = time.perf_counter()
@@ -395,6 +512,12 @@ def run_query(
                 )
 
                 expected_scope = apply_scope(conn, principal)
+                # Transaction-local (is_local=true): dies with this
+                # transaction, never leaks to the next pooled checkout.
+                conn.execute(
+                    text("SELECT set_config('statement_timeout', :ms, true)"),
+                    {"ms": str(settings.STATEMENT_TIMEOUT_MS)},
+                )
 
                 cursor = conn.execute(text(safe_sql))
                 result_columns = list(cursor.keys())
@@ -486,6 +609,9 @@ def run_query(
             )
 
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
+    lap("execution")
+    if principal.is_admin and not is_select:
+        invalidate_schema_cache()  # the statement may have been DDL
 
     # 6. app.detection (post) -- result sanity + multi-query agreement
     row_scoped = not principal.is_admin
@@ -520,6 +646,11 @@ def run_query(
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
     confidence = fuse_confidence(signals, row_scoped=row_scoped)
+    if bt_pending:
+        _schedule_back_translation(
+            query_id, principal.user_id, req.question, safe_sql, signals, row_scoped, provider
+        )
+    lap("post_checks")
     write_history_row(
         query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
                 question=req.question,
@@ -542,10 +673,20 @@ def run_query(
             truncated=False,
         ),
         confidence=confidence,
+        confidence_pending=bt_pending,
         execution_time_ms=execution_time_ms,
+        timings_ms=_finish_timings(timings, response, lap),
         guardrail=guardrail_report,
         warnings=[],
     )
+
+
+def _finish_timings(timings: dict[str, float], response: Response | None, lap) -> dict[str, float]:
+    lap("history")
+    timings["total"] = round(sum(timings.values()), 1)
+    if response is not None:
+        response.headers["Server-Timing"] = ", ".join(f"{k};dur={v}" for k, v in timings.items())
+    return timings
 
 
 @router.get("/schema", response_model=SchemaResponse)

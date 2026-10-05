@@ -9,9 +9,13 @@ Works with any SQLAlchemy-supported DB: a local SQLite file OR Postgres.
 """
 from __future__ import annotations
 
+import threading
+import time
+
 from sqlalchemy import inspect, text
 
 from app.api.models import ColumnInfo, SchemaResponse, TableInfo
+from app.config import settings
 from app.db import get_engine
 
 
@@ -70,7 +74,7 @@ def _row_estimate(conn, table: str) -> int | None:
         return None
 
 
-def introspect_schema(
+def _introspect_live(
     include_samples: bool = True,
     omit_restricted: bool = False,
     include_row_estimates: bool = True,
@@ -158,3 +162,46 @@ def introspect_schema(
         total_tables=len(tables),
         total_columns=sum(len(t.columns) for t in tables),
     )
+
+
+# Structure-only results keyed by omit_restricted. Reflection is ~200 ms and
+# every question needed it twice (generator + schema_align); structure only
+# changes on admin DDL, which calls invalidate_schema_cache().
+# Served stale-while-revalidate, so no request ever waits on reflection.
+# ponytail: per-process cache; DDL from outside the app shows up one
+# request after SCHEMA_CACHE_SECONDS.
+_structure_cache: dict[bool, tuple[float, SchemaResponse]] = {}
+_refreshing = threading.Lock()
+
+
+def introspect_schema(
+    include_samples: bool = True,
+    omit_restricted: bool = False,
+    include_row_estimates: bool = True,
+) -> SchemaResponse:
+    """See _introspect_live. Samples and row estimates are data, so those
+    calls always go live; structure-only calls are served from cache."""
+    if include_samples or include_row_estimates:
+        return _introspect_live(include_samples, omit_restricted, include_row_estimates)
+    hit = _structure_cache.get(omit_restricted)
+    if hit is None:
+        return _refresh(omit_restricted)
+    if time.monotonic() - hit[0] >= settings.SCHEMA_CACHE_SECONDS and _refreshing.acquire(blocking=False):
+        # Stale: answer from cache now, re-reflect off the request path.
+        def run() -> None:
+            try:
+                _refresh(omit_restricted)
+            finally:
+                _refreshing.release()
+        threading.Thread(target=run, daemon=True, name="schema-refresh").start()
+    return hit[1]
+
+
+def _refresh(omit_restricted: bool) -> SchemaResponse:
+    schema = _introspect_live(False, omit_restricted, False)
+    _structure_cache[omit_restricted] = (time.monotonic(), schema)
+    return schema
+
+
+def invalidate_schema_cache() -> None:
+    _structure_cache.clear()

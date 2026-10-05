@@ -50,6 +50,9 @@ class SignalStatus(str, Enum):
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
+    # Measured after the response is sent (back-translation). Excluded from
+    # the fused score until it lands; GET /v1/query/{id}/confidence has it.
+    PENDING = "pending"
 
 
 class WarningLevel(str, Enum):
@@ -64,14 +67,14 @@ class WarningLevel(str, Enum):
 
 class QueryRequest(BaseModel):
     """POST /v1/query body."""
-    question: str = Field(..., min_length=1, description="Natural-language question.")
+    question: str = Field(..., min_length=1, max_length=2000, description="Natural-language question.")
     session_id: Optional[str] = Field(
-        None, description="Groups queries for the history panel."
+        None, max_length=128, description="Groups queries for the history panel."
     )
     # Power-user override: if the user edited the SQL in the UI and wants to
     # run their version, they send it here and we skip generation.
     sql_override: Optional[str] = Field(
-        None, description="If set, run this SQL instead of generating one."
+        None, max_length=20000, description="If set, run this SQL instead of generating one."
     )
     max_rows: int = Field(1000, ge=1, le=10000, description="Row cap for results.")
 
@@ -185,6 +188,12 @@ class QueryResponse(BaseModel):
     results: Optional[ResultTable] = None
     confidence: Optional[Confidence] = None
     execution_time_ms: Optional[float] = None
+    # Per-stage wall time (generation, guardrails, ..., total). Also sent as
+    # a Server-Timing header so browser devtools and tests can read it.
+    timings_ms: dict[str, float] = Field(default_factory=dict)
+    # True while a signal is still being measured in the background; poll
+    # GET /v1/query/{query_id}/confidence for the final score.
+    confidence_pending: bool = False
 
     # Always present
     guardrail: GuardrailReport
@@ -197,6 +206,13 @@ class QueryResponse(BaseModel):
 
     # Present on ERROR
     error_message: Optional[str] = None
+
+
+class ConfidenceUpdate(BaseModel):
+    """GET /v1/query/{query_id}/confidence."""
+    query_id: str
+    pending: bool
+    confidence: Optional[Confidence] = None
 
 
 # ---------------------------------------------------------------------------

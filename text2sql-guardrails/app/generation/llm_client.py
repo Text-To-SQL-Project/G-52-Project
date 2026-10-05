@@ -24,12 +24,15 @@ silently a no-op there, not an error; see complete()'s docstring.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import random
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from functools import lru_cache
 
 import anthropic
@@ -71,8 +74,38 @@ def get_client() -> anthropic.Anthropic:
     )
 
 
+# Per-request provider choice. The interactive app sets it (see
+# app.llm_pool.app_provider); eval never does, so it keeps LLM_PROVIDER and
+# its published runs stay reproducible.
+_provider_override: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "llm_provider_override", default=None
+)
+
+
+def effective_provider() -> str:
+    return _provider_override.get() or settings.LLM_PROVIDER
+
+
+@contextmanager
+def use_provider(provider: str | None):
+    token = _provider_override.set(provider)
+    try:
+        yield
+    finally:
+        _provider_override.reset(token)
+
+
 @lru_cache(maxsize=None)
 def _get_openai_compatible_client(provider: str) -> openai.OpenAI:
+    if provider == "litellm":
+        # The proxy speaks the OpenAI API and holds the real provider keys;
+        # this process only knows the proxy's master key.
+        return openai.OpenAI(
+            api_key=settings.LITELLM_MASTER_KEY,
+            base_url=settings.LITELLM_URL.rstrip("/") + "/v1",
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
     base_url = _PROVIDER_BASE_URLS.get(provider)
     if base_url is None:
         raise ValueError(
@@ -142,8 +175,36 @@ class _RpmThrottle:
                     self._call_times.popleft()
             self._call_times.append(now)
 
+    def has_room(self, reserve: int) -> bool:
+        """True if a call now would leave `reserve` slots in the current
+        window. Background work checks this before calling, so it never
+        takes the slots an interactive request is about to need."""
+        limit = settings.LLM_RPM_LIMIT
+        if limit <= 0:
+            return True
+        with self._lock:
+            window_start = time.monotonic() - 60.0
+            while self._call_times and self._call_times[0] < window_start:
+                self._call_times.popleft()
+            return len(self._call_times) < limit - reserve
+
 
 _throttle = _RpmThrottle()
+
+
+def wait_for_background_room(max_wait_seconds: float = 60.0) -> bool:
+    if effective_provider() == "litellm":
+        return True  # LLM_RPM_LIMIT describes the single env key, not the pool
+    """Block (in a background thread) until a call fits under LLM_RPM_LIMIT
+    with a third of the window held back for interactive requests. Returns
+    False if it gave up, so the caller can skip its optional work."""
+    reserve = max(2, settings.LLM_RPM_LIMIT // 3)
+    deadline = time.monotonic() + max_wait_seconds
+    while not _throttle.has_room(reserve):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(1.0)
+    return True
 
 
 def _log_rate_limit_headers(headers) -> None:
@@ -180,7 +241,8 @@ def _with_backoff(fn, max_attempts: int | None = None):
     request counts."""
     limit = _MAX_RETRIES if max_attempts is None else max_attempts
     for attempt in range(limit):
-        _throttle.wait()
+        if effective_provider() != "litellm":  # the pool spreads load over many keys
+            _throttle.wait()
         start = time.monotonic()
         try:
             result = fn()
@@ -288,7 +350,9 @@ def _extract_resolved_model(raw, parsed) -> str | None:
     return getattr(parsed, "model", None)
 
 
-def _complete_anthropic(system: str, user: str, cache_system: bool, max_attempts: int | None = None) -> str:
+def _complete_anthropic(
+    system: str, user: str, cache_system: bool, max_attempts: int | None = None, timeout: float | None = None
+) -> str:
     client = get_client()
     system_param = (
         [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
@@ -302,6 +366,7 @@ def _complete_anthropic(system: str, user: str, cache_system: bool, max_attempts
             max_tokens=settings.MAX_OUTPUT_TOKENS,
             system=system_param,
             messages=[{"role": "user", "content": user}],
+            **({"timeout": timeout} if timeout is not None else {}),
         )
         _log_rate_limit_headers(raw.headers)
         return raw.parse()
@@ -323,19 +388,28 @@ def _complete_anthropic(system: str, user: str, cache_system: bool, max_attempts
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def _complete_openai_compatible(system: str, user: str, max_attempts: int | None = None) -> str:
-    client = _get_openai_compatible_client(settings.LLM_PROVIDER)
+def _complete_openai_compatible(
+    system: str, user: str, max_attempts: int | None = None, timeout: float | None = None
+) -> str:
+    provider = effective_provider()
+    client = _get_openai_compatible_client(provider)
+    model = settings.LITELLM_MODEL_GROUP if provider == "litellm" else settings.LLM_MODEL
 
     def _call():
         raw = client.chat.completions.with_raw_response.create(
-            model=settings.LLM_MODEL,
+            model=model,
             max_tokens=settings.MAX_OUTPUT_TOKENS,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            **({"timeout": timeout} if timeout is not None else {}),
         )
         _log_rate_limit_headers(raw.headers)
+        if provider == "litellm":
+            from app import llm_pool  # local import: llm_pool imports this module
+
+            llm_pool.observe(raw.headers.get("x-litellm-model-id"), raw.headers)
         parsed = raw.parse()
         global _last_resolved_model
         _last_resolved_model = _extract_resolved_model(raw, parsed)
@@ -353,8 +427,37 @@ def _complete_openai_compatible(system: str, user: str, max_attempts: int | None
     return response.choices[0].message.content or ""
 
 
+_hedge_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-hedge")
+
+
+def _hedged(call, hedge_after: float):
+    """Tail-latency cut for the interactive path: if `call` hasn't returned
+    within `hedge_after` seconds, start an identical second request and
+    return whichever finishes first. The first SUCCESS wins; an error only
+    surfaces once both legs have failed. Costs one extra request on slow
+    calls only (measured: provider p50 ~1.6 s, tail up to ~6 s)."""
+    # Each leg runs in a copy of the caller's context so the provider
+    # override (a ContextVar) follows it into the worker thread.
+    first = _hedge_pool.submit(contextvars.copy_context().run, call)
+    done, _ = wait([first], timeout=hedge_after)
+    if done:
+        return first.result()
+    legs = {first, _hedge_pool.submit(contextvars.copy_context().run, call)}
+    while legs:
+        done, legs = wait(legs, return_when=FIRST_COMPLETED)
+        for f in done:
+            if f.exception() is None:
+                return f.result()  # the loser keeps running and is discarded
+    return first.result()  # both failed: re-raise the first leg's error
+
+
 def complete(
-    system: str, user: str, cache_system: bool = False, max_attempts: int | None = None
+    system: str,
+    user: str,
+    cache_system: bool = False,
+    max_attempts: int | None = None,
+    timeout: float | None = None,
+    hedge_after: float | None = None,
 ) -> str:
     """Send a single-turn request and return the model's text output.
 
@@ -375,6 +478,13 @@ def complete(
         and rescued nothing, on a query whose SQL had already succeeded.
         It caps at 2 (one retry), bounding that at roughly 52s.
 
+    timeout overrides LLM_TIMEOUT_SECONDS for this call only. The
+    interactive /v1/query path passes APP_LLM_TIMEOUT_SECONDS so a stalled
+    provider fails in seconds instead of minutes; None (eval) keeps the
+    client default.
+
+    hedge_after (app path only) enables _hedged(); None/0 = one request.
+
     cache_system=True marks `system` as an ephemeral prompt-cache breakpoint
     on the Anthropic path (a content block with cache_control), for callers
     whose system prompt is byte-identical across repeated calls -- e.g. the
@@ -386,11 +496,30 @@ def complete(
     caching, so there's nothing to set; this is a silent no-op, not an
     error, so callers don't need a provider-specific branch.
     """
-    provider = settings.LLM_PROVIDER
+    if hedge_after:
+        return _hedged(
+            lambda: complete(system, user, cache_system, max_attempts, timeout), hedge_after
+        )
+    provider = effective_provider()
+    if provider == "litellm" and settings.LLM_PROVIDER != "litellm":
+        # The pool is an accelerator, not a single point of failure: if every
+        # key in it is failing (bad key, quota, proxy down), answer with the
+        # env provider instead of erroring.
+        try:
+            # One attempt: the proxy already retries across the pool's keys,
+            # and an "all keys in cooldown" 429 won't clear in a 2 s backoff.
+            return _complete_openai_compatible(system, user, 1, timeout)
+        except Exception as e:
+            from app import llm_pool  # local import: llm_pool imports this module
+
+            llm_pool.mark_failed()
+            logger.warning("Key pool failed (%s); falling back to LLM_PROVIDER=%s", e, settings.LLM_PROVIDER)
+            with use_provider(settings.LLM_PROVIDER):
+                return complete(system, user, cache_system, max_attempts, timeout)
     if provider == "anthropic":
-        return _complete_anthropic(system, user, cache_system, max_attempts)
-    if provider in _PROVIDER_BASE_URLS:
-        return _complete_openai_compatible(system, user, max_attempts)
+        return _complete_anthropic(system, user, cache_system, max_attempts, timeout)
+    if provider in _PROVIDER_BASE_URLS or provider == "litellm":
+        return _complete_openai_compatible(system, user, max_attempts, timeout)
     raise ValueError(
         f"Unknown LLM_PROVIDER {provider!r}. Supported: 'anthropic', "
         f"{', '.join(repr(p) for p in _PROVIDER_BASE_URLS)}."

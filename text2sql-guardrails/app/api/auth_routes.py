@@ -11,13 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.auth_models import LoginRequest, LoginResponse, MeResponse
 from app.auth import TOKEN_TTL_SECONDS, authenticate, create_token, require_auth
 from app.config import settings
+from app.http_guard import limit_login
 from app.users import Principal
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login", response_model=LoginResponse, dependencies=[Depends(limit_login)])
 def login(req: LoginRequest) -> LoginResponse:
     if not settings.SECRET_KEY:
         # A server misconfiguration, not a credential problem. An empty

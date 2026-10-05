@@ -51,6 +51,8 @@ def _is_disabled(signal: ConfidenceSignal) -> bool:
     carries by convention -- a genuine LLM/API failure signal (also WARN,
     also score 0.5) is intentionally NOT treated as disabled here, since it
     reflects an attempted-but-failed measurement, not a skipped one."""
+    if signal.status == SignalStatus.PENDING:
+        return True  # not measured yet: same treatment as a disabled detector
     return bool(signal.detail) and "disabled" in signal.detail.lower()
 
 
@@ -138,7 +140,8 @@ def fuse_confidence(
     # calibrator was loaded -- a missing artifact degrades to the raw score
     # with calibrated=False, exactly as before this existed.
     score, calibrated = calibrate(score)
-    if row_scoped:
+    if row_scoped or any(s.status == SignalStatus.PENDING for s in signals):
+        # A provisional score from fewer signals than the calibrator saw.
         calibrated = False
     # Re-apply the FAIL cap after calibration: it's a hard safety invariant
     # ("a definite hallucination must never be reported as high

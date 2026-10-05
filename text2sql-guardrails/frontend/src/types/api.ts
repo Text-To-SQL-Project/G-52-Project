@@ -5,7 +5,8 @@
 
 export type QueryStatus = "success" | "refused" | "clarification" | "blocked" | "error";
 
-export type SignalStatus = "pass" | "warn" | "fail";
+// "pending": measured after the response is sent; poll getQueryConfidence().
+export type SignalStatus = "pass" | "warn" | "fail" | "pending";
 
 export type WarningLevel = "info" | "warning" | "danger";
 
@@ -71,12 +72,22 @@ export interface QueryResponse {
   results?: ResultTable | null;
   confidence?: Confidence | null;
   execution_time_ms?: number | null;
+  /** Server-side wall time per stage (generation, guardrails, ..., total). */
+  timings_ms?: Record<string, number>;
+  /** True while a signal is still measured in the background. */
+  confidence_pending?: boolean;
 
   guardrail: GuardrailReport;
   warnings: Warning[];
 
   clarification?: Clarification | null;
   error_message?: string | null;
+}
+
+export interface ConfidenceUpdate {
+  query_id: string;
+  pending: boolean;
+  confidence?: Confidence | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,4 +293,43 @@ export interface RlsPrincipalRowCounts {
 export interface RlsDemoResponse {
   principals: RlsPrincipalRowCounts[];
   caveat: string;
+}
+
+// ---------------------------------------------------------------------------
+// /v1/admin/llm-pool  (LiteLLM-backed AI key pool)
+// ---------------------------------------------------------------------------
+
+export interface PoolDeployment {
+  id: string;
+  provider: string;
+  model: string;
+  label: string;
+  key_hint: string;
+  api_base?: string | null;
+  requests: number;
+  avg_latency_ms?: number | null;
+  last_used_at?: number | null;
+}
+
+export interface PoolStatus {
+  configured: boolean;
+  reachable: boolean;
+  /** Provider /v1/query is using right now; "litellm" means this pool. */
+  app_provider: string;
+  providers: string[];
+  deployments: PoolDeployment[];
+  error?: string | null;
+}
+
+export interface AddPoolDeployment {
+  provider: string;
+  model: string;
+  api_key: string;
+  api_base?: string;
+  label?: string;
+}
+
+export interface PoolHealth {
+  healthy: string[];
+  unhealthy: { id: string; error: string }[];
 }

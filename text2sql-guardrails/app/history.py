@@ -98,6 +98,18 @@ def write_history_row(
         logger.error("Failed to write history row for query_id=%r: %s", query_id, e)
 
 
+def update_history_confidence(query_id: str, confidence_score: float) -> None:
+    """Replace the provisional score once background signals finish."""
+    try:
+        with get_engine().begin() as conn:
+            conn.execute(
+                text("UPDATE app.query_history SET confidence_score = :s WHERE query_id = :q"),
+                {"s": confidence_score, "q": query_id},
+            )
+    except Exception as e:
+        logger.error("Failed to update confidence for query_id=%r: %s", query_id, e)
+
+
 def read_history(
     *,
     user_id: int,

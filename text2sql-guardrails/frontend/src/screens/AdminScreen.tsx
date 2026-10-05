@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { ModelPoolPanel } from "../components/admin/ModelPoolPanel";
 import { gsap } from "gsap";
 import {
   ApiError,
@@ -282,6 +283,8 @@ export function AdminScreen() {
           </span>
         </div>
       </div>
+
+      <ModelPoolPanel />
 
       {/* Eval stats — hairline-divided rows, not cards */}
       <section className="animate-rise space-y-3">

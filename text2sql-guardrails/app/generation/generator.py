@@ -29,7 +29,12 @@ class GenerationResult:
 
 
 def generate_sql(
-    question: str, row_scoped: bool = False, is_admin: bool = False
+    question: str,
+    row_scoped: bool = False,
+    is_admin: bool = False,
+    timeout: float | None = None,
+    max_attempts: int | None = None,
+    hedge_after: float | None = None,
 ) -> GenerationResult:
     """Call the LLM to translate `question` into SQL over the live schema.
 
@@ -41,12 +46,16 @@ def generate_sql(
 
     `is_admin` authorizes generation of DDL/DML administrative statements.
 
+    `timeout`/`max_attempts`/`hedge_after` bound the LLM call (see llm_client.complete);
+    routes.py passes the app latency budget, eval passes neither.
+
     Raises on API failure or a response that doesn't parse as the expected
     JSON shape -- callers (routes.py) are responsible for turning that into
     an ERROR QueryResponse.
     """
     return _generate(
-        question, extra_instructions=None, row_scoped=row_scoped, is_admin=is_admin
+        question, extra_instructions=None, row_scoped=row_scoped, is_admin=is_admin,
+        timeout=timeout, max_attempts=max_attempts, hedge_after=hedge_after,
     )
 
 
@@ -131,6 +140,9 @@ def _generate(
     extra_instructions: str | None,
     row_scoped: bool = False,
     is_admin: bool = False,
+    timeout: float | None = None,
+    max_attempts: int | None = None,
+    hedge_after: float | None = None,
 ) -> GenerationResult:
     # omit_restricted: for non-admin users, the model never sees columns
     # the execution role cannot read. For admin, include all columns.
@@ -145,7 +157,10 @@ def _generate(
     )
     user = build_user_prompt(question)
 
-    raw = complete(system, user, cache_system=not is_admin)
+    raw = complete(
+        system, user, cache_system=not is_admin,
+        max_attempts=max_attempts, timeout=timeout, hedge_after=hedge_after,
+    )
     data = parse_llm_json(raw)
 
     refusal = bool(data.get("refusal", False))
@@ -163,7 +178,9 @@ def _generate(
             f"You MUST generate the requested PostgreSQL statement (DDL/DML allowed). Do not decline.\n\n"
             f"Request: {question}"
         )
-        raw_admin = complete(system, admin_prompt, cache_system=False)
+        raw_admin = complete(
+            system, admin_prompt, cache_system=False, max_attempts=max_attempts, timeout=timeout
+        )
         data_admin = parse_llm_json(raw_admin)
         if data_admin.get("sql"):
             data = data_admin

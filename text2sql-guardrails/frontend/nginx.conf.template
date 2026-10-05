@@ -1,0 +1,32 @@
+# Rendered by the nginx image's envsubst at container start (API_ORIGIN).
+# Caching uses `expires` (not add_header) so the security headers below are
+# inherited by every location; nginx drops them in a location with its own add_header.
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    gzip on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    # 'unsafe-inline' styles: React style={{}} props. Scripts stay 'self' only.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ${API_ORIGIN}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # Hashed filenames never change content: cache for a year.
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # index.html revalidates so a deploy is picked up immediately.
+    location / {
+        expires -1;
+        try_files $uri /index.html;
+    }
+}

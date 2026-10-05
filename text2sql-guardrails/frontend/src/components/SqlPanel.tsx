@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
+import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+// Light build + SQL only: the full Prism bundle ships every language (~500 KB).
+SyntaxHighlighter.registerLanguage("sql", sql);
 
 interface Props {
   sql?: string | null;

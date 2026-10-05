@@ -187,6 +187,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
         <textarea
           ref={inputRef}
           id="question"
+          maxLength={2000}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {

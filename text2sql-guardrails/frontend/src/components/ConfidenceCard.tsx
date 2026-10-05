@@ -1,5 +1,30 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Confidence, ConfidenceSignal, SignalStatus } from "../types/api";
+
+/** Eases the displayed integer toward `target` (score refinements read as
+ * motion, not a jump). Snaps under prefers-reduced-motion. */
+function useTweened(target: number, ms = 650): number {
+  const [value, setValue] = useState(target);
+  const from = useRef(target);
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  useEffect(() => {
+    if (reduced) return;
+    const start = performance.now();
+    const a = from.current;
+    let raf = 0;
+    const step = (t: number) => {
+      const p = Math.min(1, (t - start) / ms);
+      setValue(Math.round(a + (target - a) * (1 - (1 - p) ** 3)));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      from.current = target;
+    };
+  }, [target, ms, reduced]);
+  return reduced ? target : value;
+}
 
 function isDisabled(signal: ConfidenceSignal): boolean {
   return !!signal.detail && signal.detail.toLowerCase().includes("disabled");
@@ -9,12 +34,14 @@ const SIGNAL_COLOR: Record<SignalStatus, string> = {
   pass: "var(--success)",
   warn: "var(--warning)",
   fail: "var(--danger)",
+  pending: "var(--text-muted)",
 };
 
 const SIGNAL_SHAPE: Record<SignalStatus, { borderRadius: string; background: string }> = {
   pass: { borderRadius: "50%", background: "var(--success)" },
   warn: { borderRadius: "2px", background: "var(--warning)" },
   fail: { borderRadius: "1px", background: "var(--danger)" },
+  pending: { borderRadius: "50%", background: "transparent" },
 };
 
 const LABEL_COLOR: Record<string, string> = {
@@ -32,6 +59,8 @@ function CardShell({ children }: { children: ReactNode }) {
 }
 
 export function ConfidenceCard({ confidence }: { confidence: Confidence | null | undefined }) {
+  const target = confidence ? Math.round(confidence.score * 100) : 0;
+  const shown = useTweened(target);
   if (!confidence) {
     return (
       <CardShell>
@@ -53,8 +82,9 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
     );
   }
 
-  const scorePct = Math.round(confidence.score * 100);
+  const scorePct = target;
   const strokeDasharray = `${scorePct}, 100`;
+  const pending = confidence.signals.filter((s) => s.status === "pending");
 
   return (
     <CardShell>
@@ -69,7 +99,26 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
           </h3>
         </div>
         <div className="flex items-center gap-2.5">
-          {!confidence.calibrated && (
+          {pending.length > 0 ? (
+            <span
+              role="status"
+              className="relative overflow-hidden font-mono text-[10px]"
+              title="Back-translation runs after your results are shown, so it doesn't add to response time."
+              style={{
+                padding: "2px 8px",
+                border: "1px solid var(--border-hairline)",
+                color: "var(--text-secondary)",
+                borderRadius: "2px",
+              }}
+            >
+              verifying {pending.length} check{pending.length > 1 ? "s" : ""}
+              <span
+                aria-hidden
+                className="animate-sweep absolute bottom-0 left-0 h-px w-1/3"
+                style={{ background: "var(--accent)" }}
+              />
+            </span>
+          ) : !confidence.calibrated && (
             <span
               className="font-mono text-[10px]"
               title="Hand-tuned weights, not yet learned + isotonic calibrated."
@@ -126,15 +175,20 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
               />
             </svg>
             <div className="absolute flex flex-col items-center justify-center text-center">
-              <span className="font-display text-2xl font-bold tracking-tight text-white">
-                {scorePct}
+              <span className="font-display text-2xl font-bold tracking-tight tabular-nums text-white">
+                {shown}
                 <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>%</span>
               </span>
             </div>
           </div>
 
           <div className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            {confidence.score >= 0.85 ? (
+            {pending.length > 0 ? (
+              <p>
+                Provisional score. Results are final; the remaining check refines this
+                number when it finishes.
+              </p>
+            ) : confidence.score >= 0.85 ? (
               <p>High confidence in schema alignment, AST safety, and semantic intent.</p>
             ) : confidence.score >= 0.65 ? (
               <p>Moderate confidence. Check schema mapping and join conditions.</p>
@@ -163,15 +217,24 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
                       style={{
                         ...SIGNAL_SHAPE[signal.status],
                         transform: signal.status === "fail" ? "rotate(45deg)" : "none",
+                        boxShadow: signal.status === "pending" ? "inset 0 0 0 1px var(--text-muted)" : undefined,
+                        transition: "background 300ms, border-radius 300ms",
                       }}
                     />
                     <span className="truncate font-sans">{signal.label}</span>
                   </span>
                   <span className="shrink-0 font-mono tabular-nums" style={{ color: "var(--text-muted)" }}>
-                    {(signal.score * 100).toFixed(0)}%
+                    {signal.status === "pending" ? "measuring" : `${(signal.score * 100).toFixed(0)}%`}
                   </span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden" style={{ background: "var(--border-subtle)", borderRadius: "1px" }}>
+                <div className="relative h-1.5 w-full overflow-hidden" style={{ background: "var(--border-subtle)", borderRadius: "1px" }}>
+                  {signal.status === "pending" ? (
+                    <div
+                      aria-hidden
+                      className="animate-sweep absolute inset-y-0 left-0 w-1/3"
+                      style={{ background: "linear-gradient(90deg, transparent, var(--text-muted), transparent)" }}
+                    />
+                  ) : (
                   <div
                     className="animate-bar h-full"
                     style={{
@@ -180,8 +243,10 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
                       borderRadius: "1px",
                       animationDelay: `${150 + i * 50}ms`,
                       boxShadow: `0 0 6px ${SIGNAL_COLOR[signal.status]}40`,
+                      transition: "width 600ms var(--ease-expo), background 300ms",
                     }}
                   />
+                  )}
                 </div>
               </div>
             ))}

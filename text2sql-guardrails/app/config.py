@@ -81,7 +81,20 @@ class Settings:
     # Safety thresholds
     DEFAULT_ROW_LIMIT: int = int(os.getenv("DEFAULT_ROW_LIMIT", "1000"))
     MAX_SUBQUERY_DEPTH: int = int(os.getenv("MAX_SUBQUERY_DEPTH", "3"))
-    STATEMENT_TIMEOUT_MS: int = int(os.getenv("STATEMENT_TIMEOUT_MS", "5000"))
+    # Applied per transaction on the read-only execution path (routes.py).
+    STATEMENT_TIMEOUT_MS: int = int(os.getenv("STATEMENT_TIMEOUT_MS", "2500"))
+
+    # Latency budget for the interactive app (target: answer < 3 s). These
+    # apply to /v1/query only; eval/ keeps LLM_TIMEOUT_SECONDS and the
+    # default retry count so published runs stay reproducible.
+    APP_LLM_TIMEOUT_SECONDS: float = float(os.getenv("APP_LLM_TIMEOUT_SECONDS", "10"))
+    APP_LLM_MAX_ATTEMPTS: int = int(os.getenv("APP_LLM_MAX_ATTEMPTS", "2"))
+    # Fire a duplicate generation request if the first is slower than this;
+    # first answer wins. 0 disables (e.g. on a tight free-tier RPM quota).
+    APP_LLM_HEDGE_SECONDS: float = float(os.getenv("APP_LLM_HEDGE_SECONDS", "2.5"))
+    # Structure-only schema reflection is cached this long (generation and
+    # schema_align both need it on every question). Admin DDL clears it.
+    SCHEMA_CACHE_SECONDS: int = int(os.getenv("SCHEMA_CACHE_SECONDS", "300"))
 
     # CORS for the React dev server
     CORS_ORIGINS: list[str] = os.getenv(
@@ -113,6 +126,23 @@ class Settings:
     # Empty is refused the same way as an empty OPERATOR_PASSWORD -- an
     # empty HMAC key would "work" but make every token trivially forgeable.
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+
+    # "prod" turns on the strict checks in app/startup_checks.py and
+    # app/main.py (no localhost CORS wildcard, HSTS, 32+ char SECRET_KEY).
+    ENV: str = os.getenv("ENV", "dev").strip().lower()
+
+    # Admin-managed key pool: a LiteLLM proxy (docker-compose service
+    # `litellm`) holds every provider key and routes by latency with
+    # failover. Empty URL = pool disabled.
+    LITELLM_URL: str = os.getenv("LITELLM_URL", "").strip()
+    LITELLM_MASTER_KEY: str = os.getenv("LITELLM_MASTER_KEY", "")
+    LITELLM_MODEL_GROUP: str = os.getenv("LITELLM_MODEL_GROUP", "pool")
+    # Which provider /v1/query uses. "auto" = the pool when it has at least
+    # one key, else LLM_PROVIDER. eval/ always uses LLM_PROVIDER.
+    APP_LLM_PROVIDER: str = os.getenv("APP_LLM_PROVIDER", "auto").strip().lower()
+    # Sliding 60 s windows (app/http_guard.py). 0 disables.
+    RATE_LIMIT_LOGIN_PER_MIN: int = int(os.getenv("RATE_LIMIT_LOGIN_PER_MIN", "10"))
+    RATE_LIMIT_QUERY_PER_MIN: int = int(os.getenv("RATE_LIMIT_QUERY_PER_MIN", "30"))
 
 
 settings = Settings()

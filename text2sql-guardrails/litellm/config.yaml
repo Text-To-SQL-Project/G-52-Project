@@ -1,0 +1,20 @@
+# LiteLLM proxy for the admin-managed key pool (app/llm_pool.py).
+# Deployments are added at runtime from the Admin screen and stored,
+# encrypted with LITELLM_SALT_KEY, in this service's own Postgres.
+model_list: []
+
+router_settings:
+  # Send each request to the deployment with the lowest recent latency.
+  routing_strategy: latency-based-routing
+  # On failure, retry once on another deployment in the group. The app falls
+  # back to its own provider after that, so more retries only add latency.
+  num_retries: 1
+  allowed_fails: 1      # one failure puts a deployment in cooldown...
+  cooldown_time: 30     # ...for 30 s, so traffic moves to healthy keys
+  timeout: 10
+
+litellm_settings:
+  drop_params: true     # ignore params a provider doesn't support instead of erroring
+
+general_settings:
+  store_model_in_db: true

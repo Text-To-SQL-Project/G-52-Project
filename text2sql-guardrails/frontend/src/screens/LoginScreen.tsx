@@ -79,8 +79,10 @@ export function LoginScreen() {
       if (e instanceof ApiError) {
         if (e.status === 401) {
           setError("Incorrect username or password.");
+        } else if (e.status === 429) {
+          setError(`Too many sign-in attempts. Try again in ${e.retryAfter ?? 60} seconds.`);
         } else if (e.status === 0) {
-          setError("Cannot reach backend server. Please ensure the API is running on localhost:8000.");
+          setError(e.message);
         } else {
           setError(e.message || "Authentication failed.");
         }

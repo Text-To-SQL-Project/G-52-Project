@@ -1,26 +1,34 @@
 import { clearToken, getToken } from "../hooks/useAuthToken";
 import type {
+  AddPoolDeployment,
   AdminConfigResponse,
   BlockedQueriesResponse,
+  ConfidenceUpdate,
   EvalMetricsResponse,
   HistoryResponse,
   LoginRequest,
   LoginResponse,
   MeResponse,
+  PoolHealth,
+  PoolStatus,
   QueryRequest,
   QueryResponse,
   RlsDemoResponse,
   SchemaResponse,
 } from "../types/api";
 
-const API_BASE = "http://localhost:8000";
+// Set VITE_API_BASE at build time for any deployment that isn't a laptop.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Seconds until a rate-limited (429) request may be retried. */
+  retryAfter?: number;
+  constructor(status: number, message: string, retryAfter?: number) {
     super(message);
     this.status = status;
     this.name = "ApiError";
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -33,7 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError(0, "Could not reach the API. Is uvicorn running on localhost:8000?");
+    throw new ApiError(0, `Could not reach the API at ${API_BASE}.`);
   }
 
   if (!res.ok) {
@@ -49,6 +57,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // the login gate instead of the caller silently retrying forever
       // against a route it can no longer reach.
       clearToken();
+    }
+    if (res.status === 429) {
+      // The server's detail is already user-facing ("Try again in 12 s.").
+      throw new ApiError(429, detail, Number(res.headers.get("Retry-After")) || undefined);
     }
     throw new ApiError(res.status, `Request failed (${res.status}): ${detail}`);
   }
@@ -78,6 +90,30 @@ export function postQuery(req: QueryRequest): Promise<QueryResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
+}
+
+export function getQueryConfidence(queryId: string): Promise<ConfidenceUpdate> {
+  return request<ConfidenceUpdate>(`/v1/query/${encodeURIComponent(queryId)}/confidence`);
+}
+
+export function getPool(): Promise<PoolStatus> {
+  return request<PoolStatus>("/v1/admin/llm-pool");
+}
+
+export function addToPool(req: AddPoolDeployment): Promise<PoolStatus> {
+  return request<PoolStatus>("/v1/admin/llm-pool", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function removeFromPool(id: string): Promise<PoolStatus> {
+  return request<PoolStatus>(`/v1/admin/llm-pool/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function checkPoolHealth(): Promise<PoolHealth> {
+  return request<PoolHealth>("/v1/admin/llm-pool/health", { method: "POST" });
 }
 
 export function getSchema(): Promise<SchemaResponse> {
