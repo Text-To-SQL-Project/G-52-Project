@@ -94,17 +94,19 @@ Smallest set that matters, in this order:
 
 ---
 
-## 6. Landing page → sign in
-- A new `LandingScreen` is shown when logged out. "Get started" / "Sign in" lead to the existing `LoginScreen`, which gains the Google button. Logged-in users skip the landing page.
+## 6. Landing page → sign in — DONE
+- **Routing:** signed-out visitors see `LandingScreen` at `/`; "Sign in" goes to `/login`, using real browser history (Back works, and the URL is linkable). Signed-in users never see the landing page: any URL is normalised to `/`.
 - **Sections:**
-  - Hero: three.js `AiOrb`, reused, with a gradient mesh.
-  - "Ask in English → safe SQL" live demo: an animated typed question → SQL → table.
-  - Guardrails features: 4 cards.
-  - Roles and row-level security explained.
-  - Final call to action.
-- Lenis smooth scroll and GSAP ScrollTrigger reveals. Lazy-loaded, so the workspace never downloads it.
-
-**Done when:** in Playwright, landing → click Sign in → login form is visible, and a logged-in visit to `/` goes straight to the workspace.
+  1. Hero: word-by-word headline reveal, a drifting amber gradient mesh with scroll parallax, and the orb.
+  2. Live demo console: GSAP loops question → SQL → rows → confidence, including a blocked `DROP TABLE`, and pauses when off screen.
+  3. Five-step pipeline with a scroll-scrubbed progress rail.
+  4. The project's published eval numbers.
+  5. The three roles.
+  6. Final call to action.
+- **Motion:** Lenis smooth scroll and ScrollTrigger reveals (already-installed dependencies, nothing new). Everything is disabled under reduced motion, where the demo shows a static, complete example.
+- **21st.dev:** its scroll-progress / timeline components were used as reference only. They're shadcn/framer-based, and the same patterns are about 20 lines with the GSAP + Lenis already installed.
+- **Size:** a lazy 28 KB gzip chunk, never downloaded once you're signed in.
+- **Tests:** `e2e/landing.spec.ts` covers routing, Back, deep links, signed-in skip, the reduced-motion demo, and no sideways scroll at 375 px. The `theme.spec` landing audit finds 0 contrast violations in both themes.
 
 ---
 
@@ -155,7 +157,7 @@ Uses the existing stack only: `motion` for components, `gsap` for timelines and 
 | 3 | AI pool | 1 (latency routing) | M |
 | 4 | Google sign-in ✓ | 2 (rate limits) | S |
 | 5 | Theme tokens + toggle ✓ | — | M (mostly mechanical) |
-| 6 | Landing page | 5 | M |
+| 6 | Landing page ✓ | 5 | M |
 | 7 | UI/motion overhaul | 5, 6 | L |
 | 8 | Relationship graph | 5 | M |
 

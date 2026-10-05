@@ -24,7 +24,7 @@ async function withFakeGoogle(page: Page, authGoogle: { status: number; json: ob
     sent.push(r.request().postDataJSON().credential)
     return r.fulfill(authGoogle)
   })
-  await page.goto('/')
+  await page.goto('/login')
   return sent
 }
 
@@ -51,7 +51,7 @@ test('linked Google account lands in the workspace', async ({ page }) => {
 
 test('no Google button when the server has no client ID', async ({ page }) => {
   await page.route('**/auth/providers', (r) => r.fulfill({ json: { google_client_id: null } }))
-  await page.goto('/')
+  await page.goto('/login')
   await expect(page.getByRole('button', { name: /sign in$/i })).toBeVisible({ timeout: 20_000 })
   await expect(page.getByText('or', { exact: true })).toHaveCount(0)
 })

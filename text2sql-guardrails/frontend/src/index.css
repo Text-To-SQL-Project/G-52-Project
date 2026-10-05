@@ -650,3 +650,130 @@ textarea:-webkit-autofill {
   animation: none;
   mix-blend-mode: normal;
 }
+
+/* ── Landing page ──────────────────────────────────────────────────────── */
+.landing-nav {
+  background: rgb(var(--void-rgb) / 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Drifting gradient mesh behind the hero: transform-only, so it stays on the GPU. */
+.mesh::before,
+.mesh::after {
+  content: "";
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  will-change: transform;
+}
+.mesh::before {
+  top: -30vmax;
+  left: -12vmax;
+  background: radial-gradient(circle, rgb(var(--accent-rgb) / 0.32), transparent 62%);
+  animation: mesh-a 22s ease-in-out infinite alternate;
+}
+.mesh::after {
+  top: -10vmax;
+  right: -22vmax;
+  background: radial-gradient(circle, rgb(var(--accent-bright-rgb) / 0.22), transparent 60%);
+  animation: mesh-b 28s ease-in-out infinite alternate;
+}
+@keyframes mesh-a { to { transform: translate(14vmax, 8vmax) scale(1.15); } }
+@keyframes mesh-b { to { transform: translate(-12vmax, 12vmax) scale(0.9); } }
+
+.landing-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+}
+.landing-h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+.landing-link {
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-hairline);
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+.landing-link:hover { color: var(--text-primary); border-color: var(--accent); }
+
+.landing-console {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: 2px;
+  box-shadow: 0 30px 80px -30px rgb(var(--shadow-rgb) / 0.45), 0 0 0 1px rgb(var(--accent-rgb) / 0.05);
+}
+.landing-sql {
+  min-height: 7.5rem;
+  padding: 0.85rem 1rem;
+  background: rgb(var(--void-rgb) / 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow-x: auto;
+}
+.demo-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.demo-num { color: var(--accent); }
+.demo-blocked { color: var(--danger-text); border-bottom-color: rgb(var(--danger-rgb) / 0.25); }
+.landing-status[data-kind="ok"] { color: var(--success); }
+.landing-status[data-kind="blocked"] { color: var(--danger-text); }
+.landing-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--accent);
+  animation: caret 1s steps(1) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+.step-dot {
+  background: var(--bg-void);
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+  transition: background var(--dur-normal) var(--ease-expo), box-shadow var(--dur-normal) var(--ease-expo), transform var(--dur-normal) var(--ease-bounce);
+}
+.step-title { color: var(--text-secondary); transition: color var(--dur-normal); }
+.step.is-on .step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.18);
+  transform: scale(1.15);
+}
+.step.is-on .step-title { color: var(--text-primary); }
+
+.landing-card {
+  background: rgb(var(--surface-rgb) / 0.7);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  transition: border-color var(--dur-normal), transform var(--dur-normal) var(--ease-expo);
+}
+.landing-card:hover { border-color: var(--border-accent); transform: translateY(-3px); }
+.landing-cta {
+  border: 1px solid var(--border-accent);
+  border-radius: 2px;
+  background:
+    radial-gradient(ellipse 60% 120% at 50% 0%, rgb(var(--accent-rgb) / 0.16), transparent 70%),
+    var(--bg-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mesh::before, .mesh::after, .landing-caret { animation: none; }
+}

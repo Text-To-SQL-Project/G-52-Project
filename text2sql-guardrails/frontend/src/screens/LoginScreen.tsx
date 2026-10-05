@@ -23,7 +23,7 @@ const DEMO_PERSONAS = [
   },
 ];
 
-export function LoginScreen() {
+export function LoginScreen({ onBack }: { onBack?: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -132,6 +132,15 @@ export function LoginScreen() {
       className="relative z-[1] flex min-h-screen items-center justify-center px-5 py-12"
     >
       <ThemeToggle className="fixed right-5 top-5 z-20" />
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="landing-link fixed left-5 top-5 z-20 flex items-center gap-1 py-1 text-xs"
+        >
+          <span className="material-symbols-outlined text-[16px]">arrow_back</span> Back
+        </button>
+      )}
       {/* Ambient orb glow behind the form */}
       <div
         className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2"

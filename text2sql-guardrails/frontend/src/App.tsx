@@ -13,6 +13,12 @@ const WorkspaceScreen = lazy(() => import("./screens/WorkspaceScreen").then((m) 
 const HistoryScreen = lazy(() => import("./screens/HistoryScreen").then((m) => ({ default: m.HistoryScreen })));
 const SchemaScreen = lazy(() => import("./screens/SchemaScreen").then((m) => ({ default: m.SchemaScreen })));
 const AdminScreen = lazy(() => import("./screens/AdminScreen").then((m) => ({ default: m.AdminScreen })));
+// Signed-out visitors only: never downloaded once you're signed in.
+const LandingScreen = lazy(() => import("./screens/LandingScreen").then((m) => ({ default: m.LandingScreen })));
+
+// Signed-out routing: "/" is the landing page, "/login" the sign-in form.
+// Real URLs + history, so Back works and the sign-in page is linkable.
+const onLoginPath = () => window.location.pathname === "/login";
 import type { MeResponse } from "./types/api";
 
 export default function App() {
@@ -22,6 +28,24 @@ export default function App() {
   const [meLoading, setMeLoading] = useState(false);
   const [preloaderDone, setPreloaderDone] = useState(false);
   const { trigger, WipeOverlay } = useScreenTransition();
+  const [loginView, setLoginView] = useState(onLoginPath);
+
+  useEffect(() => {
+    const onPop = () => setLoginView(onLoginPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Signed in: the app lives at "/", whatever page you signed in from.
+  useEffect(() => {
+    if (token && window.location.pathname !== "/") window.history.replaceState(null, "", "/");
+  }, [token]);
+
+  const goTo = (login: boolean) => {
+    window.history.pushState(null, "", login ? "/login" : "/");
+    setLoginView(login);
+    window.scrollTo(0, 0);
+  };
 
   useEffect(() => {
     const onAuthChanged = () => {
@@ -94,7 +118,13 @@ export default function App() {
       {WipeOverlay}
 
       {!token ? (
-        <LoginScreen />
+        loginView ? (
+          <LoginScreen onBack={() => goTo(false)} />
+        ) : (
+          <Suspense fallback={null}>
+            <LandingScreen onSignIn={() => goTo(true)} />
+          </Suspense>
+        )
       ) : (
         <div
           className="relative z-[1] min-h-screen"

@@ -38,8 +38,15 @@ for (const theme of ['dark', 'light'] as const) {
       await page.addInitScript((t) => localStorage.setItem('theme', t), theme)
     })
 
-    test('login', async ({ page }) => {
+    test('landing', async ({ page }) => {
       await page.goto('/')
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 30_000 })
+      await page.screenshot({ path: test.info().outputPath(`${theme}-landing.png`), fullPage: true })
+      expect(await contrast(page)).toEqual([])
+    })
+
+    test('login', async ({ page }) => {
+      await page.goto('/login')
       await expect(page.getByRole('button', { name: /sign in$/i })).toBeVisible({ timeout: 30_000 })
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
       await page.screenshot({ path: test.info().outputPath(`${theme}-login.png`) })
