@@ -798,3 +798,57 @@ textarea:-webkit-autofill {
 @media (prefers-reduced-motion: reduce) {
   .row-in, .flow-border { animation: none; }
 }
+
+/* ── Schema graph (SchemaGraph.tsx) ────────────────────────────────────── */
+.erd-frame { border: 1px solid var(--border-subtle); border-radius: 2px; background: rgb(var(--surface-rgb) / 0.55); overflow: hidden; }
+.erd .react-flow__pane { cursor: grab; }
+.erd-node {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-top: 2px solid var(--mod);
+  border-radius: 2px;
+  box-shadow: 0 10px 30px -18px rgb(var(--shadow-rgb) / 0.6);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  animation: erd-in 520ms var(--ease-expo) both;
+  transition: opacity var(--dur-normal), box-shadow var(--dur-normal), border-color var(--dur-normal), transform var(--dur-normal) var(--ease-expo);
+}
+@keyframes erd-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } }
+.erd-node:hover { border-color: var(--border-hover); border-top-color: var(--mod); }
+.erd-focus { box-shadow: 0 0 0 1px var(--mod), 0 14px 34px -16px var(--mod); }
+.erd-dim { opacity: 0.22; }
+.erd-head { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--border-subtle); }
+.erd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mod); flex-shrink: 0; }
+.erd-row { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 10px; color: var(--text-secondary); }
+.erd-row:nth-child(even) { background: rgb(var(--ink-rgb) / 0.02); }
+.erd-foot { display: flex; align-items: center; padding: 0 10px; font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); }
+.erd-handle { width: 6px !important; height: 6px !important; min-width: 0; min-height: 0; border: 0 !important; background: var(--border-hover) !important; opacity: 0; }
+.erd-focus .erd-handle { opacity: 1; background: var(--mod) !important; }
+.erd-edge { stroke: var(--border-hover); stroke-width: 1.25; transition: stroke var(--dur-normal), opacity var(--dur-normal); }
+.erd-edge-focus { stroke: var(--accent); stroke-width: 1.75; stroke-dasharray: 6 4; animation: erd-flow 0.9s linear infinite; }
+.erd-edge-dim { opacity: 0.12; }
+@keyframes erd-flow { to { stroke-dashoffset: -20; } }
+.erd-card {
+  position: absolute; pointer-events: none;
+  font: 600 10px var(--font-mono); line-height: 1;
+  padding: 2px 4px; border-radius: 2px;
+  color: var(--text-muted); background: var(--bg-surface);
+  transition: opacity var(--dur-normal), color var(--dur-normal);
+}
+.erd-card-focus { color: var(--accent); }
+.erd-card-dim { opacity: 0.15; }
+.erd-minimap { background: var(--bg-elevated) !important; border: 1px solid var(--border-subtle); }
+.erd-controls { box-shadow: none !important; border: 1px solid var(--border-subtle); }
+.erd-controls button { background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border-subtle) !important; color: var(--text-secondary) !important; fill: currentColor; }
+.erd-controls button:hover { background: var(--bg-hover) !important; }
+.erd-still .erd-node, .erd-still .erd-edge-focus { animation: none; }
+@media (prefers-reduced-motion: reduce) { .erd-node, .erd-edge-focus { animation: none; } }
+.erd-minimap .react-flow__minimap-mask { fill: rgb(var(--void-rgb) / 0.55); }
+.erd-minimap .react-flow__minimap-node { stroke: none; }
+.erd-minimap .mod-academic { fill: var(--accent); }
+.erd-minimap .mod-exams { fill: rgb(var(--accent-pale-rgb)); }
+.erd-minimap .mod-attendance { fill: var(--text-secondary); }
+.erd-minimap .mod-fees { fill: var(--success); }
+.erd-minimap .mod-library { fill: rgb(var(--info-rgb)); }
+.erd-minimap .mod-placement { fill: rgb(var(--danger-soft-rgb)); }

@@ -125,20 +125,19 @@ Smallest set that matters, in this order:
 
 ---
 
-## 8. Schema Explorer: Power BI-style relationship graph
-**Today:** `/schema` already returns `is_foreign_key` + `references` for each column (`app/schema/introspect.py`), so no backend change is needed.
-- Add `@xyflow/react` (React Flow) and `@dagrejs/dagre` for the automatic layout. This is the one justified new dependency: pan, zoom, drag, minimap and edge routing would be weeks of custom work.
-- **Nodes:** one card per table showing the name, row count, and columns with 🔑 for primary keys and 🔗 for foreign keys.
-- **Edges:** FK → PK, with `1 —— *` cardinality labels as in Power BI, and animated dashes on hover.
+## 8. Schema Explorer: Power BI-style relationship graph — DONE
+- No backend change: `/v1/schema` already returns `is_foreign_key` + `references`. The live schema has 25 tables and 36 foreign keys.
+- `@xyflow/react` + `@dagrejs/dagre`, the two planned dependencies, in a lazy 71 KB gzip chunk that only loads on the Schema screen.
+- **Table cards:** module-coloured (academic / exams / attendance / fees / library / placement), with row counts. Key columns get their own connection points, so edges land on the exact FK and PK rows; other columns show as "+N more".
+- **Edges:** smooth-step lines with Power BI `*` (many) and `1` (one) marks.
 - **Interactions:**
-  - clicking a table highlights its neighbours and dims everything else;
-  - search jumps to and zooms on a table;
-  - a toggle between Graph and the existing List view;
-  - layouts are grouped by module (academic, exams, fees, library, placement), each with its own colour;
-  - minimap, fit-view and PNG export.
-- Admin only, as now (commit `2f8798b`).
-
-**Done when:** Playwright opens the graph and checks there are 25 nodes and as many edges as the API reports foreign keys, then clicks `students` and checks its neighbours are highlighted.
+  - clicking a table lights up its neighbourhood with animated flow and dims the rest; clicking empty canvas clears it;
+  - the search box flies the camera to the first matching table or column;
+  - drag, zoom, fit view, and a minimap coloured by module;
+  - a Graph / List toggle (the list view is unchanged).
+- **Fixed during testing:** the minimap was empty because only position changes were applied; it now uses `applyNodeChanges`, so measured sizes arrive. The Schema header now wraps on phones.
+- **Skipped:** PNG export (would need `html-to-image`); add it if someone needs the diagram outside the app.
+- **Tests:** `e2e/schema.spec.ts` (5), checked against the live API: node and edge counts, exact neighbourhood highlight, search fly-to, view toggle, minimap colours. The graph is also covered by the two-theme contrast audit (0 violations).
 
 ---
 
@@ -152,7 +151,7 @@ Smallest set that matters, in this order:
 | 5 | Theme tokens + toggle ✓ | — | M (mostly mechanical) |
 | 6 | Landing page ✓ | 5 | M |
 | 7 | UI/motion overhaul ✓ | 5, 6 | L |
-| 8 | Relationship graph | 5 | M |
+| 8 | Relationship graph ✓ | 5 | M |
 
 Sections 1–4 are backend and 5–8 are frontend. The two tracks don't touch the same files, so they can run in parallel.
 

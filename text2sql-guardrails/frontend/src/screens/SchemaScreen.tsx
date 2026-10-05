@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+
+// React Flow + dagre (~60 KB gzip): only downloaded when the graph is opened.
+const SchemaGraph = lazy(() => import("../components/SchemaGraph").then((m) => ({ default: m.SchemaGraph })));
 import { gsap } from "gsap";
 import { ApiError, getSchema } from "../api/client";
 import { ErrorPanel } from "../components/ErrorPanel";
@@ -142,6 +145,7 @@ export function SchemaScreen() {
   const [schema, setSchema] = useState<SchemaResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [view, setView] = useState<"graph" | "list">("graph");
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -187,7 +191,7 @@ export function SchemaScreen() {
           </p>
         </div>
         {schema && (
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="pill-tag flex items-center gap-1 px-2.5 py-0.5 font-mono text-xs">
               <span className="material-symbols-outlined mr-0.5 text-[14px]">database</span>
               {schema.database}
@@ -195,6 +199,25 @@ export function SchemaScreen() {
             <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
               {schema.total_tables} tables · {schema.total_columns} columns
             </span>
+            <div role="tablist" aria-label="Schema view" className="flex p-0.5" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+              {(["graph", "list"] as const).map((v) => (
+                <button
+                  key={v}
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => setView(v)}
+                  className="flex items-center gap-1 px-2.5 py-1 font-mono text-[11px] capitalize transition-colors duration-200"
+                  style={{
+                    borderRadius: "2px",
+                    color: view === v ? "var(--on-accent)" : "var(--text-secondary)",
+                    background: view === v ? "var(--accent)" : "transparent",
+                  }}
+                >
+                  <span aria-hidden className="material-symbols-outlined text-[14px]">{v === "graph" ? "hub" : "view_list"}</span>
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -221,12 +244,17 @@ export function SchemaScreen() {
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search tables or column names…"
+              placeholder={view === "graph" ? "Find a table or column: the graph flies to it…" : "Search tables or column names…"}
               className="signal-input"
               style={{ paddingLeft: "28px" }}
             />
           </div>
 
+          {view === "graph" ? (
+            <Suspense fallback={<SkeletonList count={4} lines={1} />}>
+              <SchemaGraph tables={schema.tables} query={filter} />
+            </Suspense>
+          ) : (
           <div ref={listRef}>
             {filteredTables.map((table) => (
               <TableRow key={table.name} table={table} />
@@ -237,6 +265,7 @@ export function SchemaScreen() {
               </div>
             )}
           </div>
+          )}
         </>
       )}
     </div>
