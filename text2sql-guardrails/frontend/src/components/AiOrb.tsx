@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { cssVar } from "../hooks/useTheme";
 import * as THREE from "three";
 
 interface Props {
@@ -85,6 +86,20 @@ const fragmentShader = `
   }
 `;
 
+// Brand colours come from the theme tokens (re-read on "themechange"), so the
+// orb stays on-palette in both themes. "R G B" tokens -> "rgb(r, g, b)".
+const tokenColor = (name: string) => {
+  const v = cssVar(name);
+  return v.startsWith("#") ? v : `rgb(${v.split(/\s+/).join(", ")})`;
+};
+const RIM: Record<NonNullable<Props["status"]>, string> = {
+  ready: "--accent-pale-rgb",
+  loading: "--accent-bright-rgb",
+  success: "--success-rgb",
+  blocked: "--danger-rgb",
+  error: "--danger-rgb",
+};
+
 export function AiOrb({ status = "ready", className = "" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef(status);
@@ -118,10 +133,16 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
     const uniforms = {
       uTime: { value: 0 },
       uDistortionScale: { value: 0.38 },
-      uColor1: { value: new THREE.Color("#6366f1") }, // Indigo
-      uColor2: { value: new THREE.Color("#8b5cf6") }, // Violet
-      uColor3: { value: new THREE.Color("#22d3ee") }, // Cyan
+      uColor1: { value: new THREE.Color() },
+      uColor2: { value: new THREE.Color() },
+      uColor3: { value: new THREE.Color() },
     };
+    const paint = () => {
+      uniforms.uColor1.value.setStyle(tokenColor("--accent"));
+      uniforms.uColor2.value.setStyle(tokenColor("--accent-bright"));
+      uniforms.uColor3.value.setStyle(tokenColor(RIM[statusRef.current]));
+    };
+    paint();
 
     const geometry = new THREE.IcosahedronGeometry(1.05, 48);
     const material = new THREE.ShaderMaterial({
@@ -134,43 +155,54 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
     const orb = new THREE.Mesh(geometry, material);
     scene.add(orb);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
 
-    const pointLight = new THREE.PointLight(0x6366f1, 1.2, 50);
-    pointLight.position.set(4, 4, 4);
-    scene.add(pointLight);
 
-    let animationFrameId: number;
-    let clock = new THREE.Clock();
+    // Render only while visible: the workspace stays mounted (hidden) behind
+    // other screens, and an always-on WebGL loop costs CPU/GPU for nothing.
+    let animationFrameId = 0;
+    let onScreen = true;
+    let lastStatus = statusRef.current;
+    const clock = new THREE.Clock();
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+    const frame = () => {
+      const delta = Math.min(clock.getDelta(), 0.1); // no jump after a pause
       const currentStatus = statusRef.current;
-
-      const speedMultiplier = currentStatus === "loading" ? 2.4 : 0.85;
-      uniforms.uTime.value += delta * speedMultiplier;
-
-      // Adjust dynamic characteristics according to state
-      if (currentStatus === "loading") {
-        uniforms.uDistortionScale.value = 0.55;
-        uniforms.uColor3.value.set("#38bdf8");
-      } else if (currentStatus === "blocked") {
-        uniforms.uDistortionScale.value = 0.32;
-        uniforms.uColor3.value.set("#f59e0b");
-      } else {
-        uniforms.uDistortionScale.value = 0.38;
-        uniforms.uColor3.value.set("#22d3ee");
+      if (currentStatus !== lastStatus) {
+        lastStatus = currentStatus;
+        paint();
       }
-
-      orb.rotation.y += delta * (currentStatus === "loading" ? 0.8 : 0.25);
-      orb.rotation.x += delta * (currentStatus === "loading" ? 0.3 : 0.1);
-
+      const loading = currentStatus === "loading";
+      uniforms.uTime.value += delta * (loading ? 2.4 : 0.85);
+      uniforms.uDistortionScale.value = loading ? 0.55 : currentStatus === "blocked" ? 0.32 : 0.38;
+      orb.rotation.y += delta * (loading ? 0.8 : 0.25);
+      orb.rotation.x += delta * (loading ? 0.3 : 0.1);
       renderer.render(scene, camera);
     };
-
-    animate();
+    const loop = () => {
+      frame();
+      animationFrameId = requestAnimationFrame(loop);
+    };
+    const sync = () => {
+      cancelAnimationFrame(animationFrameId);
+      if (reduced) return frame(); // one still frame, no motion
+      if (onScreen && !document.hidden) {
+        clock.getDelta();
+        animationFrameId = requestAnimationFrame(loop);
+      }
+    };
+    const io = new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting;
+      sync();
+    });
+    io.observe(container);
+    document.addEventListener("visibilitychange", sync);
+    const onTheme = () => {
+      paint();
+      if (reduced) frame();
+    };
+    window.addEventListener("themechange", onTheme);
+    sync();
 
     const handleResize = () => {
       if (!container) return;
@@ -185,6 +217,9 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      io.disconnect();
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("themechange", onTheme);
       window.removeEventListener("resize", handleResize);
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -213,15 +248,15 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
   const getIndicatorDotClass = () => {
     switch (status) {
       case "loading":
-        return "bg-cyan-400 animate-ping";
+        return "bg-[var(--accent-bright)] animate-ping";
       case "blocked":
-        return "bg-amber-400 animate-pulse";
+        return "bg-[var(--warning)] animate-pulse";
       case "error":
-        return "bg-rose-400";
+        return "bg-[var(--danger)]";
       case "success":
-        return "bg-emerald-400";
+        return "bg-[var(--success)]";
       default:
-        return "bg-[#22d3ee] animate-pulse";
+        return "bg-[var(--accent)] animate-pulse";
     }
   };
 

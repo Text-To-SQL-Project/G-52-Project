@@ -777,3 +777,24 @@ textarea:-webkit-autofill {
 @media (prefers-reduced-motion: reduce) {
   .mesh::before, .mesh::after, .landing-caret { animation: none; }
 }
+
+/* ── App motion ────────────────────────────────────────────────────────── */
+/* Rows cascade in once, on mount (delay set per row in ResultsTable). */
+.row-in { animation: row-in 420ms var(--ease-expo) both; }
+@keyframes row-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* "Thinking" border: an amber light sweeping a conic gradient around the
+   edge. @property makes the angle animatable, so it's pure compositor work. */
+@property --flow-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+.flow-border {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+    conic-gradient(from var(--flow-angle), var(--border-subtle) 0 70%, var(--accent) 82%, var(--accent-bright) 88%, var(--border-subtle) 100%) border-box;
+  animation: flow-spin 2.4s linear infinite;
+}
+@keyframes flow-spin { to { --flow-angle: 360deg; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .row-in, .flow-border { animation: none; }
+}

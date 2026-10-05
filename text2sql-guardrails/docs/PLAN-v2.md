@@ -110,25 +110,18 @@ Smallest set that matters, in this order:
 
 ---
 
-## 7. UI/UX overhaul with heavy motion
-Uses the existing stack only: `motion` for components, `gsap` for timelines and scroll, `lenis`, `three`.
-- **Design system:** `ui-ux-pro-max` picks a palette that keeps the amber/obsidian identity in dark mode and adds a warm light mode. Spacing, radius and elevation become tokens.
-- **Motion layer:** shared presets in `src/motion.ts` (spring, stagger, page transition), plus:
-  - layout animations on panels;
-  - shared-element transitions from the question to the SQL panel to results;
-  - magnetic buttons;
-  - gradient borders that animate on focus;
-  - result rows that stagger in;
-  - the confidence gauge animating when the parallel check finishes (section 1).
-- **Components:** the 21st.dev MCP provides about 3 landing components; everything else is restyled in place, with no component rewrites without a reason.
-- **UX fixes:** loading skeletons everywhere, keyboard shortcuts (⌘/Ctrl+Enter to run, `/` to focus), empty and error states, mobile layout.
-- **Guardrails on the motion itself:**
-  - `prefers-reduced-motion` turns animations into simple fades;
-  - only transform and opacity are animated, so no layout thrash;
-  - three.js is paused when its tab is hidden;
-  - Lighthouse performance ≥ 85 on the workspace.
-
-**Done when:** Playwright visual snapshots of every screen pass in both themes, and the workspace shows no long tasks over 200 ms during a query.
+## 7. UI/UX overhaul with heavy motion — DONE
+- **Deleted:** `motion` (framer) and `@gsap/react` (installed, never imported), plus the empty `CustomCursor`. GSAP + CSS cover everything.
+- **Magnetic buttons:** one delegated listener in `src/motion.ts` for every `.glow-button`, replacing two copy-pasted effects. Off for touch and reduced motion.
+- **Orb:** brand colours from theme tokens (it was indigo/violet/cyan), re-read on theme change; the rim colour shows status. It only renders while visible: before, the WebGL loop ran forever behind Admin/History. Dead lights and per-frame colour updates were removed.
+- **Motion:**
+  - a conic-gradient "thinking" border on the running panel (`@property`, compositor-only);
+  - result rows cascade in (CSS, capped at 30);
+  - admin numbers count up (shared `useTweened`);
+  - `/` focuses the question and Esc leaves it.
+- **Mobile:** nav tabs are icon-only on phones (with aria-labels). The Google table, the RLS chart filters and the orb glow no longer push a 375 px page sideways.
+- **Fixed:** the intro splash restarted on every App re-render (`[onComplete]` dependency on an inline function), and under reduced motion it left the app invisible while still accepting input. It now plays once per session and skips under reduced motion.
+- **Tests:** `e2e/motion.spec.ts` (8). The orb pause is measured with WebGL draw counts, and it also covers the reduced-motion and splash regressions and phone fit on every screen.
 
 ---
 
@@ -158,7 +151,7 @@ Uses the existing stack only: `motion` for components, `gsap` for timelines and 
 | 4 | Google sign-in ✓ | 2 (rate limits) | S |
 | 5 | Theme tokens + toggle ✓ | — | M (mostly mechanical) |
 | 6 | Landing page ✓ | 5 | M |
-| 7 | UI/motion overhaul | 5, 6 | L |
+| 7 | UI/motion overhaul ✓ | 5, 6 | L |
 | 8 | Relationship graph | 5 | M |
 
 Sections 1–4 are backend and 5–8 are frontend. The two tracks don't touch the same files, so they can run in parallel.

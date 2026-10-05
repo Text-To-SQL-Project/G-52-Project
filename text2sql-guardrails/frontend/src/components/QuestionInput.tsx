@@ -51,7 +51,6 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const underlineRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const submit = () => {
     const trimmed = value.trim();
@@ -62,33 +61,19 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
     setValue(query);
   };
 
-  // Magnetic button effect
+  // Keyboard: "/" jumps to the question box (unless typing elsewhere), Esc leaves it.
   useEffect(() => {
-    const btn = buttonRef.current;
-    if (!btn) return;
-
-    const onMove = (e: MouseEvent) => {
-      const rect = btn.getBoundingClientRect();
-      const x = e.clientX - rect.left - rect.width / 2;
-      const y = e.clientY - rect.top - rect.height / 2;
-      gsap.to(btn, {
-        x: x * 0.2,
-        y: y * 0.2,
-        duration: 0.3,
-        ease: "power2.out",
-      });
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !t.closest("input, textarea, select, [contenteditable]")) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      } else if (e.key === "Escape" && t === inputRef.current) {
+        inputRef.current?.blur();
+      }
     };
-
-    const onLeave = () => {
-      gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.4)" });
-    };
-
-    btn.addEventListener("mousemove", onMove);
-    btn.addEventListener("mouseleave", onLeave);
-    return () => {
-      btn.removeEventListener("mousemove", onMove);
-      btn.removeEventListener("mouseleave", onLeave);
-    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Animated underline on focus
@@ -273,10 +258,12 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
           <span className="mx-1" style={{ color: "var(--text-ghost)" }}>·</span>
           <Key>Shift</Key> <span style={{ color: "var(--text-ghost)" }}>+</span> <Key>Enter</Key>{" "}
           <span>new line</span>
+          {/* Keyboard-only hint: hidden on touch screens where there's no "/" key habit. */}
+          <span className="mx-1 hidden sm:inline" style={{ color: "var(--text-ghost)" }}>·</span>
+          <span className="hidden items-center gap-1 sm:inline-flex"><Key>/</Key> <span>to focus</span></span>
         </p>
 
         <button
-          ref={buttonRef}
           onClick={submit}
           disabled={loading || !value.trim()}
           className="glow-button flex items-center gap-2 px-7 py-2.5 font-sans text-sm font-semibold transition-all"

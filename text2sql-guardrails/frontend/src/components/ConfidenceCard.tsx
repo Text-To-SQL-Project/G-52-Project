@@ -1,30 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useTweened } from "../hooks/useTweened";
 import type { Confidence, ConfidenceSignal, SignalStatus } from "../types/api";
 
-/** Eases the displayed integer toward `target` (score refinements read as
- * motion, not a jump). Snaps under prefers-reduced-motion. */
-function useTweened(target: number, ms = 650): number {
-  const [value, setValue] = useState(target);
-  const from = useRef(target);
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  useEffect(() => {
-    if (reduced) return;
-    const start = performance.now();
-    const a = from.current;
-    let raf = 0;
-    const step = (t: number) => {
-      const p = Math.min(1, (t - start) / ms);
-      setValue(Math.round(a + (target - a) * (1 - (1 - p) ** 3)));
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => {
-      cancelAnimationFrame(raf);
-      from.current = target;
-    };
-  }, [target, ms, reduced]);
-  return reduced ? target : value;
-}
 
 function isDisabled(signal: ConfidenceSignal): boolean {
   return !!signal.detail && signal.detail.toLowerCase().includes("disabled");
@@ -60,7 +37,7 @@ function CardShell({ children }: { children: ReactNode }) {
 
 export function ConfidenceCard({ confidence }: { confidence: Confidence | null | undefined }) {
   const target = confidence ? Math.round(confidence.score * 100) : 0;
-  const shown = useTweened(target);
+  const shown = Math.round(useTweened(target));
   if (!confidence) {
     return (
       <CardShell>

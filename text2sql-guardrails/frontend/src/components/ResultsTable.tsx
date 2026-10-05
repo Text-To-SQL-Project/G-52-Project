@@ -160,8 +160,9 @@ export function ResultsTable({ results, executed }: Props) {
               {results.rows.map((row, i) => (
                 <tr
                   key={i}
-                  className="transition-colors duration-150"
+                  className="row-in transition-colors duration-150"
                   style={{
+                    animationDelay: `${Math.min(i, 30) * 22}ms`,
                     borderBottom: "1px solid rgb(var(--ink-rgb) / 0.03)",
                     background: i % 2 === 1 ? "rgb(var(--ink-rgb) / 0.01)" : "transparent",
                   }}

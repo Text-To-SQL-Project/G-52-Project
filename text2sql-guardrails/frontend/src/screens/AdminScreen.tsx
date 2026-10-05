@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ModelPoolPanel } from "../components/admin/ModelPoolPanel";
+import { useTweened } from "../hooks/useTweened";
 import { GoogleLinkPanel } from "../components/admin/GoogleLinkPanel";
 import { gsap } from "gsap";
 import {
@@ -49,6 +50,13 @@ function Panel({ children, className = "" }: { children: ReactNode; className?: 
   );
 }
 
+function CountUp({ value }: { value: string }) {
+  const m = /^(\d+(?:\.(\d+))?)(.*)$/s.exec(value);
+  const n = useTweened(m ? parseFloat(m[1]) : 0, 1100, 0);
+  if (!m) return <>{value}</>;
+  return <>{n.toFixed(m[2]?.length ?? 0)}{m[3]}</>;
+}
+
 function StatTile({
   label,
   value,
@@ -81,7 +89,7 @@ function StatTile({
           className="font-display font-bold tracking-tight text-[var(--text-primary)]"
           style={{ fontSize: "1.75rem", letterSpacing: "-0.03em" }}
         >
-          {value}
+          <CountUp value={value} />
         </p>
         {hint && <p className="mt-1 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{hint}</p>}
       </div>

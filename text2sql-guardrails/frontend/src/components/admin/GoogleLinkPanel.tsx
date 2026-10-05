@@ -40,7 +40,7 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
         </span>
         {!u.is_active && <span className="ml-2 text-[11px]" style={{ color: "var(--text-muted)" }}>inactive</span>}
       </td>
-      <td className="py-3 pr-4 font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{u.role}</td>
+      <td className="hidden py-3 pr-4 font-mono text-[11px] uppercase tracking-wider sm:table-cell" style={{ color: "var(--text-muted)" }}>{u.role}</td>
       <td className="py-3">
         <form onSubmit={save} className="flex items-center gap-2">
           <input
@@ -56,7 +56,7 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
           <button
             type="submit"
             disabled={!dirty || state === "saving"}
-            className="w-20 shrink-0 px-2.5 py-1.5 font-mono text-[11px] transition-colors disabled:opacity-40"
+            className="w-16 shrink-0 px-2 py-1.5 font-mono text-[11px] sm:w-20 sm:px-2.5 transition-colors disabled:opacity-40"
             style={{
               borderRadius: "2px",
               border: "1px solid var(--border-hairline)",
@@ -108,11 +108,11 @@ export function GoogleLinkPanel() {
         </p>
         {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
         {users && (
-          <table className="w-full text-left">
+          <table className="w-full table-fixed text-left">
             <thead>
               <tr className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                <th className="w-1/4 pb-2 pr-4 font-normal">User</th>
-                <th className="w-24 pb-2 pr-4 font-normal">Role</th>
+                <th className="w-1/4 pb-2 pr-3 font-normal sm:pr-4">User</th>
+                <th className="hidden w-24 pb-2 pr-4 font-normal sm:table-cell">Role</th>
                 <th className="pb-2 font-normal">Google email</th>
               </tr>
             </thead>

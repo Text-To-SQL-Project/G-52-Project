@@ -54,7 +54,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
     }
   };
   const formRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (formRef.current) {
@@ -72,27 +71,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
         }
       );
     }
-  }, []);
-
-  // Magnetic button
-  useEffect(() => {
-    const btn = buttonRef.current;
-    if (!btn) return;
-    const onMove = (e: MouseEvent) => {
-      const rect = btn.getBoundingClientRect();
-      const x = e.clientX - rect.left - rect.width / 2;
-      const y = e.clientY - rect.top - rect.height / 2;
-      gsap.to(btn, { x: x * 0.15, y: y * 0.15, duration: 0.3, ease: "power2.out" });
-    };
-    const onLeave = () => {
-      gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: "elastic.out(1, 0.4)" });
-    };
-    btn.addEventListener("mousemove", onMove);
-    btn.addEventListener("mouseleave", onLeave);
-    return () => {
-      btn.removeEventListener("mousemove", onMove);
-      btn.removeEventListener("mouseleave", onLeave);
-    };
   }, []);
 
   const submit = async (u = username, p = password) => {
@@ -286,7 +264,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
           )}
 
           <button
-            ref={buttonRef}
             onClick={() => submit()}
             disabled={loading || !username || !password}
             className="glow-button mt-4 flex w-full items-center justify-center gap-2 py-3 font-sans text-sm font-semibold transition"

@@ -75,7 +75,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-3">
           <div
-            className="flex items-center gap-1 p-1"
+            className="flex flex-wrap items-center gap-1 p-1"
             style={{
               border: "1px solid var(--border-subtle)",
               background: "var(--bg-void)",

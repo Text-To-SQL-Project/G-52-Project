@@ -95,7 +95,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           {/* Tab navigation */}
           <nav
             ref={tabsContainerRef}
@@ -125,7 +125,9 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                   data-tab={tab.key}
                   onClick={() => onChange(tab.key)}
                   aria-current={isActive ? "page" : undefined}
-                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium transition-colors duration-200 focus-visible:outline-none"
+                  aria-label={tab.label}
+                  title={tab.label}
+                  className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium sm:px-3.5 transition-colors duration-200 focus-visible:outline-none"
                   style={{
                     color: isActive ? "var(--accent)" : "var(--text-secondary)",
                     background: "transparent",
@@ -139,15 +141,16 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                     if (!isActive) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)";
                   }}
                 >
-                  <span className="material-symbols-outlined text-[15px]">{tab.icon}</span>
-                  <span>{tab.label}</span>
+                  <span aria-hidden className="material-symbols-outlined text-[15px]">{tab.icon}</span>
+                  {/* Icons only on phones; the button keeps its name via aria-label. */}
+                  <span className="hidden md:inline">{tab.label}</span>
                 </button>
               );
             })}
           </nav>
 
           {/* Hairline divider */}
-          <div style={{ width: "1px", height: "24px", background: "var(--border-subtle)" }} />
+          <div className="hidden sm:block" style={{ width: "1px", height: "24px", background: "var(--border-subtle)" }} />
 
           {/* User badge */}
           <div className="flex items-center gap-2.5">

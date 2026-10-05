@@ -18,7 +18,7 @@ import type { Confidence, QueryResponse, UserRole } from "../types/api";
 
 function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <div className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+    <div className="flow-border animate-rise overflow-hidden" role="status" style={{ borderRadius: "2px" }}>
       <div className="flex items-center justify-between px-6 py-4 text-sm">
         <div className="flex items-center gap-3" style={{ color: "var(--text-primary)" }}>
           <span
@@ -157,7 +157,9 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
         </div>
 
         {/* Orb — centerpiece with ambient glow, framed from here (AiOrb.tsx untouched) */}
-        <div className="flex items-center justify-center lg:col-span-2">
+        {/* overflow-x-clip: the orb's glow is 30% wider than its frame and would
+            push a phone-width page sideways. */}
+        <div className="flex items-center justify-center overflow-x-clip lg:col-span-2">
           <div
             className="orb-frame relative"
             data-status={orbStatus}
