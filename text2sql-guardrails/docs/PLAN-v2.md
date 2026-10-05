@@ -68,13 +68,17 @@ Smallest set that matters, in this order:
 
 ---
 
-## 4. Google sign-in (links to existing accounts only)
-1. **Migration:** `app.users.email TEXT UNIQUE` (nullable). The admin sets emails on existing users in the Admin screen.
-2. **Frontend:** the Google Identity Services button (script tag, no npm dependency) sends a `credential` (ID token) to the backend.
-3. **`POST /auth/google`:** verify the ID token (`google-auth`: audience = `GOOGLE_CLIENT_ID`, issuer, expiry, `email_verified`). Look up an **active** user by email and issue the existing HMAC session token via `create_token()`. Unknown email → 403 "No account linked to this Google address". Nothing is auto-created, so roles and row-level-security links stay correct.
-4. Password login stays as is.
-
-**Done when:** pytest covers the lookup and rejection logic with the token verifier mocked, and Playwright checks that the button renders and that an unknown-email response shows the right message.
+## 4. Google sign-in (links to existing accounts only) — DONE
+- `seed/33_user_email.sql`: nullable `app.users.email`, unique case-insensitively. `readonly_app` can't read it.
+- **Public endpoint:** `GET /auth/providers` exposes `GOOGLE_CLIENT_ID`. The client ID is configured server-side, so the frontend needs no rebuild.
+- **`POST /auth/google`** (shares the login rate limit):
+  - verifies the token with `google-auth` (signature, audience, expiry, issuer) and requires `email_verified`;
+  - looks up an **active** user by email and issues the existing session token;
+  - an unknown email gets 403, and nothing is auto-created.
+- **Admin API:** `GET /v1/admin/users` and `PATCH /v1/admin/users/{id}` (link/unlink, 409 on a duplicate email).
+- **UI:** Google's official button on the login screen (only shown when configured), and an Admin "Google sign-in" panel.
+- **CSP:** the nginx policy allows Google Identity Services, and the referrer policy sends the origin only.
+- **Setup:** create an OAuth "Web application" client ID in Google Cloud and set `GOOGLE_CLIENT_ID` (see `.env.example`).
 
 ---
 
@@ -150,7 +154,7 @@ Uses the existing stack only: `motion` for components, `gsap` for timelines and 
 | 1 | Speed under 3 s | — | M |
 | 2 | Hardening | — | S |
 | 3 | AI pool | 1 (latency routing) | M |
-| 4 | Google sign-in | 2 (rate limits) | S |
+| 4 | Google sign-in ✓ | 2 (rate limits) | S |
 | 5 | Theme tokens + toggle | — | M (mostly mechanical) |
 | 6 | Landing page | 5 | M |
 | 7 | UI/motion overhaul | 5, 6 | L |

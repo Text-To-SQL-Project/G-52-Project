@@ -163,3 +163,47 @@ def update_password_hash(user_id: int, new_hash: str) -> None:
             {"h": new_hash, "uid": user_id},
         )
     invalidate_principal(user_id)
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in: email is how a Google account finds its existing user.
+# ---------------------------------------------------------------------------
+
+def find_by_email(email: str) -> Principal | None:
+    """ACTIVE user whose linked email matches (case-insensitive), else None."""
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            text(_SELECT_PRINCIPAL.format(predicate="lower(email) = lower(:e)")),
+            {"e": email},
+        ).one_or_none()
+    if row is None or not row.is_active:
+        return None
+    return _row_to_principal(row)
+
+
+def list_users() -> list[dict]:
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT user_id, username, role, email, is_active FROM app.users ORDER BY role, username"
+        )).mappings().all()
+    return [dict(r) for r in rows]
+
+
+class EmailTaken(Exception):
+    pass
+
+
+def set_email(user_id: int, email: str | None) -> bool:
+    """Link (or with None, unlink) an email. Returns False for an unknown user."""
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        with get_engine().begin() as conn:
+            n = conn.execute(
+                text("UPDATE app.users SET email = :e WHERE user_id = :u"),
+                {"e": email.lower() if email else None, "u": user_id},
+            ).rowcount
+    except IntegrityError as e:
+        raise EmailTaken from e
+    invalidate_principal(user_id)
+    return n == 1

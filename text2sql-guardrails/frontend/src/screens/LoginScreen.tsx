@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { gsap } from "gsap";
-import { ApiError, login } from "../api/client";
+import { ApiError, getAuthProviders, googleLogin, login } from "../api/client";
+import { GoogleSignIn } from "../components/GoogleSignIn";
 import { setToken } from "../hooks/useAuthToken";
 
 const DEMO_PERSONAS = [
@@ -26,6 +27,31 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Shown only when the server has a Google client ID configured.
+    getAuthProviders().then((p) => setGoogleClientId(p.google_client_id ?? null)).catch(() => {});
+  }, []);
+
+  const signInWithGoogle = async (credential: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setToken((await googleLogin(credential)).token);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429) {
+        setError(`Too many sign-in attempts. Try again in ${e.retryAfter ?? 60} seconds.`);
+      } else if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
+        // Server messages here are written for users ("No account is linked...").
+        setError(e.message.replace(/^Request failed \(\d+\): /, ""));
+      } else {
+        setError(e instanceof ApiError ? e.message : "Google sign-in failed.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
   const formRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -267,6 +293,17 @@ export function LoginScreen() {
               </>
             )}
           </button>
+
+          {googleClientId && (
+            <div className="animate-fade mt-5 space-y-4">
+              <div className="flex items-center gap-3" aria-hidden>
+                <span className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
+                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>or</span>
+                <span className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
+              </div>
+              <GoogleSignIn clientId={googleClientId} onCredential={signInWithGoogle} />
+            </div>
+          )}
         </div>
 
         {/* Bottom accent line */}

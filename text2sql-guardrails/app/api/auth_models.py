@@ -9,6 +9,15 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class GoogleLoginRequest(BaseModel):
+    # The ID token (JWT) Google Identity Services hands the browser.
+    credential: str = Field(..., min_length=20, max_length=4096)
+
+
+class AuthProviders(BaseModel):
+    google_client_id: str | None = None
+
+
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=1, max_length=1024)  # bounds Argon2 work per request

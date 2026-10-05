@@ -2,6 +2,8 @@ import { clearToken, getToken } from "../hooks/useAuthToken";
 import type {
   AddPoolDeployment,
   AdminConfigResponse,
+  AdminUser,
+  AuthProviders,
   BlockedQueriesResponse,
   ConfidenceUpdate,
   EvalMetricsResponse,
@@ -80,6 +82,30 @@ export function login(req: LoginRequest): Promise<LoginResponse> {
  * whenever a token exists: the token carries only a user id, so role and
  * active status cannot be recovered from it and must be asked for. A 401
  * here flows through request()'s existing handling and drops the session. */
+export function getAuthProviders(): Promise<AuthProviders> {
+  return request<AuthProviders>("/auth/providers");
+}
+
+export function googleLogin(credential: string): Promise<LoginResponse> {
+  return request<LoginResponse>("/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+}
+
+export function getUsers(): Promise<AdminUser[]> {
+  return request<AdminUser[]>("/v1/admin/users");
+}
+
+export function setUserEmail(userId: number, email: string | null): Promise<AdminUser[]> {
+  return request<AdminUser[]>(`/v1/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function getMe(): Promise<MeResponse> {
   return request<MeResponse>("/auth/me");
 }

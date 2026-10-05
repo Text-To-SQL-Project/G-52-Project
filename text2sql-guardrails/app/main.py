@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth_routes import router as auth_router
 from app.api.routes import router
 from app.api.pool_routes import router as pool_router
+from app.api.user_routes import router as user_router
 from app.auth import require_auth
 from app.config import settings
 from app.http_guard import GuardMiddleware
@@ -96,6 +97,7 @@ app.include_router(router, dependencies=[Depends(require_auth)])
 # auth_router is NOT gated -- see app/auth.py's require_auth() docstring.
 app.include_router(auth_router)
 app.include_router(pool_router)
+app.include_router(user_router)
 
 
 @app.get("/health")

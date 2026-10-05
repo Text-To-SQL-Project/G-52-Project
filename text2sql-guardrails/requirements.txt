@@ -21,3 +21,6 @@ joblib==1.5.3
 # dependency upgrade cannot silently change underneath it.
 argon2-cffi==25.1.0
 tiktoken==0.14.0  # dev-only: eval token-budget estimation, not imported by app/
+# Verifies Google Identity Services ID tokens for POST /auth/google.
+google-auth==2.60.0
+requests==2.34.2  # google-auth's HTTP transport (fetches Google's signing keys)

@@ -333,3 +333,19 @@ export interface PoolHealth {
   healthy: string[];
   unhealthy: { id: string; error: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Google sign-in
+// ---------------------------------------------------------------------------
+
+export interface AuthProviders {
+  google_client_id?: string | null;
+}
+
+export interface AdminUser {
+  user_id: number;
+  username: string;
+  role: UserRole;
+  email?: string | null;
+  is_active: boolean;
+}

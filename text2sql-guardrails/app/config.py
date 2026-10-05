@@ -140,6 +140,11 @@ class Settings:
     # Which provider /v1/query uses. "auto" = the pool when it has at least
     # one key, else LLM_PROVIDER. eval/ always uses LLM_PROVIDER.
     APP_LLM_PROVIDER: str = os.getenv("APP_LLM_PROVIDER", "auto").strip().lower()
+
+    # Google sign-in: the OAuth 2.0 "Web application" client ID from Google
+    # Cloud Console. Public by design (it ships to the browser); empty hides
+    # the button and disables POST /auth/google.
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     # Sliding 60 s windows (app/http_guard.py). 0 disables.
     RATE_LIMIT_LOGIN_PER_MIN: int = int(os.getenv("RATE_LIMIT_LOGIN_PER_MIN", "10"))
     RATE_LIMIT_QUERY_PER_MIN: int = int(os.getenv("RATE_LIMIT_QUERY_PER_MIN", "30"))
