@@ -35,9 +35,9 @@ function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
           className="hidden font-mono text-[11px] sm:inline-flex"
           style={{
             padding: "2px 10px",
-            border: isAdmin ? "1px solid rgba(251, 191, 36, 0.3)" : "1px solid var(--border-accent)",
-            background: isAdmin ? "rgba(251, 191, 36, 0.06)" : "var(--accent-dim)",
-            color: isAdmin ? "#fbbf24" : "var(--accent)",
+            border: isAdmin ? "1px solid rgb(var(--accent-bright-rgb) / 0.3)" : "1px solid var(--border-accent)",
+            background: isAdmin ? "rgb(var(--accent-bright-rgb) / 0.06)" : "var(--accent-dim)",
+            color: isAdmin ? "var(--accent-bright)" : "var(--accent)",
             borderRadius: "2px",
           }}
         >

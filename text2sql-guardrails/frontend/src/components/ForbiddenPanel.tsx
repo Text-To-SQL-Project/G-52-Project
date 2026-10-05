@@ -5,7 +5,7 @@ export function ForbiddenPanel({ what }: { what: string }) {
       style={{
         borderLeft: "2px solid var(--text-secondary)",
         padding: "16px 20px",
-        background: "rgba(203, 213, 225, 0.03)",
+        background: "rgb(var(--ink-rgb) / 0.03)",
       }}
     >
       <div className="flex items-start gap-3">

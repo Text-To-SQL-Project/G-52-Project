@@ -16,7 +16,7 @@ function Key({ children }: { children: string }) {
       style={{
         padding: "2px 6px",
         border: "1px solid var(--border-hairline)",
-        background: "rgba(255,255,255,0.03)",
+        background: "rgb(var(--ink-rgb) / 0.03)",
         color: "var(--text-secondary)",
         borderRadius: "2px",
       }}
@@ -129,7 +129,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
       {/* Header line */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <h2
-          className="font-display font-bold tracking-tight text-white"
+          className="font-display font-bold tracking-tight text-[var(--text-primary)]"
           style={{ fontSize: "clamp(1.25rem, 3vw, 1.75rem)", letterSpacing: "-0.03em" }}
         >
           {isAdmin ? (
@@ -158,11 +158,11 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
             <span
               className="flex items-center gap-1 px-2.5 py-0.5 font-mono text-[11px]"
               style={{
-                border: "1px solid rgba(251, 191, 36, 0.3)",
-                background: "rgba(251, 191, 36, 0.06)",
-                color: "#fbbf24",
+                border: "1px solid rgb(var(--accent-bright-rgb) / 0.3)",
+                background: "rgb(var(--accent-bright-rgb) / 0.06)",
+                color: "var(--accent-bright)",
                 borderRadius: "2px",
-                boxShadow: "0 0 12px rgba(251, 191, 36, 0.1)",
+                boxShadow: "0 0 12px rgb(var(--accent-bright-rgb) / 0.1)",
               }}
             >
               <span className="material-symbols-outlined text-[13px]">admin_panel_settings</span>
@@ -200,7 +200,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
           onBlur={handleBlur}
           placeholder={placeholderText}
           rows={2}
-          className="w-full resize-none bg-transparent font-sans leading-relaxed text-white focus:outline-none"
+          className="w-full resize-none bg-transparent font-sans leading-relaxed text-[var(--text-primary)] focus:outline-none"
           style={{
             fontSize: "clamp(0.95rem, 2vw, 1.15rem)",
             padding: "0.75rem 0",

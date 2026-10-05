@@ -12,32 +12,32 @@ interface StatusToken {
 const STATUS_STYLE: Record<QueryStatus, StatusToken> = {
   success: {
     label: "Success",
-    chip: "border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.06); color: var(--success);",
-    badge: "background: var(--success); color: #04150e;",
+    chip: "border-color: rgb(var(--success-soft-rgb) / 0.35); background: rgb(var(--success-soft-rgb) / 0.06); color: var(--success);",
+    badge: "background: var(--success); color: var(--on-success);",
     silhouette: "disc",
   },
   refused: {
     label: "Refused — destructive operation",
-    chip: "border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.06); color: var(--warning);",
-    badge: "border: 1px solid rgba(251, 191, 36, 0.6); color: var(--warning);",
+    chip: "border-color: rgb(var(--accent-bright-rgb) / 0.35); background: rgb(var(--accent-bright-rgb) / 0.06); color: var(--warning);",
+    badge: "border: 1px solid rgb(var(--accent-bright-rgb) / 0.6); color: var(--warning);",
     silhouette: "square",
   },
   clarification: {
     label: "Needs clarification",
-    chip: "border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.06); color: var(--accent);",
-    badge: "border: 1px solid rgba(245, 158, 11, 0.6); color: var(--accent);",
+    chip: "border-color: rgb(var(--accent-rgb) / 0.35); background: rgb(var(--accent-rgb) / 0.06); color: var(--accent);",
+    badge: "border: 1px solid rgb(var(--accent-rgb) / 0.6); color: var(--accent);",
     silhouette: "ring",
   },
   blocked: {
     label: "Blocked by guardrail",
-    chip: "border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); color: var(--danger);",
-    badge: "background: var(--danger); color: #1a0407;",
+    chip: "border-color: rgb(var(--danger-soft-rgb) / 0.4); background: rgb(var(--danger-soft-rgb) / 0.08); color: var(--danger);",
+    badge: "background: var(--danger); color: var(--on-danger);",
     silhouette: "block",
   },
   error: {
     label: "Error",
-    chip: "border-color: rgba(203, 213, 225, 0.25); background: rgba(203, 213, 225, 0.06); color: var(--text-secondary);",
-    badge: "border: 1px solid rgba(203, 213, 225, 0.5); color: var(--text-secondary);",
+    chip: "border-color: rgb(var(--ink-rgb) / 0.25); background: rgb(var(--ink-rgb) / 0.06); color: var(--text-secondary);",
+    badge: "border: 1px solid rgb(var(--ink-rgb) / 0.5); color: var(--text-secondary);",
     silhouette: "diamond",
   },
 };

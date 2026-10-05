@@ -23,8 +23,8 @@ function FeedbackChip({ feedback }: { feedback?: boolean | null }) {
         className="font-mono text-[10px] font-semibold uppercase"
         style={{
           padding: "2px 8px",
-          border: "1px solid rgba(52, 211, 153, 0.3)",
-          background: "rgba(52, 211, 153, 0.06)",
+          border: "1px solid rgb(var(--success-soft-rgb) / 0.3)",
+          background: "rgb(var(--success-soft-rgb) / 0.06)",
           color: "var(--success)",
           borderRadius: "2px",
         }}
@@ -40,8 +40,8 @@ function FeedbackChip({ feedback }: { feedback?: boolean | null }) {
         className="font-mono text-[10px] font-semibold uppercase line-through"
         style={{
           padding: "2px 8px",
-          border: "1px solid rgba(248, 113, 113, 0.3)",
-          background: "rgba(248, 113, 113, 0.06)",
+          border: "1px solid rgb(var(--danger-soft-rgb) / 0.3)",
+          background: "rgb(var(--danger-soft-rgb) / 0.06)",
           color: "var(--danger)",
           borderRadius: "2px",
         }}
@@ -51,7 +51,7 @@ function FeedbackChip({ feedback }: { feedback?: boolean | null }) {
     );
   }
   return (
-    <span title="Unrated" className="font-mono text-[10px] uppercase" style={{ color: "var(--text-ghost)" }}>
+    <span title="Unrated" className="font-mono text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>
       unrated
     </span>
   );
@@ -85,7 +85,7 @@ export function HistoryScreen() {
       <div className="flex flex-wrap items-end justify-between gap-4 pb-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div>
           <h2
-            className="font-display font-bold tracking-tight text-white"
+            className="font-display font-bold tracking-tight text-[var(--text-primary)]"
             style={{ fontSize: "clamp(1.25rem, 3vw, 1.75rem)", letterSpacing: "-0.03em" }}
           >
             Query Execution History
@@ -142,7 +142,7 @@ export function HistoryScreen() {
                 borderBottom: "1px solid var(--border-subtle)",
                 padding: "16px 0",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.01)"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.01)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               <div className="flex items-start justify-between gap-4">
@@ -158,7 +158,7 @@ export function HistoryScreen() {
                 <div className="mt-2">
                   <code
                     className="sql-editor-card block truncate p-2.5 font-mono text-xs"
-                    style={{ color: "var(--accent)", opacity: 0.7 }}
+                    style={{ color: "var(--accent)" }}
                   >
                     {item.sql_preview}
                   </code>

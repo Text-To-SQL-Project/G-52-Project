@@ -23,7 +23,7 @@ function TableRow({ table }: { table: TableInfo }) {
     <div
       style={{ borderBottom: "1px solid var(--border-subtle)" }}
       className="transition-colors duration-150"
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.01)"; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.01)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
       <button
@@ -37,7 +37,7 @@ function TableRow({ table }: { table: TableInfo }) {
             table_rows
           </span>
           <div className="flex flex-col">
-            <span className="truncate font-mono text-sm font-semibold text-white">
+            <span className="truncate font-mono text-sm font-semibold text-[var(--text-primary)]">
               {table.name}
             </span>
             <span className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -80,15 +80,15 @@ function TableRow({ table }: { table: TableInfo }) {
                 <tr
                   key={col.name}
                   className="transition-colors last:border-0"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}
+                  style={{ borderBottom: "1px solid rgb(var(--ink-rgb) / 0.03)" }}
                 >
-                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-white/90">
+                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-[var(--text-primary)]/90">
                     {col.name}
                     {!col.nullable && (
                       <span className="ml-1.5" style={{ color: "var(--danger)", opacity: 0.7 }} title="NOT NULL">*</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 font-mono" style={{ color: "var(--accent)", opacity: 0.7 }}>
+                  <td className="whitespace-nowrap px-4 py-2.5 font-mono" style={{ color: "var(--accent)" }}>
                     {col.data_type}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5">
@@ -177,7 +177,7 @@ export function SchemaScreen() {
       <div className="flex flex-wrap items-end justify-between gap-4 pb-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div>
           <h2
-            className="font-display font-bold tracking-tight text-white"
+            className="font-display font-bold tracking-tight text-[var(--text-primary)]"
             style={{ fontSize: "clamp(1.25rem, 3vw, 1.75rem)", letterSpacing: "-0.03em" }}
           >
             Schema Explorer

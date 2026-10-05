@@ -12,20 +12,20 @@ export function ClarificationPanel({ clarification, onSelect }: Props) {
       style={{
         borderLeft: "2px solid var(--accent)",
         padding: "16px 20px",
-        background: "rgba(245, 158, 11, 0.03)",
+        background: "rgb(var(--accent-rgb) / 0.03)",
       }}
     >
       <div className="flex items-start gap-3">
         <span
           aria-hidden
           className="mt-px inline-flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full"
-          style={{ border: "1px solid rgba(245, 158, 11, 0.6)", color: "var(--accent)" }}
+          style={{ border: "1px solid rgb(var(--accent-rgb) / 0.6)", color: "var(--accent)" }}
         >
           <span className="block text-[10px] font-bold leading-none">?</span>
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold" style={{ color: "var(--accent)" }}>Clarification needed</h3>
-          <p className="mt-1 text-sm leading-relaxed" style={{ color: "rgba(250, 250, 249, 0.85)" }}>
+          <p className="mt-1 text-sm leading-relaxed" style={{ color: "rgb(var(--ink-rgb) / 0.85)" }}>
             {clarification.reason}
           </p>
           <div className="mt-3.5 flex flex-wrap gap-2">

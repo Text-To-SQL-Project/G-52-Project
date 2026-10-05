@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "../hooks/useTheme";
 
 // Minimal typing for the slice of Google Identity Services used here.
 type Gis = {
@@ -34,6 +35,7 @@ function loadGis(): Promise<void> {
 export function GoogleSignIn({ clientId, onCredential }: { clientId: string; onCredential: (credential: string) => void }) {
   const slot = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  const theme = useTheme();
   const callback = useRef(onCredential);
   useEffect(() => { callback.current = onCredential; }, [onCredential]);
 
@@ -42,10 +44,11 @@ export function GoogleSignIn({ clientId, onCredential }: { clientId: string; onC
     loadGis()
       .then(() => {
         if (cancelled || !slot.current || !window.google) return;
+        slot.current.replaceChildren(); // re-render for the new theme
         window.google.accounts.id.initialize({ client_id: clientId, callback: (r) => callback.current(r.credential) });
         window.google.accounts.id.renderButton(slot.current, {
           type: "standard",
-          theme: "filled_black",
+          theme: theme === "dark" ? "filled_black" : "outline",
           size: "large",
           shape: "rectangular",
           text: "signin_with",
@@ -55,7 +58,7 @@ export function GoogleSignIn({ clientId, onCredential }: { clientId: string; onC
       })
       .catch(() => !cancelled && setFailed(true));
     return () => { cancelled = true; };
-  }, [clientId]);
+  }, [clientId, theme]);
 
   if (failed) {
     return (

@@ -66,7 +66,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
       <CardShell>
         <header
           className="px-6 py-3.5"
-          style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+          style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
         >
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>speed</span>
@@ -90,7 +90,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
     <CardShell>
       <header
         className="flex items-center justify-between gap-3 px-6 py-3.5"
-        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
       >
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>speed</span>
@@ -150,7 +150,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
             <div
               className="absolute inset-[-6px] rounded-full"
               style={{
-                background: `radial-gradient(circle, rgba(245, 158, 11, 0.1) 60%, transparent 100%)`,
+                background: `radial-gradient(circle, rgb(var(--accent-rgb) / 0.1) 60%, transparent 100%)`,
               }}
             />
             <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 36 36">
@@ -175,7 +175,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
               />
             </svg>
             <div className="absolute flex flex-col items-center justify-center text-center">
-              <span className="font-display text-2xl font-bold tracking-tight tabular-nums text-white">
+              <span className="font-display text-2xl font-bold tracking-tight tabular-nums text-[var(--text-primary)]">
                 {shown}
                 <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>%</span>
               </span>
@@ -242,7 +242,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
                       background: SIGNAL_COLOR[signal.status],
                       borderRadius: "1px",
                       animationDelay: `${150 + i * 50}ms`,
-                      boxShadow: `0 0 6px ${SIGNAL_COLOR[signal.status]}40`,
+                      boxShadow: `0 0 6px color-mix(in srgb, ${SIGNAL_COLOR[signal.status]} 25%, transparent)`,
                       transition: "width 600ms var(--ease-expo), background 300ms",
                     }}
                   />

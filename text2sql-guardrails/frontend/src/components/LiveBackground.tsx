@@ -4,7 +4,7 @@
  *
  * Five stacked layers, all CSS, no canvas and no dependency:
  *
- *   1. base       deep neutral void (#080809), preventing any white flash on load
+ *   1. base       deep neutral void (var(--bg-void)), preventing any white flash on load
  *   2. depth      a vertical gradient sinking the page toward the bottom
  *   3. grid       a fine technical lattice, drifting one tile per cycle so
  *                 the loop is seamless, radially masked to dissolve at edges

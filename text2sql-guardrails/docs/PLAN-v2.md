@@ -82,16 +82,15 @@ Smallest set that matters, in this order:
 
 ---
 
-## 5. Light/dark theme (built before any UI work)
-**Today:** dark only. `index.css` has tokens, but **161 hard-coded colours across 21 `.tsx` files** bypass them.
-
-1. Move all colours into semantic CSS variables (`--bg-*`, `--text-*`, `--accent-*`, `--border-*`, `--grad-*`, chart colours), with a `[data-theme="light"]` block and the dark set as default.
-2. A codemod pass replaces the hard-coded hex/rgba values and `text-white`-style classes with tokens (Tailwind 4 `@theme` maps the tokens to utilities).
-3. **Toggle** in the NavBar: sun/moon icon with a morph animation. It saves the choice, defaults to `prefers-color-scheme`, and uses a View Transitions circular reveal from the button.
-4. Fonts stay the same in both themes but get theme-tuned weights (light text renders thinner). Gradients get separate light and dark stops.
-5. Recharts and three.js scenes read the CSS variables, so charts and the orb follow the theme.
-
-**Done when:** a Playwright test visits every screen in both themes, runs a contrast check (axe-core via `@axe-core/playwright`) with zero contrast violations, and takes a screenshot of each.
+## 5. Light/dark theme — DONE
+- Hard-coded colours (33 distinct values, about 160 uses) were replaced with tokens by a one-shot codemod; chart series and three.js were mapped by hand. Translucent colours use `R G B` tokens: `rgb(var(--accent-rgb) / 0.12)`.
+- `:root` (dark) and `:root[data-theme="light"]` (warm paper, amber-700 accent). `--text-ghost` is decorative only.
+- `public/theme-init.js` sets the theme before first paint (saved choice, else the OS setting). It's CSP-safe, with no inline script.
+- `useTheme` follows OS changes until the user chooses and syncs across tabs. `ThemeToggle` (NavBar and login) is a hand-drawn SVG sun/moon morph with a View Transitions circular reveal; under reduced motion it simply swaps.
+- Theme-aware: the Google button (filled_black / outline), SQL syntax colours (One Dark / One Light), and Recharts (CSS vars work directly).
+- **Contrast:** `e2e/theme.spec.ts` runs axe on 5 screens × 2 themes and finds **0 violations**. It caught and fixed 63, including the dark theme's own `--text-muted` (4.17:1, despite its comment claiming ≥4.5).
+- **Also fixed:** a never-rendered signal glow (`var()` plus hex alpha), and the SQL typing animation now respects reduced motion.
+- **Left for section 7:** the orb's indigo/cyan WebGL colours (unchanged; they read on both themes).
 
 ---
 
@@ -155,7 +154,7 @@ Uses the existing stack only: `motion` for components, `gsap` for timelines and 
 | 2 | Hardening | — | S |
 | 3 | AI pool | 1 (latency routing) | M |
 | 4 | Google sign-in ✓ | 2 (rate limits) | S |
-| 5 | Theme tokens + toggle | — | M (mostly mechanical) |
+| 5 | Theme tokens + toggle ✓ | — | M (mostly mechanical) |
 | 6 | Landing page | 5 | M |
 | 7 | UI/motion overhaul | 5, 6 | L |
 | 8 | Relationship graph | 5 | M |

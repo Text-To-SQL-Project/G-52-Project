@@ -60,11 +60,11 @@ export function ResultsTable({ results, executed }: Props) {
     <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
       <header
         className="flex items-center justify-between gap-3 px-6 py-3.5"
-        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
       >
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>table_chart</span>
-          <h3 className="font-display text-sm font-semibold tracking-tight text-white">
+          <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
             Query Results
           </h3>
         </div>
@@ -72,7 +72,7 @@ export function ResultsTable({ results, executed }: Props) {
         {executed && results && (
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--accent)" }}>
-              <span className="font-semibold text-white">{results.row_count.toLocaleString()}</span>{" "}
+              <span className="font-semibold text-[var(--text-primary)]">{results.row_count.toLocaleString()}</span>{" "}
               {results.row_count === 1 ? "row" : "rows"}
             </span>
 
@@ -81,8 +81,8 @@ export function ResultsTable({ results, executed }: Props) {
                 className="font-mono text-[10px] font-semibold uppercase"
                 style={{
                   padding: "2px 8px",
-                  border: "1px solid rgba(251, 191, 36, 0.3)",
-                  background: "rgba(251, 191, 36, 0.06)",
+                  border: "1px solid rgb(var(--accent-bright-rgb) / 0.3)",
+                  background: "rgb(var(--accent-bright-rgb) / 0.06)",
                   color: "var(--warning)",
                   borderRadius: "2px",
                 }}
@@ -138,7 +138,7 @@ export function ResultsTable({ results, executed }: Props) {
       ) : (
         <div className="max-h-[32rem] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-10" style={{ background: "rgba(8, 8, 9, 0.95)", backdropFilter: "blur(8px)" }}>
+            <thead className="sticky top-0 z-10" style={{ background: "rgb(var(--void-rgb) / 0.95)", backdropFilter: "blur(8px)" }}>
               <tr>
                 {results.columns.map((col, j) => (
                   <th
@@ -162,11 +162,11 @@ export function ResultsTable({ results, executed }: Props) {
                   key={i}
                   className="transition-colors duration-150"
                   style={{
-                    borderBottom: "1px solid rgba(255,255,255,0.03)",
-                    background: i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent",
+                    borderBottom: "1px solid rgb(var(--ink-rgb) / 0.03)",
+                    background: i % 2 === 1 ? "rgb(var(--ink-rgb) / 0.01)" : "transparent",
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(245, 158, 11, 0.025)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 1 ? "rgba(255,255,255,0.01)" : "transparent"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--accent-rgb) / 0.025)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 1 ? "rgb(var(--ink-rgb) / 0.01)" : "transparent"; }}
                 >
                   {row.map((cell, j) => (
                     <td
@@ -177,7 +177,7 @@ export function ResultsTable({ results, executed }: Props) {
                       style={{
                         color:
                           cell === null || cell === undefined
-                            ? "var(--text-ghost)"
+                            ? "var(--text-muted)"
                             : numeric[j]
                             ? "var(--accent)"
                             : "var(--text-primary)",
@@ -198,8 +198,8 @@ export function ResultsTable({ results, executed }: Props) {
         <div
           className="flex items-center gap-2 px-6 py-2.5 text-xs"
           style={{
-            borderTop: "1px solid rgba(251, 191, 36, 0.15)",
-            background: "rgba(251, 191, 36, 0.03)",
+            borderTop: "1px solid rgb(var(--accent-bright-rgb) / 0.15)",
+            background: "rgb(var(--accent-bright-rgb) / 0.03)",
             color: "var(--warning)",
           }}
         >

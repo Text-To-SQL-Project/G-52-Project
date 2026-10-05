@@ -24,10 +24,10 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
 
   // Functional colors for each principal (distinct, zero blue and zero purple)
   const principalColors: Record<string, string> = {
-    admin: "#f59e0b",     // Solar Amber
-    faculty1: "#fbbf24",  // Radiant Gold
-    student1: "#22c55e",  // Emerald
-    student2: "#e2e8f0",  // Neutral Silver
+    admin: "var(--accent)",     // Solar Amber
+    faculty1: "var(--accent-bright)",  // Radiant Gold
+    student1: "var(--success)",  // Emerald
+    student2: "var(--info)",  // Neutral Silver
   };
 
   // Prepare grouped data for recharts
@@ -51,7 +51,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>policy</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-white">
+            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Row Level Security (RLS) Scoping Impact
             </h3>
             <span
@@ -132,17 +132,17 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
       <div className="mt-5 h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 15, right: 20, left: 10, bottom: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--ink-rgb) / 0.06)" vertical={false} />
             <XAxis
               dataKey="table"
-              stroke="rgba(255,255,255,0.3)"
-              tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+              stroke="rgb(var(--ink-rgb) / 0.3)"
+              tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
             />
             <YAxis
               scale={useLogScale ? "log" : "auto"}
               domain={useLogScale ? [1, 200000] : [0, 160000]}
-              stroke="rgba(255,255,255,0.3)"
-              tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+              stroke="rgb(var(--ink-rgb) / 0.3)"
+              tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
               tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : String(v))}
             />
             <Tooltip
@@ -150,7 +150,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
                 borderRadius: "2px",
-                color: "#fff",
+                color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
               formatter={(value: unknown, name: unknown) => [
@@ -164,7 +164,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 key={p.principal}
                 dataKey={p.principal}
                 name={`${p.principal} (${p.role})`}
-                fill={principalColors[p.principal] || "#f59e0b"}
+                fill={principalColors[p.principal] || "var(--accent)"}
                 radius={[2, 2, 0, 0]}
               />
             ))}
@@ -176,18 +176,18 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
       <div
         className="mt-4 text-xs leading-relaxed"
         style={{
-          border: "1px solid rgba(245, 158, 11, 0.3)",
-          background: "rgba(245, 158, 11, 0.08)",
+          border: "1px solid rgb(var(--accent-rgb) / 0.3)",
+          background: "rgb(var(--accent-rgb) / 0.08)",
           borderRadius: "2px",
           padding: "12px",
-          color: "#fde68a",
+          color: "rgb(var(--accent-pale-rgb))",
         }}
       >
-        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "#fbbf24" }}>
+        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent-bright)" }}>
           <span className="material-symbols-outlined text-[16px]">warning</span>
           Methodological Identity Precaution
         </div>
-        <p className="mt-1 text-[11.5px]" style={{ color: "rgba(253, 230, 138, 0.8)" }}>
+        <p className="mt-1 text-[11.5px]" style={{ color: "var(--text-secondary)" }}>
           {caveat}
         </p>
       </div>

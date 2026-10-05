@@ -29,19 +29,19 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
       name: "In-sample Raw",
       AUROC: comparison.in_sample_raw,
       citable: true,
-      fill: "#f59e0b",
+      fill: "var(--accent)",
     },
     {
       name: "Held-out Raw",
       AUROC: comparison.held_out_raw,
       citable: true,
-      fill: "#fbbf24",
+      fill: "var(--accent-bright)",
     },
     {
       name: "Held-out Calibrated",
       AUROC: comparison.held_out_calibrated,
       citable: true,
-      fill: "#22c55e",
+      fill: "var(--success)",
     },
     ...(showHistoricalDebug
       ? [
@@ -49,7 +49,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             name: "Frozen / Stale (Historical)",
             AUROC: comparison.superseded_frozen_value,
             citable: false,
-            fill: "#ef4444",
+            fill: "var(--danger)",
           },
         ]
       : []),
@@ -82,16 +82,16 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>analytics</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-white">
+            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Confidence AUROC &amp; Ablation Analysis
             </h3>
             <span
               className="font-mono text-[10px] font-semibold"
               style={{
                 padding: "2px 8px",
-                border: "1px solid rgba(52, 211, 153, 0.3)",
-                background: "rgba(52, 211, 153, 0.1)",
-                color: "#34d399",
+                border: "1px solid rgb(var(--success-soft-rgb) / 0.3)",
+                background: "rgb(var(--success-soft-rgb) / 0.1)",
+                color: "rgb(var(--success-soft-rgb))",
                 borderRadius: "2px",
               }}
             >
@@ -181,11 +181,11 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             <div
               className="animate-fade text-xs"
               style={{
-                border: "1px solid rgba(239, 68, 68, 0.3)",
-                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgb(var(--danger-rgb) / 0.3)",
+                background: "rgb(var(--danger-rgb) / 0.08)",
                 borderRadius: "2px",
                 padding: "12px",
-                color: "#fca5a5",
+                color: "var(--danger-text)",
               }}
             >
               <div className="flex items-center gap-2 font-semibold">
@@ -199,23 +199,23 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={summaryData} margin={{ top: 15, right: 20, left: 0, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--ink-rgb) / 0.06)" vertical={false} />
                 <XAxis
                   dataKey="name"
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
                 />
                 <YAxis
                   domain={[0.4, 0.8]}
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
                     borderRadius: "2px",
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
                   formatter={(value: unknown) => [
@@ -228,7 +228,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                     <Cell
                       key={`cell-${index}`}
                       fill={entry.fill}
-                      stroke={entry.citable ? "rgba(255,255,255,0.2)" : "#ef4444"}
+                      stroke={entry.citable ? "rgb(var(--ink-rgb) / 0.2)" : "var(--danger)"}
                       strokeWidth={entry.citable ? 1 : 2}
                     />
                   ))}
@@ -273,7 +273,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 Gemini (repeats=1)
               </button>
             </div>
-            <span className="font-mono text-[11px] italic" style={{ color: "var(--text-ghost)" }}>
+            <span className="font-mono text-[11px] italic" style={{ color: "var(--text-muted)" }}>
               *Providers never merged into a single average
             </span>
           </div>
@@ -281,23 +281,23 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={ablationData} margin={{ top: 15, right: 20, left: 0, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--ink-rgb) / 0.06)" vertical={false} />
                 <XAxis
                   dataKey="name"
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
                 />
                 <YAxis
                   domain={[0.4, 0.9]}
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
                     borderRadius: "2px",
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
                   formatter={(value: unknown, name: unknown) => [
@@ -306,8 +306,8 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="5-Signal (with MQ)" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="4-Signal (dropped MQ)" fill="#71717a" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="5-Signal (with MQ)" fill="var(--accent)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="4-Signal (dropped MQ)" fill="var(--text-muted)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -360,24 +360,24 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={signalData} margin={{ top: 15, right: 20, left: 0, bottom: 25 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--ink-rgb) / 0.06)" vertical={false} />
                 <XAxis
                   dataKey="name"
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 10 }}
                   interval={0}
                 />
                 <YAxis
                   domain={[0.45, 0.85]}
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  stroke="rgb(var(--ink-rgb) / 0.3)"
+                  tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
                     borderRadius: "2px",
-                    color: "#fff",
+                    color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
                   formatter={(value: unknown, name: unknown) => [
@@ -386,15 +386,15 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="Permissive" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="Strict" fill="#ea580c" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Permissive" fill="var(--accent)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Strict" fill="var(--chart-orange)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
             <strong style={{ color: "var(--text-primary)" }}>Signal Inversion:</strong>{" "}
-            <code style={{ color: "#f87171", fontWeight: 600 }}>multi_query_agreement</code> rises from
+            <code style={{ color: "rgb(var(--danger-soft-rgb))", fontWeight: 600 }}>multi_query_agreement</code> rises from
             weakest to strongest predictor (0.532 → 0.734 on Anthropic, 0.568 → 0.783 on Gemini)
             under strict labels.
           </p>

@@ -43,7 +43,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>security</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-white">
+            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Multi-Layer Safety Stack Breakdown
             </h3>
             <span
@@ -68,16 +68,16 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
       <div className="mt-5 h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 15, right: 20, left: 10, bottom: 25 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--ink-rgb) / 0.06)" vertical={false} />
             <XAxis
               dataKey="metric"
-              stroke="rgba(255,255,255,0.3)"
-              tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+              stroke="rgb(var(--ink-rgb) / 0.3)"
+              tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
             />
             <YAxis
               domain={[0, 1.1]}
-              stroke="rgba(255,255,255,0.3)"
-              tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+              stroke="rgb(var(--ink-rgb) / 0.3)"
+              tick={{ fill: "rgb(var(--ink-rgb) / 0.5)", fontSize: 11 }}
               tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
             />
             <Tooltip
@@ -85,7 +85,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
                 borderRadius: "2px",
-                color: "#fff",
+                color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
               formatter={(value: unknown, name: unknown) => [
@@ -94,22 +94,22 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               ]}
             />
             <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-            <Bar dataKey="Anthropic" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="Gemini" fill="#22c55e" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Anthropic" fill="var(--accent)" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Gemini" fill="var(--success)" radius={[2, 2, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 text-xs">
         <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "12px" }}>
-          <p className="font-semibold text-white/80">Layer 2: AST Guardrail (sqlglot)</p>
+          <p className="font-semibold text-[var(--text-primary)]/80">Layer 2: AST Guardrail (sqlglot)</p>
           <p className="mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Deterministic static parsing: 100% block rate on 30 direct adversarial SQL queries (DDL, DML,
             stacked injections). Evaluated without any LLM in the path; model-independent by construction.
           </p>
         </div>
         <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "12px" }}>
-          <p className="font-semibold text-white/80">Layer 1: LLM Refusal &amp; Clarification</p>
+          <p className="font-semibold text-[var(--text-primary)]/80">Layer 1: LLM Refusal &amp; Clarification</p>
           <p className="mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Model-level structured refusal: distinguishes unsafe requests (<code style={{ color: "var(--text-secondary)" }}>REFUSED</code>)
             from underspecified requests (<code style={{ color: "var(--text-secondary)" }}>CLARIFICATION_NEEDED</code>).

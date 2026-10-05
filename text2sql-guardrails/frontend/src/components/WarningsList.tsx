@@ -1,9 +1,9 @@
 import type { Warning, WarningLevel } from "../types/api";
 
 const LEVEL_STYLE: Record<WarningLevel, { borderColor: string; bg: string; text: string }> = {
-  info: { borderColor: "rgba(255, 255, 255, 0.25)", bg: "rgba(255, 255, 255, 0.025)", text: "var(--text-secondary)" },
-  warning: { borderColor: "rgba(251, 191, 36, 0.6)", bg: "rgba(251, 191, 36, 0.04)", text: "rgba(251, 191, 36, 0.85)" },
-  danger: { borderColor: "rgba(248, 113, 113, 0.7)", bg: "rgba(248, 113, 113, 0.05)", text: "rgba(248, 113, 113, 0.85)" },
+  info: { borderColor: "rgb(var(--ink-rgb) / 0.25)", bg: "rgb(var(--ink-rgb) / 0.025)", text: "var(--text-secondary)" },
+  warning: { borderColor: "rgb(var(--accent-bright-rgb) / 0.6)", bg: "rgb(var(--accent-bright-rgb) / 0.04)", text: "rgb(var(--accent-bright-rgb) / 0.85)" },
+  danger: { borderColor: "rgb(var(--danger-soft-rgb) / 0.7)", bg: "rgb(var(--danger-soft-rgb) / 0.05)", text: "rgb(var(--danger-soft-rgb) / 0.85)" },
 };
 
 export function WarningsList({ warnings }: { warnings: Warning[] }) {

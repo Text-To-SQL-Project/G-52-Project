@@ -49,7 +49,7 @@ export function LatencyMeter({ timings }: { timings: Record<string, number> }) {
           background: "var(--bg-elevated)",
           border: "1px solid var(--border-hairline)",
           borderRadius: "2px",
-          boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+          boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / 0.35)",
         }}
       >
         <p className="mb-2 font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>

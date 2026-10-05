@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { gsap } from "gsap";
 import { ApiError, getAuthProviders, googleLogin, login } from "../api/client";
 import { GoogleSignIn } from "../components/GoogleSignIn";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { setToken } from "../hooks/useAuthToken";
 
 const DEMO_PERSONAS = [
@@ -130,6 +131,7 @@ export function LoginScreen() {
     <div
       className="relative z-[1] flex min-h-screen items-center justify-center px-5 py-12"
     >
+      <ThemeToggle className="fixed right-5 top-5 z-20" />
       {/* Ambient orb glow behind the form */}
       <div
         className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -137,7 +139,7 @@ export function LoginScreen() {
           width: "500px",
           height: "500px",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(245, 158, 11, 0.08) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgb(var(--accent-rgb) / 0.08) 0%, transparent 70%)",
           animation: "glow-pulse 4s ease-in-out infinite",
         }}
       />
@@ -159,7 +161,7 @@ export function LoginScreen() {
             </span>
           </div>
           <h1
-            className="font-display font-bold text-white"
+            className="font-display font-bold text-[var(--text-primary)]"
             style={{ fontSize: "clamp(1.75rem, 5vw, 2.5rem)", letterSpacing: "-0.04em" }}
           >
             SQL<span style={{ color: "var(--accent)" }}>.</span>AI{" "}
@@ -195,7 +197,7 @@ export function LoginScreen() {
                 }}
                 onMouseEnter={(e) => {
                   if (username !== persona.username) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                    e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.02)";
                     e.currentTarget.style.color = "var(--text-primary)";
                   }
                 }}
@@ -264,7 +266,7 @@ export function LoginScreen() {
               style={{
                 borderLeft: "2px solid var(--danger)",
                 paddingLeft: "12px",
-                color: "#fca5a5",
+                color: "var(--danger-text)",
               }}
             >
               <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--danger)" }}>

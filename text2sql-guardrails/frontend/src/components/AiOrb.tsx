@@ -229,9 +229,9 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
     <div
       className={`glass-card relative flex flex-col items-center justify-center overflow-hidden rounded-2xl p-4 ${className}`}
     >
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 opacity-80">
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
         <div className={`h-2 w-2 rounded-full ${getIndicatorDotClass()}`} />
-        <span className="font-mono text-[10px] font-semibold tracking-wider text-white/70">
+        <span className="font-mono text-[10px] font-semibold tracking-wider text-[var(--text-secondary)]">
           {getStatusLabel()}
         </span>
       </div>

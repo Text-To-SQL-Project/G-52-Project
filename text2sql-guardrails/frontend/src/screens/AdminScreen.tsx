@@ -67,7 +67,7 @@ function StatTile({
         borderBottom: "1px solid var(--border-subtle)",
         paddingRight: "16px",
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.01)"; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.01)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -78,12 +78,12 @@ function StatTile({
       </div>
       <div className="mt-2">
         <p
-          className="font-display font-bold tracking-tight text-white"
+          className="font-display font-bold tracking-tight text-[var(--text-primary)]"
           style={{ fontSize: "1.75rem", letterSpacing: "-0.03em" }}
         >
           {value}
         </p>
-        {hint && <p className="mt-1 font-mono text-[10px]" style={{ color: "var(--text-ghost)" }}>{hint}</p>}
+        {hint && <p className="mt-1 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{hint}</p>}
       </div>
     </div>
   );
@@ -157,7 +157,7 @@ function BlockedQueriesSection() {
               key={item.query_id}
               className="py-4 transition-colors"
               style={{ borderBottom: "1px solid var(--border-subtle)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(248, 113, 113, 0.02)"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--danger-soft-rgb) / 0.02)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               <div className="flex items-start justify-between gap-3">
@@ -166,8 +166,8 @@ function BlockedQueriesSection() {
                   className="font-mono text-[10px] font-semibold uppercase"
                   style={{
                     padding: "2px 8px",
-                    border: "1px solid rgba(248, 113, 113, 0.3)",
-                    background: "rgba(248, 113, 113, 0.06)",
+                    border: "1px solid rgb(var(--danger-soft-rgb) / 0.3)",
+                    background: "rgb(var(--danger-soft-rgb) / 0.06)",
                     color: "var(--danger)",
                     borderRadius: "2px",
                   }}
@@ -183,8 +183,8 @@ function BlockedQueriesSection() {
                   {item.sql ?? "(no SQL generated)"}
                 </code>
               </div>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2 pt-2 font-mono text-[11px]" style={{ borderTop: "1px solid rgba(248, 113, 113, 0.08)", color: "var(--text-muted)" }}>
-                <span style={{ color: "rgba(248, 113, 113, 0.7)" }}>{item.blocked_reason}</span>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 pt-2 font-mono text-[11px]" style={{ borderTop: "1px solid rgb(var(--danger-soft-rgb) / 0.08)", color: "var(--text-muted)" }}>
+                <span style={{ color: "rgb(var(--danger-soft-rgb) / 0.7)" }}>{item.blocked_reason}</span>
                 <span style={{ color: "var(--text-ghost)" }}>·</span>
                 <span>{new Date(item.timestamp).toLocaleString()}</span>
               </div>
@@ -266,7 +266,7 @@ export function AdminScreen() {
       <div className="flex flex-wrap items-end justify-between gap-4 pb-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div>
           <h2
-            className="font-display font-bold tracking-tight text-white"
+            className="font-display font-bold tracking-tight text-[var(--text-primary)]"
             style={{ fontSize: "clamp(1.25rem, 3vw, 1.75rem)", letterSpacing: "-0.03em" }}
           >
             {config.app_name} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>v{config.version}</span>

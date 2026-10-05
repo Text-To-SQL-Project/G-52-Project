@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useTheme } from "../hooks/useTheme";
 
 // Light build + SQL only: the full Prism bundle ships every language (~500 KB).
 SyntaxHighlighter.registerLanguage("sql", sql);
@@ -39,6 +40,8 @@ function useTypewriter(text: string, speed = 12) {
     return () => clearInterval(interval);
   }, [text, speed]);
 
+  // Reduced motion: show the whole query at once instead of typing it out.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return { displayed: text, done: true };
   const displayed = text.slice(0, charCount);
   const done = charCount >= text.length;
   return { displayed, done };
@@ -52,6 +55,7 @@ export function SqlPanel({
   onRerun,
   rerunning,
 }: Props) {
+  const theme = useTheme();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sql ?? "");
   const [copied, setCopied] = useState(false);
@@ -99,7 +103,7 @@ export function SqlPanel({
     <section ref={panelRef} className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
       <header
         className="flex items-center justify-between gap-3 px-6 py-3.5"
-        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgba(255,255,255,0.01)" }}
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
       >
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>code</span>
@@ -145,7 +149,7 @@ export function SqlPanel({
                 borderRadius: "2px",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(34, 211, 238, 0.15)";
+                e.currentTarget.style.background = "rgb(var(--info-rgb) / 0.15)";
                 e.currentTarget.style.color = "var(--accent-bright)";
               }}
               onMouseLeave={(e) => {
@@ -213,7 +217,7 @@ export function SqlPanel({
           <div className="sql-editor-card overflow-hidden">
             <SyntaxHighlighter
               language="sql"
-              style={oneDark}
+              style={theme === "dark" ? oneDark : oneLight}
               customStyle={{
                 margin: 0,
                 background: "transparent",
@@ -238,7 +242,7 @@ export function SqlPanel({
             style={{
               border: "1px solid var(--border-subtle)",
               borderRadius: "2px",
-              background: "rgba(255,255,255,0.01)",
+              background: "rgb(var(--ink-rgb) / 0.01)",
             }}
           >
             <span className="material-symbols-outlined mt-0.5 text-[18px]" style={{ color: "var(--accent)" }}>
@@ -271,7 +275,8 @@ export function SqlPanel({
                 key={c}
                 title="Table Column"
                 className="pill-tag flex items-center gap-1 px-2 py-0.5 font-mono text-[11px]"
-                style={{ opacity: 0.7 }}
+                // Ranked below table chips by colour, not opacity (opacity failed contrast).
+                style={{ color: "var(--text-secondary)" }}
               >
                 <span className="material-symbols-outlined text-[12px]">view_column</span>
                 {c}

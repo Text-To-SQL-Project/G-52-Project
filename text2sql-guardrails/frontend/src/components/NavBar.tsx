@@ -1,3 +1,4 @@
+import { ThemeToggle } from "./ThemeToggle";
 import { useRef, useEffect } from "react";
 import { gsap } from "gsap";
 import { clearToken } from "../hooks/useAuthToken";
@@ -58,7 +59,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
     <header
       className="sticky top-0 z-30"
       style={{
-        background: "rgba(8, 8, 9, 0.85)",
+        background: "rgb(var(--void-rgb) / 0.85)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderBottom: "1px solid var(--border-subtle)",
@@ -81,7 +82,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <h1 className="font-display text-[15px] font-bold tracking-tight text-white">
+            <h1 className="font-display text-[15px] font-bold tracking-tight text-[var(--text-primary)]">
               SQL<span style={{ color: "var(--accent)" }}>.</span>AI{" "}
               <span className="gradient-text font-semibold">Guardrails</span>
             </h1>
@@ -156,7 +157,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                   className="flex h-7 w-7 items-center justify-center"
                   style={{
                     border: "1px solid var(--border-hairline)",
-                    background: "rgba(255,255,255,0.03)",
+                    background: "rgb(var(--ink-rgb) / 0.03)",
                     borderRadius: "2px",
                   }}
                 >
@@ -165,7 +166,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                   </span>
                 </div>
                 <div className="hidden flex-col text-left leading-tight sm:flex">
-                  <span className="truncate text-xs font-semibold text-white/90">
+                  <span className="truncate text-xs font-semibold text-[var(--text-primary)]/90">
                     {me.username}
                   </span>
                   <span
@@ -182,6 +183,8 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
               </span>
             )}
 
+            <ThemeToggle />
+
             <button
               onClick={clearToken}
               className="flex items-center gap-1 px-2.5 py-1 font-sans text-xs transition duration-200 focus-visible:outline-none"
@@ -193,9 +196,9 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                 borderRadius: "2px",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "rgba(248, 113, 113, 0.3)";
-                e.currentTarget.style.color = "#f87171";
-                e.currentTarget.style.background = "rgba(248, 113, 113, 0.06)";
+                e.currentTarget.style.borderColor = "rgb(var(--danger-soft-rgb) / 0.3)";
+                e.currentTarget.style.color = "rgb(var(--danger-soft-rgb))";
+                e.currentTarget.style.background = "rgb(var(--danger-soft-rgb) / 0.06)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.borderColor = "var(--border-subtle)";
