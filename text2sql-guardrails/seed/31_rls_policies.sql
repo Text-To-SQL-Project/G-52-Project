@@ -150,6 +150,7 @@ GRANT EXECUTE ON FUNCTION app.current_faculty_taught_students() TO readonly_app;
 --    admin sees all.
 -- ---------------------------------------------------------------------------
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_students_scope ON students;
 DROP POLICY IF EXISTS rls_students ON students;
 CREATE POLICY rls_students ON students FOR SELECT USING (
     (SELECT app.current_is_admin())
