@@ -103,7 +103,7 @@ function TableRow({ table }: { table: TableInfo }) {
                           border: "1px solid var(--border-accent)",
                           background: "var(--accent-dim)",
                           color: "var(--accent)",
-                          borderRadius: "2px",
+                          borderRadius: "8px",
                         }}
                       >
                         PK
@@ -118,7 +118,7 @@ function TableRow({ table }: { table: TableInfo }) {
                           border: "1px solid var(--border-accent)",
                           background: "var(--accent-dim)",
                           color: "var(--accent-bright)",
-                          borderRadius: "2px",
+                          borderRadius: "8px",
                         }}
                       >
                         FK → {col.references}
@@ -199,7 +199,7 @@ export function SchemaScreen() {
             <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
               {schema.total_tables} tables · {schema.total_columns} columns
             </span>
-            <div role="tablist" aria-label="Schema view" className="flex p-0.5" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+            <div role="tablist" aria-label="Schema view" className="flex p-0.5" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
               {(["graph", "list"] as const).map((v) => (
                 <button
                   key={v}
@@ -208,7 +208,7 @@ export function SchemaScreen() {
                   onClick={() => setView(v)}
                   className="flex items-center gap-1 px-2.5 py-1 font-mono text-[11px] capitalize transition-colors duration-200"
                   style={{
-                    borderRadius: "2px",
+                    borderRadius: "8px",
                     color: view === v ? "var(--on-accent)" : "var(--text-secondary)",
                     background: view === v ? "var(--accent)" : "transparent",
                   }}

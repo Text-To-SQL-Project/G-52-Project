@@ -5,7 +5,7 @@ import type { AdminUser } from "../../types/api";
 const field: React.CSSProperties = {
   background: "var(--bg-void)",
   border: "1px solid var(--border-hairline)",
-  borderRadius: "2px",
+  borderRadius: "8px",
   color: "var(--text-primary)",
 };
 
@@ -58,7 +58,7 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
             disabled={!dirty || state === "saving"}
             className="w-16 shrink-0 px-2 py-1.5 font-mono text-[11px] sm:w-20 sm:px-2.5 transition-colors disabled:opacity-40"
             style={{
-              borderRadius: "2px",
+              borderRadius: "8px",
               border: "1px solid var(--border-hairline)",
               color: state === "saved" ? "var(--success)" : "var(--text-secondary)",
             }}
@@ -85,7 +85,7 @@ export function GoogleLinkPanel() {
   }, []);
 
   return (
-    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }} aria-labelledby="google-title">
+    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }} aria-labelledby="google-title">
       <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>key</span>

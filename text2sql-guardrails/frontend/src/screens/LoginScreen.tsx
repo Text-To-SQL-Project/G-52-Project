@@ -142,7 +142,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             style={{
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
-              borderRadius: "2px",
+              borderRadius: "8px",
               boxShadow: "0 0 25px var(--accent-glow)",
             }}
           >
@@ -171,7 +171,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             </p>
             <span className="pill-tag px-2 py-0.5 font-mono text-[9px]">Click to fill</span>
           </div>
-          <div className="flex gap-0" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+          <div className="flex gap-0" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
             {DEMO_PERSONAS.map((persona, i) => (
               <button
                 key={persona.username}
@@ -272,7 +272,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             onClick={() => submit()}
             disabled={loading || !username || !password}
             className="glow-button mt-4 flex w-full items-center justify-center gap-2 py-3 font-sans text-sm font-semibold transition"
-            style={{ borderRadius: "2px" }}
+            style={{ borderRadius: "8px" }}
           >
             {loading ? (
               <>

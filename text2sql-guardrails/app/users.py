@@ -13,6 +13,7 @@ the same decision.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -197,13 +198,68 @@ def set_email(user_id: int, email: str | None) -> bool:
     """Link (or with None, unlink) an email. Returns False for an unknown user."""
     from sqlalchemy.exc import IntegrityError
 
+    released: list[int] = []
     try:
         with get_engine().begin() as conn:
+            if email:
+                # An auto-created guest (open Google sign-up) may already hold
+                # this address. Linking it to a real account takes it over: the
+                # guest is unlinked and deactivated in the same transaction.
+                released = [r[0] for r in conn.execute(
+                    text(
+                        "UPDATE app.users SET email = NULL, is_active = false "
+                        "WHERE lower(email) = lower(:e) AND role = 'guest' AND user_id <> :u "
+                        "AND EXISTS (SELECT 1 FROM app.users WHERE user_id = :u) "
+                        "RETURNING user_id"
+                    ),
+                    {"e": email, "u": user_id},
+                )]
             n = conn.execute(
                 text("UPDATE app.users SET email = :e WHERE user_id = :u"),
                 {"e": email.lower() if email else None, "u": user_id},
             ).rowcount
     except IntegrityError as e:
         raise EmailTaken from e
-    invalidate_principal(user_id)
+    for uid in (user_id, *released):
+        invalidate_principal(uid)
     return n == 1
+
+
+def email_exists(email: str) -> bool:
+    """Any user (active or not) already owns this email."""
+    with get_engine().connect() as conn:
+        return conn.execute(
+            text("SELECT 1 FROM app.users WHERE lower(email) = lower(:e)"), {"e": email}
+        ).first() is not None
+
+
+def create_guest(email: str, password_hash: str) -> Principal | None:
+    """New 'guest' user for an unlinked Google account. Username comes from
+    the email's local part, made unique with a numeric suffix. password_hash
+    is a hash of a random secret nobody knows, so the account can only sign
+    in through Google. Returns None if the email was taken concurrently."""
+    from sqlalchemy.exc import IntegrityError
+
+    base = re.sub(r"[^a-z0-9._-]", "", email.split("@", 1)[0].lower())[:32] or "user"
+    with get_engine().connect() as conn:
+        taken = {r[0] for r in conn.execute(
+            text("SELECT username FROM app.users WHERE username = :b OR username LIKE :p"),
+            {"b": base, "p": base + "%"},
+        )}
+    username = base if base not in taken else next(
+        f"{base}{i}" for i in range(2, 10_000) if f"{base}{i}" not in taken
+    )
+    try:
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                text(
+                    "INSERT INTO app.users (username, password_hash, role, email) "
+                    "VALUES (:u, :h, 'guest', lower(:e)) "
+                    "RETURNING user_id, username, role, student_id, faculty_id, is_active"
+                ),
+                {"u": username, "h": password_hash, "e": email},
+            ).one()
+    except IntegrityError:
+        return None  # same email or username created by a parallel request
+    logger.info("Created guest user_id=%s via Google sign-up", row.user_id)
+    return _row_to_principal(row)

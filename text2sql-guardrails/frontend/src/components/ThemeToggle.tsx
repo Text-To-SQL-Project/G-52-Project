@@ -32,7 +32,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
       title={dark ? "Light theme" : "Dark theme"}
       className={`group flex h-7 w-7 items-center justify-center transition-colors duration-200 hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] ${className}`}
-      style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", color: "var(--text-secondary)" }}
+      style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", color: "var(--text-secondary)" }}
     >
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden className="transition-transform duration-500 group-active:scale-90">
         <mask id={mask}>

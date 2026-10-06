@@ -5,14 +5,15 @@ included with require_auth as a dependency (see app/auth.py's docstring).
 from __future__ import annotations
 
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth_models import AuthProviders, GoogleLoginRequest, LoginRequest, LoginResponse, MeResponse
-from app.auth import TOKEN_TTL_SECONDS, authenticate, create_token, require_auth
+from app.auth import TOKEN_TTL_SECONDS, authenticate, create_token, hash_password, require_auth
 from app.config import settings
 from app.http_guard import limit_login
-from app.users import Principal, find_by_email
+from app.users import Principal, create_guest, email_exists, find_by_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -69,9 +70,11 @@ def verify_google_credential(credential: str) -> dict:
 
 @router.post("/google", response_model=LoginResponse, dependencies=[Depends(limit_login)])
 def login_with_google(req: GoogleLoginRequest) -> LoginResponse:
-    """Sign in with a Google account that an administrator has linked to an
-    existing user. Never creates accounts: role and the student/faculty link
-    drive Row Level Security, so they can't come from a Google profile."""
+    """Sign in with Google. A linked email signs in as its user. An unlinked
+    one gets a new 'guest' account when GOOGLE_OPEN_SIGNUP is on (the
+    default): guests have no student/faculty link, so Row Level Security
+    shows them reference data only. Role and ERP links never come from the
+    Google profile; an admin assigns those."""
     if not settings.GOOGLE_CLIENT_ID or not settings.SECRET_KEY:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured.")
     try:
@@ -83,6 +86,13 @@ def login_with_google(req: GoogleLoginRequest) -> LoginResponse:
     if not email or claims.get("email_verified") is not True:
         raise HTTPException(status_code=401, detail="Your Google account's email is not verified.")
     principal = find_by_email(email)
+    if principal is None and email_exists(email):
+        # Linked to a deactivated user: refuse rather than create a second account.
+        raise HTTPException(status_code=403, detail="This account has been disabled.")
+    if principal is None and settings.GOOGLE_OPEN_SIGNUP:
+        # Unusable password: a random secret nobody ever sees, so a guest
+        # account can only be entered through Google.
+        principal = create_guest(email, hash_password(secrets.token_urlsafe(32))) or find_by_email(email)
     if principal is None:
         logger.info("Google sign-in for unlinked email domain=%s", email.rsplit("@", 1)[-1])
         raise HTTPException(

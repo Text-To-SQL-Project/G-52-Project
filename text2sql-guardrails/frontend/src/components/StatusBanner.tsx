@@ -112,7 +112,7 @@ export function StatusBanner({ status, reason }: Props) {
     <div className="min-w-0">
       <span
         className="animate-chip inline-flex items-center gap-2 border px-3 py-1.5 text-[13px] font-semibold tracking-[-0.01em]"
-        style={{ ...chipStyles, borderRadius: "2px" }}
+        style={{ ...chipStyles, borderRadius: "8px" }}
       >
         <StatusBadge status={status} />
         {style.label}

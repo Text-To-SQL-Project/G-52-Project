@@ -3,6 +3,7 @@ import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { ADMIN_SAMPLE_QUERIES, FACULTY_SAMPLE_QUERIES, GUEST_SAMPLE_QUERIES, STUDENT_SAMPLE_QUERIES } from "../components/QuestionInput";
 
 gsap.registerPlugin(ScrollTrigger);
 const AiOrb = lazy(() => import("../components/AiOrb").then((m) => ({ default: m.AiOrb })));
@@ -44,10 +45,49 @@ const STATS = [
   { v: "2 s", l: "median answer time", n: "measured end to end (1.7–2.4 s)" },
 ];
 
+const WAYS_IN = [
+  { k: "01", t: "Sign in", d: "Use your college account, or continue with Google. Any Gmail works: a new address gets guest access straight away, and an admin can link it to your student or faculty record." },
+  { k: "02", t: "Ask", d: "Type a question the way you'd ask a colleague. No table names, no joins. If it's ambiguous, you get a clarifying question back instead of a guess." },
+  { k: "03", t: "Review", d: "Read the answer next to the SQL that produced it and a confidence score. Copy the query, export the rows, or refine the question." },
+];
+
+const SECURITY = [
+  { icon: "account_tree", t: "Parsed, not trusted", d: "Every generated query is parsed into a syntax tree. Writes, DDL, multiple statements and runaway nesting are rejected before execution." },
+  { icon: "lock", t: "Read-only by construction", d: "Queries run as a database role with SELECT rights only. Even a query that slipped past the parser could not change a row." },
+  { icon: "badge", t: "Row-level security", d: "Postgres policies bind each session to the signed-in user, so filtering happens in the database, not in a prompt." },
+  { icon: "timer", t: "Bounded cost", d: "A 2.5 s statement timeout and a row cap stop one heavy question from slowing the system for everyone else." },
+  { icon: "speed", t: "Rate limited", d: "Sign-in and query endpoints are rate limited per client, and model calls share a fixed per-minute budget." },
+  { icon: "history", t: "Every query audited", d: "Questions, generated SQL and every guardrail decision are logged, and admins can review blocked attempts." },
+];
+
+const DATA_FACTS = [
+  { v: "25", l: "tables in the college ERP schema" },
+  { v: "~190k", l: "rows of realistic college data" },
+  { v: "6", l: "domains: academics, attendance, marks, fees, library, placements" },
+  { v: "4", l: "roles, each seeing a different slice" },
+];
+
+const ASK_GROUPS = [
+  { r: "Student", qs: STUDENT_SAMPLE_QUERIES },
+  { r: "Faculty", qs: FACULTY_SAMPLE_QUERIES },
+  { r: "Admin", qs: ADMIN_SAMPLE_QUERIES },
+  { r: "Guest", qs: GUEST_SAMPLE_QUERIES },
+];
+
+const FAQ = [
+  { q: "Can a question change or delete data?", a: "No. Generated SQL is checked by an AST guardrail that only admits read queries, and it then runs as a read-only database role. Both layers would have to fail, and the second one can't." },
+  { q: "What can I see if I sign in as a guest?", a: "Public reference data only: departments, programs, subjects, exams, library books and placement drives. Personal tables such as marks, attendance and fees return no rows for a guest, because the database policies match nothing." },
+  { q: "How do I get student or faculty access?", a: "Sign in once with Google, then ask an administrator to link your email to your college record. Your next sign-in opens your own data." },
+  { q: "How is the confidence score worked out?", a: "Independent checks (schema alignment, translating the SQL back into English and comparing it with your question, and result sanity) are combined and calibrated against a labelled evaluation set." },
+  { q: "Which language model writes the SQL?", a: "Gemini by default, behind a provider-agnostic client. Administrators can also run a pool of their own API keys through a LiteLLM proxy." },
+  { q: "Is the SQL shown to me?", a: "Always. Every answer comes with the exact query that produced it, which you can copy and run elsewhere." },
+];
+
 const ROLES = [
   { r: "Student", icon: "school", d: "Asks about their own marks, attendance, fees and placements. Everyone else's rows are invisible at the database level." },
   { r: "Faculty", icon: "co_present", d: "Sees the sections and subjects they teach: class attendance, marks distributions, who needs attention." },
   { r: "Admin", icon: "admin_panel_settings", d: "Full access, schema explorer, and the audit trail of every blocked query and every guardrail decision." },
+  { r: "Guest", icon: "public", d: "Anyone with a Google account. Explores public reference data (departments, programs, subjects, library, placements) with no personal rows." },
 ];
 
 function DemoConsole() {
@@ -184,16 +224,21 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
       <header className="landing-nav sticky top-0 z-30">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 sm:px-8">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center" style={{ border: "1px solid var(--border-accent)", background: "var(--accent-dim)", borderRadius: "2px" }}>
+            <span className="flex h-8 w-8 items-center justify-center" style={{ border: "1px solid var(--border-accent)", background: "var(--accent-dim)", borderRadius: "8px" }}>
               <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>terminal</span>
             </span>
-            <span className="font-display text-sm font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+            <span className="font-display text-lg" style={{ color: "var(--text-primary)" }}>
               SQL.AI <span style={{ color: "var(--accent)" }}>Guardrails</span>
             </span>
           </div>
+          <nav aria-label="Sections" className="hidden items-center gap-6 text-[13px] md:flex" style={{ color: "var(--text-secondary)" }}>
+            {[["#product", "Product"], ["#how", "How it works"], ["#security", "Security"], ["#roles", "Roles"], ["#faq", "FAQ"]].map(([h, t]) => (
+              <a key={h} href={h} className="transition-colors hover:text-[var(--text-primary)]">{t}</a>
+            ))}
+          </nav>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <button onClick={onSignIn} className="glow-button px-4 py-1.5 text-xs" style={{ borderRadius: "2px" }}>Sign in</button>
+            <button onClick={onSignIn} className="glow-button px-4 py-1.5 text-xs" style={{ borderRadius: "8px" }}>Sign in</button>
           </div>
         </div>
       </header>
@@ -206,10 +251,10 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
             <p className="hero-fade pill-tag mb-6 inline-flex items-center gap-2 px-3 py-1 font-mono text-[11px] uppercase tracking-wider">
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--success)" }} /> Text-to-SQL for the college ERP
             </p>
-            <h1 className="font-display font-bold tracking-tight" style={{ fontSize: "clamp(2.25rem, 5.4vw, 4.25rem)", lineHeight: 1.02, letterSpacing: "-0.035em", color: "var(--text-primary)" }}>
+            <h1 className="font-display" style={{ fontSize: "clamp(2.6rem, 6.2vw, 5rem)", lineHeight: 1, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>
               {headline.map((w, i) => (
                 <span key={i} className="inline-block overflow-hidden pb-1 align-bottom">
-                  <span className={`hero-word inline-block ${i >= 4 ? "gradient-text-amber" : ""}`}>{w}&nbsp;</span>
+                  <span className={`hero-word inline-block ${i >= 4 ? "serif-accent" : ""}`}>{w}&nbsp;</span>
                 </span>
               ))}
             </h1>
@@ -218,7 +263,7 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
               person asking, and scored for confidence before you see a single row.
             </p>
             <div className="hero-fade mt-9 flex flex-wrap items-center gap-3">
-              <button onClick={onSignIn} className="glow-button flex items-center gap-2 px-6 py-3 text-sm" style={{ borderRadius: "2px" }}>
+              <button onClick={onSignIn} className="glow-button flex items-center gap-2 px-6 py-3 text-sm" style={{ borderRadius: "8px" }}>
                 Sign in to the workspace
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
               </button>
@@ -235,8 +280,30 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         </div>
       </section>
 
-      {/* Demo */}
+      {/* Three ways in */}
       <section className="mx-auto max-w-6xl px-5 pb-28 sm:px-8">
+        <div className="reveal mb-10 grid gap-4 md:grid-cols-2 md:items-end">
+          <div>
+            <p className="landing-eyebrow">Getting started</p>
+            <h2 className="landing-h2">Three steps, no SQL.</h2>
+          </div>
+          <p className="max-w-md text-sm leading-relaxed md:justify-self-end" style={{ color: "var(--text-secondary)" }}>
+            Nothing to install and no schema to learn. Bring a question, leave with an answer you can check.
+          </p>
+        </div>
+        <div className="grid gap-8 border-t pt-8 md:grid-cols-3" style={{ borderColor: "var(--text-primary)" }}>
+          {WAYS_IN.map((w) => (
+            <div key={w.k} className="reveal">
+              <p className="font-mono text-xs" style={{ color: "var(--accent)" }}>{w.k}</p>
+              <h3 className="mt-3 text-lg font-semibold" style={{ color: "var(--text-primary)" }}>{w.t}</h3>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{w.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Demo */}
+      <section id="product" className="mx-auto max-w-6xl scroll-mt-20 px-5 pb-28 sm:px-8">
         <div className="grid items-center gap-10 lg:grid-cols-12">
           <div className="reveal lg:col-span-5">
             <p className="landing-eyebrow">What you get back</p>
@@ -273,6 +340,26 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         </ol>
       </section>
 
+      {/* Security */}
+      <section id="security" className="mx-auto max-w-6xl scroll-mt-20 px-5 pb-28 sm:px-8">
+        <div className="reveal mb-10 max-w-2xl">
+          <p className="landing-eyebrow">Trust</p>
+          <h2 className="landing-h2">Nothing runs <span className="serif-accent">unseen</span>.</h2>
+          <p className="mt-4 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Safety doesn't depend on the model behaving. Each layer below works even if the one above it fails.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {SECURITY.map((s) => (
+            <article key={s.t} className="reveal landing-card p-6">
+              <span className="material-symbols-outlined text-[22px]" style={{ color: "var(--accent)" }}>{s.icon}</span>
+              <h3 className="mt-4 text-base font-semibold" style={{ color: "var(--text-primary)" }}>{s.t}</h3>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.d}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
       {/* Stats */}
       <section className="mx-auto max-w-6xl px-5 pb-28 sm:px-8">
         <div className="stats grid grid-cols-2 lg:grid-cols-4" style={{ borderTop: "1px solid var(--border-subtle)", borderLeft: "1px solid var(--border-subtle)" }}>
@@ -287,13 +374,55 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         <p className="mt-3 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>From the project's published evaluation; details in the admin console.</p>
       </section>
 
-      {/* Roles */}
+      {/* What you can ask */}
       <section className="mx-auto max-w-6xl px-5 pb-28 sm:px-8">
         <div className="reveal mb-10 max-w-2xl">
-          <p className="landing-eyebrow">One workspace, three views of the data</p>
+          <p className="landing-eyebrow">Examples</p>
+          <h2 className="landing-h2">Questions people actually ask.</h2>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {ASK_GROUPS.map((g) => (
+            <div key={g.r} className="reveal landing-card p-5">
+              <p className="font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--accent)" }}>{g.r}</p>
+              <ul className="mt-3 space-y-2.5">
+                {g.qs.map((q) => (
+                  <li key={q} className="text-sm leading-snug" style={{ color: "var(--text-secondary)" }}>&ldquo;{q}&rdquo;</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Data */}
+      <section className="mx-auto max-w-6xl px-5 pb-28 sm:px-8">
+        <div className="reveal landing-card grid gap-10 p-8 lg:grid-cols-12 lg:p-10">
+          <div className="lg:col-span-5">
+            <p className="landing-eyebrow">Under the hood</p>
+            <h2 className="landing-h2">A real college, in one schema.</h2>
+            <p className="mt-4 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              Students, faculty, timetables, exams, fees, the library and placements, all related the way a
+              real ERP is. After signing in, the Schema Explorer draws it as an interactive diagram.
+            </p>
+          </div>
+          <dl className="grid grid-cols-2 gap-6 lg:col-span-7">
+            {DATA_FACTS.map((f) => (
+              <div key={f.l}>
+                <dt className="font-display" style={{ fontSize: "clamp(2rem, 4vw, 2.8rem)", lineHeight: 1, color: "var(--text-primary)" }}>{f.v}</dt>
+                <dd className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>{f.l}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* Roles */}
+      <section id="roles" className="mx-auto max-w-6xl scroll-mt-20 px-5 pb-28 sm:px-8">
+        <div className="reveal mb-10 max-w-2xl">
+          <p className="landing-eyebrow">One workspace, four views of the data</p>
           <h2 className="landing-h2">Who you are decides what exists.</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {ROLES.map((r) => (
             <article key={r.r} className="reveal landing-card p-6">
               <span className="material-symbols-outlined text-[22px]" style={{ color: "var(--accent)" }}>{r.icon}</span>
@@ -304,22 +433,58 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section id="faq" className="mx-auto max-w-3xl scroll-mt-20 px-5 pb-28 sm:px-8">
+        <div className="reveal mb-8 text-center">
+          <p className="landing-eyebrow">FAQ</p>
+          <h2 className="landing-h2">Good questions.</h2>
+        </div>
+        <div className="reveal" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+          {FAQ.map((f) => (
+            <details key={f.q} className="faq py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
+              <summary className="flex items-center justify-between gap-4 text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
+                {f.q}
+                <span aria-hidden className="faq-icon material-symbols-outlined text-[20px]" style={{ color: "var(--text-muted)" }}>add</span>
+              </summary>
+              <p className="mt-3 pr-8 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="mx-auto max-w-6xl px-5 pb-24 sm:px-8">
         <div className="reveal landing-cta relative overflow-hidden px-8 py-14 text-center sm:px-16">
           <h2 className="landing-h2 mx-auto max-w-2xl">Your questions, answered safely.</h2>
           <p className="mx-auto mt-4 max-w-lg text-sm" style={{ color: "var(--text-secondary)" }}>
-            Sign in with your college account or with Google, if your administrator has linked it.
+            Sign in with your college account, or continue with any Google account for guest access.
           </p>
-          <button onClick={onSignIn} className="glow-button mt-8 inline-flex items-center gap-2 px-7 py-3 text-sm" style={{ borderRadius: "2px" }}>
+          <button onClick={onSignIn} className="glow-button mt-8 inline-flex items-center gap-2 px-7 py-3 text-sm" style={{ borderRadius: "8px" }}>
             Sign in <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
           </button>
         </div>
       </section>
 
-      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-8 font-mono text-[11px] sm:px-8" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
-        <span>SQL.AI Guardrails · college_erp</span>
-        <span>Read-only by default · RLS-scoped · Every query audited</span>
+      <footer className="mx-auto max-w-6xl px-5 py-10 sm:px-8" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div className="flex flex-wrap items-start justify-between gap-8">
+          <div className="max-w-xs">
+            <p className="font-display text-xl" style={{ color: "var(--text-primary)" }}>SQL.AI Guardrails</p>
+            <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>Safe, explainable Text-to-SQL for the college ERP. Built by the G-52 project team.</p>
+          </div>
+          <nav aria-label="Footer" className="flex gap-12 text-sm" style={{ color: "var(--text-secondary)" }}>
+            <ul className="space-y-2">
+              <li><a href="#product" className="hover:text-[var(--text-primary)]">Product</a></li>
+              <li><a href="#how" className="hover:text-[var(--text-primary)]">How it works</a></li>
+              <li><a href="#security" className="hover:text-[var(--text-primary)]">Security</a></li>
+            </ul>
+            <ul className="space-y-2">
+              <li><a href="#faq" className="hover:text-[var(--text-primary)]">FAQ</a></li>
+              <li><a href="https://github.com/Text-To-SQL-Project/G-52-Project" target="_blank" rel="noreferrer" className="hover:text-[var(--text-primary)]">GitHub</a></li>
+              <li><button onClick={onSignIn} className="hover:text-[var(--text-primary)]">Open the workspace</button></li>
+            </ul>
+          </nav>
+        </div>
+        <p className="mt-8 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>Read-only by default · RLS-scoped · Every query audited</p>
       </footer>
     </div>
   );

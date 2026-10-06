@@ -16,7 +16,7 @@ const SIGNAL_COLOR: Record<SignalStatus, string> = {
 
 const SIGNAL_SHAPE: Record<SignalStatus, { borderRadius: string; background: string }> = {
   pass: { borderRadius: "50%", background: "var(--success)" },
-  warn: { borderRadius: "2px", background: "var(--warning)" },
+  warn: { borderRadius: "8px", background: "var(--warning)" },
   fail: { borderRadius: "1px", background: "var(--danger)" },
   pending: { borderRadius: "50%", background: "transparent" },
 };
@@ -29,7 +29,7 @@ const LABEL_COLOR: Record<string, string> = {
 
 function CardShell({ children }: { children: ReactNode }) {
   return (
-    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
       {children}
     </section>
   );
@@ -85,7 +85,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
                 padding: "2px 8px",
                 border: "1px solid var(--border-hairline)",
                 color: "var(--text-secondary)",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
             >
               verifying {pending.length} check{pending.length > 1 ? "s" : ""}
@@ -104,7 +104,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
                 border: "1px solid var(--border-accent)",
                 background: "var(--accent-dim)",
                 color: "var(--accent)",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
             >
               uncalibrated

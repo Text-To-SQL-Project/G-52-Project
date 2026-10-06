@@ -16,7 +16,7 @@ export function GuardrailBanner({ guardrail }: { guardrail: GuardrailReport }) {
         <span
           aria-hidden
           className="mt-0.5 inline-flex h-[17px] w-[17px] shrink-0 items-center justify-center"
-          style={{ background: "var(--danger)", borderRadius: "2px", color: "var(--on-danger)" }}
+          style={{ background: "var(--danger)", borderRadius: "8px", color: "var(--on-danger)" }}
         >
           <span className="block h-[1.5px] w-[9px] rounded-full bg-current" />
         </span>

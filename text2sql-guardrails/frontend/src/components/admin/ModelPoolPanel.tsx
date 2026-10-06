@@ -18,7 +18,7 @@ const label = "font-mono text-[10px] uppercase tracking-wider";
 const field: React.CSSProperties = {
   background: "var(--bg-void)",
   border: "1px solid var(--border-hairline)",
-  borderRadius: "2px",
+  borderRadius: "8px",
   color: "var(--text-primary)",
 };
 const fmtMs = (ms?: number | null) => (ms == null ? "—" : ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`);
@@ -91,7 +91,7 @@ function Row({ d, health, onRemove }: { d: PoolDeployment; health?: string | tru
           }}
           className="px-2.5 py-1 font-mono text-[11px] transition-colors"
           style={{
-            borderRadius: "2px",
+            borderRadius: "8px",
             border: `1px solid ${confirming ? "var(--danger)" : "var(--border-hairline)"}`,
             color: confirming ? "var(--danger)" : "var(--text-secondary)",
             background: confirming ? "color-mix(in srgb, var(--danger) 8%, transparent)" : "transparent",
@@ -143,7 +143,7 @@ export function ModelPoolPanel() {
   };
 
   return (
-    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }} aria-labelledby="pool-title">
+    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }} aria-labelledby="pool-title">
       <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>hub</span>
@@ -162,7 +162,7 @@ export function ModelPoolPanel() {
         </p>
 
         {error && (
-          <p role="alert" className="px-3 py-2 text-xs" style={{ border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", color: "var(--danger)", borderRadius: "2px" }}>
+          <p role="alert" className="px-3 py-2 text-xs" style={{ border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", color: "var(--danger)", borderRadius: "8px" }}>
             {error}
           </p>
         )}
@@ -215,7 +215,7 @@ export function ModelPoolPanel() {
                   finally { setChecking(false); }
                 }}
                 className="px-3 py-1.5 font-mono text-[11px] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
-                style={{ border: "1px solid var(--border-hairline)", borderRadius: "2px", color: "var(--text-secondary)" }}
+                style={{ border: "1px solid var(--border-hairline)", borderRadius: "8px", color: "var(--text-secondary)" }}
               >
                 {checking ? "Checking every key…" : "Check health"}
               </button>
@@ -249,7 +249,7 @@ export function ModelPoolPanel() {
                 <input name="api_base" type="url" maxLength={500} placeholder="https://…" className="px-2.5 py-2 font-mono text-xs" style={field} />
               </label>
               <div className="flex items-end sm:col-span-3">
-                <button type="submit" disabled={saving} className="glow-button w-full px-4 py-2 font-sans text-xs font-semibold disabled:opacity-50" style={{ borderRadius: "2px" }}>
+                <button type="submit" disabled={saving} className="glow-button w-full px-4 py-2 font-sans text-xs font-semibold disabled:opacity-50" style={{ borderRadius: "8px" }}>
                   {saving ? "Adding…" : "Add key"}
                 </button>
               </div>

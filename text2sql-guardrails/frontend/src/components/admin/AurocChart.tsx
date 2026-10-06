@@ -77,7 +77,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
   }));
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "20px" }}>
+    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
@@ -92,7 +92,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 border: "1px solid rgb(var(--success-soft-rgb) / 0.3)",
                 background: "rgb(var(--success-soft-rgb) / 0.1)",
                 color: "rgb(var(--success-soft-rgb))",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
             >
               Live Verified
@@ -109,7 +109,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
           style={{
             border: "1px solid var(--border-subtle)",
             background: "var(--bg-void)",
-            borderRadius: "2px",
+            borderRadius: "8px",
           }}
         >
           <button
@@ -118,7 +118,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             className="font-mono text-xs transition-colors duration-150"
             style={{
               padding: "4px 10px",
-              borderRadius: "2px",
+              borderRadius: "8px",
               border: activeTab === "summary" ? "1px solid var(--border-accent)" : "1px solid transparent",
               background: activeTab === "summary" ? "var(--accent-dim)" : "transparent",
               color: activeTab === "summary" ? "var(--accent)" : "var(--text-muted)",
@@ -133,7 +133,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             className="font-mono text-xs transition-colors duration-150"
             style={{
               padding: "4px 10px",
-              borderRadius: "2px",
+              borderRadius: "8px",
               border: activeTab === "ablation" ? "1px solid var(--border-accent)" : "1px solid transparent",
               background: activeTab === "ablation" ? "var(--accent-dim)" : "transparent",
               color: activeTab === "ablation" ? "var(--accent)" : "var(--text-muted)",
@@ -148,7 +148,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             className="font-mono text-xs transition-colors duration-150"
             style={{
               padding: "4px 10px",
-              borderRadius: "2px",
+              borderRadius: "8px",
               border: activeTab === "persignal" ? "1px solid var(--border-accent)" : "1px solid transparent",
               background: activeTab === "persignal" ? "var(--accent-dim)" : "transparent",
               color: activeTab === "persignal" ? "var(--accent)" : "var(--text-muted)",
@@ -183,7 +183,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
               style={{
                 border: "1px solid rgb(var(--danger-rgb) / 0.3)",
                 background: "rgb(var(--danger-rgb) / 0.08)",
-                borderRadius: "2px",
+                borderRadius: "8px",
                 padding: "12px",
                 color: "var(--danger-text)",
               }}
@@ -214,7 +214,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
-                    borderRadius: "2px",
+                    borderRadius: "8px",
                     color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
@@ -250,7 +250,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 className="font-mono text-xs transition-colors"
                 style={{
                   padding: "2px 8px",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   border: selectedProvider === "Anthropic" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
                   background: selectedProvider === "Anthropic" ? "var(--accent-dim)" : "transparent",
                   color: selectedProvider === "Anthropic" ? "var(--accent)" : "var(--text-muted)",
@@ -264,7 +264,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 className="font-mono text-xs transition-colors"
                 style={{
                   padding: "2px 8px",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   border: selectedProvider === "Gemini" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
                   background: selectedProvider === "Gemini" ? "var(--accent-dim)" : "transparent",
                   color: selectedProvider === "Gemini" ? "var(--accent)" : "var(--text-muted)",
@@ -296,7 +296,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
-                    borderRadius: "2px",
+                    borderRadius: "8px",
                     color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
@@ -332,7 +332,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 className="font-mono text-xs transition-colors"
                 style={{
                   padding: "2px 8px",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   border: selectedProvider === "Anthropic" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
                   background: selectedProvider === "Anthropic" ? "var(--accent-dim)" : "transparent",
                   color: selectedProvider === "Anthropic" ? "var(--accent)" : "var(--text-muted)",
@@ -346,7 +346,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 className="font-mono text-xs transition-colors"
                 style={{
                   padding: "2px 8px",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   border: selectedProvider === "Gemini" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
                   background: selectedProvider === "Gemini" ? "var(--accent-dim)" : "transparent",
                   color: selectedProvider === "Gemini" ? "var(--accent)" : "var(--text-muted)",
@@ -376,7 +376,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   contentStyle={{
                     backgroundColor: "var(--bg-surface)",
                     borderColor: "var(--border-subtle)",
-                    borderRadius: "2px",
+                    borderRadius: "8px",
                     color: "var(--text-primary)",
                     fontSize: "0.75rem",
                   }}
