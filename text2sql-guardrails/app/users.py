@@ -198,15 +198,30 @@ def set_email(user_id: int, email: str | None) -> bool:
     """Link (or with None, unlink) an email. Returns False for an unknown user."""
     from sqlalchemy.exc import IntegrityError
 
+    released: list[int] = []
     try:
         with get_engine().begin() as conn:
+            if email:
+                # An auto-created guest (open Google sign-up) may already hold
+                # this address. Linking it to a real account takes it over: the
+                # guest is unlinked and deactivated in the same transaction.
+                released = [r[0] for r in conn.execute(
+                    text(
+                        "UPDATE app.users SET email = NULL, is_active = false "
+                        "WHERE lower(email) = lower(:e) AND role = 'guest' AND user_id <> :u "
+                        "AND EXISTS (SELECT 1 FROM app.users WHERE user_id = :u) "
+                        "RETURNING user_id"
+                    ),
+                    {"e": email, "u": user_id},
+                )]
             n = conn.execute(
                 text("UPDATE app.users SET email = :e WHERE user_id = :u"),
                 {"e": email.lower() if email else None, "u": user_id},
             ).rowcount
     except IntegrityError as e:
         raise EmailTaken from e
-    invalidate_principal(user_id)
+    for uid in (user_id, *released):
+        invalidate_principal(uid)
     return n == 1
 
 
