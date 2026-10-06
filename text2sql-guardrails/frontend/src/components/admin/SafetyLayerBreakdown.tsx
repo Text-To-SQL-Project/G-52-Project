@@ -43,7 +43,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>security</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+            <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Multi-Layer Safety Stack Breakdown
             </h3>
             <span

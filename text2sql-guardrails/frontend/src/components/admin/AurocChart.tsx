@@ -82,7 +82,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>analytics</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+            <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Confidence AUROC &amp; Ablation Analysis
             </h3>
             <span

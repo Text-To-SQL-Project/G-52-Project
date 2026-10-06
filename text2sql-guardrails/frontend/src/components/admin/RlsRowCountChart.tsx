@@ -51,7 +51,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
         <div>
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>policy</span>
-            <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+            <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Row Level Security (RLS) Scoping Impact
             </h3>
             <span

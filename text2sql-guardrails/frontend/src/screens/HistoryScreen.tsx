@@ -123,7 +123,7 @@ export function HistoryScreen() {
           <span className="material-symbols-outlined mb-3 text-[24px]" style={{ color: "var(--text-ghost)" }}>
             history
           </span>
-          <p className="font-display text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
             No query history yet
           </p>
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>

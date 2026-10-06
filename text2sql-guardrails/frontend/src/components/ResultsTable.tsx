@@ -64,7 +64,7 @@ export function ResultsTable({ results, executed }: Props) {
       >
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>table_chart</span>
-          <h3 className="font-display text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+          <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
             Query Results
           </h3>
         </div>
@@ -122,7 +122,7 @@ export function ResultsTable({ results, executed }: Props) {
       {!executed || !results ? (
         <div className="px-6 py-12 text-center">
           <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>block</span>
-          <p className="font-display text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Query not executed</p>
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Query not executed</p>
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
             No SQL was executed against the database.
           </p>
@@ -130,7 +130,7 @@ export function ResultsTable({ results, executed }: Props) {
       ) : results.rows.length === 0 ? (
         <div className="px-6 py-12 text-center">
           <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>search_off</span>
-          <p className="font-display text-sm font-medium" style={{ color: "var(--text-secondary)" }}>No matching records</p>
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>No matching records</p>
           <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
             The query executed successfully and matched 0 rows.
           </p>

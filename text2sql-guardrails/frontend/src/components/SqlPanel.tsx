@@ -1,8 +1,22 @@
 import { useState, useEffect, useRef } from "react";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
-import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useTheme } from "../hooks/useTheme";
+import type { CSSProperties } from "react";
+
+// Warm SQL palette from the app's own tokens, so one style serves both
+// themes (stock prism themes brought in blue and purple).
+const SQL_STYLE: Record<string, CSSProperties> = {
+  'code[class*="language-"]': { color: "var(--text-primary)" },
+  'pre[class*="language-"]': { color: "var(--text-primary)" },
+  keyword: { color: "var(--accent)", fontWeight: 600 },
+  function: { color: "var(--text-primary)", fontWeight: 600 },
+  string: { color: "var(--success)" },
+  number: { color: "var(--chart-orange)" },
+  boolean: { color: "var(--chart-orange)" },
+  operator: { color: "var(--text-secondary)" },
+  punctuation: { color: "var(--text-muted)" },
+  comment: { color: "var(--text-muted)", fontStyle: "italic" },
+};
 
 // Light build + SQL only: the full Prism bundle ships every language (~500 KB).
 SyntaxHighlighter.registerLanguage("sql", sql);
@@ -55,7 +69,6 @@ export function SqlPanel({
   onRerun,
   rerunning,
 }: Props) {
-  const theme = useTheme();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sql ?? "");
   const [copied, setCopied] = useState(false);
@@ -217,7 +230,7 @@ export function SqlPanel({
           <div className="sql-editor-card overflow-hidden">
             <SyntaxHighlighter
               language="sql"
-              style={theme === "dark" ? oneDark : oneLight}
+              style={SQL_STYLE}
               customStyle={{
                 margin: 0,
                 background: "transparent",
