@@ -75,7 +75,6 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
               borderRadius: "8px",
-              boxShadow: "0 0 15px var(--accent-glow)",
             }}
           >
             <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>
@@ -83,9 +82,8 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <h1 className="font-display text-[15px] font-bold tracking-tight text-[var(--text-primary)]">
-              SQL<span style={{ color: "var(--accent)" }}>.</span>AI{" "}
-              <span className="gradient-text font-semibold">Guardrails</span>
+            <h1 className="font-display text-lg text-[var(--text-primary)]">
+              SQL.AI <span className="serif-accent">Guardrails</span>
             </h1>
             <span
               className="pill-tag hidden px-2 py-0.5 font-mono text-[10px] sm:inline-block"

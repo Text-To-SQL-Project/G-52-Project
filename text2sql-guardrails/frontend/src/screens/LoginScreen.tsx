@@ -122,18 +122,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
           <span className="material-symbols-outlined text-[16px]">arrow_back</span> Back
         </button>
       )}
-      {/* Ambient orb glow behind the form */}
-      <div
-        className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2"
-        style={{
-          width: "500px",
-          height: "500px",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, rgb(var(--accent-rgb) / 0.08) 0%, transparent 70%)",
-          animation: "glow-pulse 4s ease-in-out infinite",
-        }}
-      />
-
       <div ref={formRef} className="w-full max-w-md space-y-0">
         {/* Brand — oversized, editorial */}
         <div className="mb-10 text-center" style={{ opacity: 0 }}>
@@ -142,8 +130,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             style={{
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
-              borderRadius: "8px",
-              boxShadow: "0 0 25px var(--accent-glow)",
+              borderRadius: "10px",
             }}
           >
             <span className="material-symbols-outlined text-[24px]" style={{ color: "var(--accent)" }}>
@@ -151,11 +138,10 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             </span>
           </div>
           <h1
-            className="font-display font-bold text-[var(--text-primary)]"
-            style={{ fontSize: "clamp(1.75rem, 5vw, 2.5rem)", letterSpacing: "-0.04em" }}
+            className="font-display text-[var(--text-primary)]"
+            style={{ fontSize: "clamp(2.25rem, 6vw, 3rem)", lineHeight: 1.05, letterSpacing: "-0.02em" }}
           >
-            SQL<span style={{ color: "var(--accent)" }}>.</span>AI{" "}
-            <span className="gradient-text">Guardrails</span>
+            SQL.AI <span className="serif-accent">Guardrails</span>
           </h1>
           <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
             Sign in to access your secure Text-to-SQL workspace
