@@ -212,86 +212,22 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   LIVE WALLPAPER — from LiveBackground.tsx
+   BACKGROUND — from LiveBackground.tsx
+   One static layer: paper tone, two faint warm washes, film grain.
+   No animation: it never repaints, so it costs nothing after first paint.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.bg-depth {
+.app-bg {
   background:
-    linear-gradient(to bottom, rgb(var(--void-rgb) / 0) 0%, rgb(var(--void-rgb) / 0.7) 100%),
-    radial-gradient(120% 80% at 50% -10%, rgb(var(--elevated-rgb) / 0.5) 0%, rgb(var(--void-rgb) / 0) 60%);
+    radial-gradient(70rem 42rem at 88% -12%, rgb(var(--accent-rgb) / 0.08), transparent 70%),
+    radial-gradient(56rem 36rem at -8% 108%, rgb(var(--accent-rgb) / 0.045), transparent 70%),
+    var(--bg-void);
 }
-
-.bg-grid {
-  background-image:
-    linear-gradient(to right, rgb(var(--accent-rgb) / 0.025) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(var(--accent-rgb) / 0.025) 1px, transparent 1px);
-  background-size: 64px 64px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 38%, #000 10%, transparent 70%);
-  mask-image: radial-gradient(ellipse 70% 55% at 50% 38%, #000 10%, transparent 70%);
-  will-change: transform;
-  animation: grid-drift 50s linear infinite;
-}
-
-@keyframes grid-drift {
-  to { transform: translate3d(64px, 64px, 0); }
-}
-
-/* Blooms: subtle amber fields on neutral obsidian */
-.bg-bloom {
+/* Grain breaks up gradient banding on cheap screens and projectors. */
+.app-bg::after {
+  content: "";
   position: absolute;
-  border-radius: 9999px;
-  will-change: transform;
-}
-
-.bg-bloom-a {
-  width: 60rem; height: 46rem;
-  left: -14rem; bottom: -18rem;
-  background: radial-gradient(closest-side, rgb(var(--accent-rgb) / 0.06), rgb(var(--accent-rgb) / 0) 100%);
-  animation: bloom-a 37s ease-in-out infinite alternate;
-}
-.bg-bloom-b {
-  width: 52rem; height: 42rem;
-  right: -12rem; bottom: -14rem;
-  background: radial-gradient(closest-side, rgb(var(--accent-rgb) / 0.04), rgb(var(--accent-rgb) / 0) 100%);
-  animation: bloom-b 43s ease-in-out infinite alternate;
-}
-.bg-bloom-c {
-  width: 46rem; height: 36rem;
-  left: 32%; top: -14rem;
-  background: radial-gradient(closest-side, rgb(var(--accent-rgb) / 0.05), rgb(var(--accent-rgb) / 0) 100%);
-  animation: bloom-c 53s ease-in-out infinite alternate;
-}
-
-@keyframes bloom-a {
-  from { transform: translate3d(-3%, 2%, 0) scale(1); }
-  to { transform: translate3d(8%, -5%, 0) scale(1.12); }
-}
-@keyframes bloom-b {
-  from { transform: translate3d(4%, 0, 0) scale(1.08); }
-  to { transform: translate3d(-6%, -6%, 0) scale(1); }
-}
-@keyframes bloom-c {
-  from { transform: translate3d(-5%, -2%, 0) scale(1); }
-  to { transform: translate3d(6%, 6%, 0) scale(1.15); }
-}
-
-.bg-scan {
-  top: 0; height: 45vh;
-  background: linear-gradient(
-    to bottom,
-    rgb(var(--accent-rgb) / 0) 0%,
-    rgb(var(--accent-rgb) / 0.02) 50%,
-    rgb(var(--accent-rgb) / 0) 100%
-  );
-  will-change: transform;
-  animation: scan 19s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-@keyframes scan {
-  from { transform: translate3d(0, -50vh, 0); }
-  to { transform: translate3d(0, 145vh, 0); }
-}
-
-.bg-grain {
+  inset: 0;
   opacity: 0.035;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -663,7 +599,7 @@ textarea:-webkit-autofill {
   backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--border-subtle);
 }
-/* Drifting gradient mesh behind the hero: transform-only, so it stays on the GPU. */
+/* Static warm glow behind the hero (GSAP adds a scroll parallax only). */
 .mesh::before,
 .mesh::after {
   content: "";
@@ -673,22 +609,17 @@ textarea:-webkit-autofill {
   border-radius: 50%;
   filter: blur(80px);
   opacity: 0.55;
-  will-change: transform;
 }
 .mesh::before {
   top: -30vmax;
   left: -12vmax;
   background: radial-gradient(circle, rgb(var(--accent-rgb) / 0.32), transparent 62%);
-  animation: mesh-a 22s ease-in-out infinite alternate;
 }
 .mesh::after {
   top: -10vmax;
   right: -22vmax;
   background: radial-gradient(circle, rgb(var(--accent-bright-rgb) / 0.22), transparent 60%);
-  animation: mesh-b 28s ease-in-out infinite alternate;
 }
-@keyframes mesh-a { to { transform: translate(14vmax, 8vmax) scale(1.15); } }
-@keyframes mesh-b { to { transform: translate(-12vmax, 12vmax) scale(0.9); } }
 
 .landing-eyebrow {
   font-family: var(--font-mono);
@@ -782,7 +713,7 @@ textarea:-webkit-autofill {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mesh::before, .mesh::after, .landing-caret { animation: none; }
+  .landing-caret { animation: none; }
 }
 
 /* ── App motion ────────────────────────────────────────────────────────── */
