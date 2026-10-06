@@ -158,7 +158,7 @@ export function HistoryScreen() {
                 <div className="mt-2">
                   <code
                     className="sql-editor-card block truncate p-2.5 font-mono text-xs"
-                    style={{ color: "var(--accent)" }}
+                    style={{ color: "var(--text-secondary)" }}
                   >
                     {item.sql_preview}
                   </code>

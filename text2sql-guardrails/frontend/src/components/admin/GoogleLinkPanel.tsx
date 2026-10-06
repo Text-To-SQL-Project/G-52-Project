@@ -103,8 +103,9 @@ export function GoogleLinkPanel() {
 
       <div className="space-y-5 p-6">
         <p className="max-w-prose text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-          A Google account can sign in only as the user whose email matches here. Accounts are
-          never created from Google, so each user keeps the role and data access you assigned.
+          A linked Google email signs in as that user, with their role and data access. Any other
+          Google account gets a guest login that sees reference data only. Linking a guest's
+          email to a user here moves it to that user and closes the guest account.
         </p>
         {error && <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
         {users && (
