@@ -38,7 +38,7 @@ export function ClarificationPanel({ clarification, onSelect }: Props) {
                   border: "1px solid var(--border-accent)",
                   background: "var(--accent-dim)",
                   color: "var(--accent)",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   padding: "8px 14px",
                 }}
                 className="animate-rise text-left text-sm transition duration-200 focus-visible:outline-none"

@@ -74,7 +74,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
             style={{
               border: "1px solid var(--border-accent)",
               background: "var(--accent-dim)",
-              borderRadius: "2px",
+              borderRadius: "8px",
               boxShadow: "0 0 15px var(--accent-glow)",
             }}
           >
@@ -89,7 +89,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
             </h1>
             <span
               className="pill-tag hidden px-2 py-0.5 font-mono text-[10px] sm:inline-block"
-              style={{ borderRadius: "2px" }}
+              style={{ borderRadius: "8px" }}
             >
               college_erp
             </span>
@@ -162,7 +162,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                   style={{
                     border: "1px solid var(--border-hairline)",
                     background: "rgb(var(--ink-rgb) / 0.03)",
-                    borderRadius: "2px",
+                    borderRadius: "8px",
                   }}
                 >
                   <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>
@@ -197,7 +197,7 @@ export function NavBar({ active, onChange, me, meLoading }: Props) {
                 color: "var(--text-secondary)",
                 border: "1px solid var(--border-subtle)",
                 background: "transparent",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = "rgb(var(--danger-soft-rgb) / 0.3)";

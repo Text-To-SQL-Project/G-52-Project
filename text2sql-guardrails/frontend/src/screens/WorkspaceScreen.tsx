@@ -18,7 +18,7 @@ import type { Confidence, QueryResponse, UserRole } from "../types/api";
 
 function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <div className="flow-border animate-rise overflow-hidden" role="status" style={{ borderRadius: "2px" }}>
+    <div className="flow-border animate-rise overflow-hidden" role="status" style={{ borderRadius: "8px" }}>
       <div className="flex items-center justify-between px-6 py-4 text-sm">
         <div className="flex items-center gap-3" style={{ color: "var(--text-primary)" }}>
           <span
@@ -38,7 +38,7 @@ function RunningPanel({ isAdmin }: { isAdmin: boolean }) {
             border: isAdmin ? "1px solid rgb(var(--accent-bright-rgb) / 0.3)" : "1px solid var(--border-accent)",
             background: isAdmin ? "rgb(var(--accent-bright-rgb) / 0.06)" : "var(--accent-dim)",
             color: isAdmin ? "var(--accent-bright)" : "var(--accent)",
-            borderRadius: "2px",
+            borderRadius: "8px",
           }}
         >
           {isAdmin ? "Admin Superuser Engine" : "Dual AST + Learned Confidence Pipeline"}

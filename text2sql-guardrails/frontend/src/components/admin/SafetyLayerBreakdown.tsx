@@ -38,7 +38,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
   ];
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "20px" }}>
+    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
@@ -53,7 +53,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
                 border: "1px solid var(--border-accent)",
                 background: "var(--accent-dim)",
                 color: "var(--accent)",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
             >
               Separately Measured
@@ -84,7 +84,7 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               contentStyle={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
-                borderRadius: "2px",
+                borderRadius: "8px",
                 color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
@@ -101,14 +101,14 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 text-xs">
-        <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "12px" }}>
+        <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "12px" }}>
           <p className="font-semibold text-[var(--text-primary)]/80">Layer 2: AST Guardrail (sqlglot)</p>
           <p className="mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Deterministic static parsing: 100% block rate on 30 direct adversarial SQL queries (DDL, DML,
             stacked injections). Evaluated without any LLM in the path; model-independent by construction.
           </p>
         </div>
-        <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "12px" }}>
+        <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "12px" }}>
           <p className="font-semibold text-[var(--text-primary)]/80">Layer 1: LLM Refusal &amp; Clarification</p>
           <p className="mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>
             Model-level structured refusal: distinguishes unsafe requests (<code style={{ color: "var(--text-secondary)" }}>REFUSED</code>)

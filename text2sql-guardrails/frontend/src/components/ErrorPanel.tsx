@@ -12,7 +12,7 @@ export function ErrorPanel({ message }: { message?: string | null }) {
         <span
           aria-hidden
           className="mt-px inline-flex h-[17px] w-[17px] shrink-0 rotate-45 items-center justify-center"
-          style={{ border: "1px solid var(--text-secondary)", borderRadius: "2px", color: "var(--text-secondary)" }}
+          style={{ border: "1px solid var(--text-secondary)", borderRadius: "8px", color: "var(--text-secondary)" }}
         >
           <span className="block -rotate-45 text-[10px] font-bold leading-none">!</span>
         </span>

@@ -57,7 +57,7 @@ export function ResultsTable({ results, executed }: Props) {
   };
 
   return (
-    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px" }}>
+    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
       <header
         className="flex items-center justify-between gap-3 px-6 py-3.5"
         style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
@@ -84,7 +84,7 @@ export function ResultsTable({ results, executed }: Props) {
                   border: "1px solid rgb(var(--accent-bright-rgb) / 0.3)",
                   background: "rgb(var(--accent-bright-rgb) / 0.06)",
                   color: "var(--warning)",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                 }}
               >
                 capped
@@ -100,7 +100,7 @@ export function ResultsTable({ results, executed }: Props) {
                   border: "1px solid var(--border-subtle)",
                   background: "transparent",
                   color: "var(--text-secondary)",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = "var(--border-accent)";

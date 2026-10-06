@@ -18,7 +18,7 @@ function Key({ children }: { children: string }) {
         border: "1px solid var(--border-hairline)",
         background: "rgb(var(--ink-rgb) / 0.03)",
         color: "var(--text-secondary)",
-        borderRadius: "2px",
+        borderRadius: "8px",
       }}
     >
       {children}
@@ -27,28 +27,28 @@ function Key({ children }: { children: string }) {
 }
 
 // Guests see reference tables only (no personal rows), so these stick to them.
-const GUEST_SAMPLE_QUERIES = [
+export const GUEST_SAMPLE_QUERIES = [
   "How many programs does each department offer?",
   "Which library book categories have the most titles?",
   "List the highest-paying placement drives",
   "How many credits are subjects in semester 3?",
 ];
 
-const STUDENT_SAMPLE_QUERIES = [
+export const STUDENT_SAMPLE_QUERIES = [
   "What are my marks in each subject?",
   "Show my attendance percentage",
   "What is my fee payment history?",
   "Which departments have the most students?",
 ];
 
-const FACULTY_SAMPLE_QUERIES = [
+export const FACULTY_SAMPLE_QUERIES = [
   "What is the average marks obtained per subject?",
   "Which students have attendance below 75%?",
   "List average GPA by department",
   "Which departments have the most students?",
 ];
 
-const ADMIN_SAMPLE_QUERIES = [
+export const ADMIN_SAMPLE_QUERIES = [
   "Which departments have the most students?",
   "List average GPA by department",
   "What is the average marks obtained per subject?",
@@ -163,7 +163,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
                 border: "1px solid rgb(var(--accent-bright-rgb) / 0.3)",
                 background: "rgb(var(--accent-bright-rgb) / 0.06)",
                 color: "var(--accent-bright)",
-                borderRadius: "2px",
+                borderRadius: "8px",
                 boxShadow: "0 0 12px rgb(var(--accent-bright-rgb) / 0.1)",
               }}
             >
@@ -260,7 +260,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
               border: "1px solid var(--border-subtle)",
               background: "transparent",
               color: "var(--text-secondary)",
-              borderRadius: "2px",
+              borderRadius: "8px",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = "var(--border-accent)";
@@ -297,7 +297,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
           onClick={submit}
           disabled={loading || !value.trim()}
           className="glow-button flex items-center gap-2 px-7 py-2.5 font-sans text-sm font-semibold transition-all"
-          style={{ borderRadius: "2px" }}
+          style={{ borderRadius: "8px" }}
         >
           {loading ? (
             <>

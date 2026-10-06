@@ -26,7 +26,7 @@ function FeedbackChip({ feedback }: { feedback?: boolean | null }) {
           border: "1px solid rgb(var(--success-soft-rgb) / 0.3)",
           background: "rgb(var(--success-soft-rgb) / 0.06)",
           color: "var(--success)",
-          borderRadius: "2px",
+          borderRadius: "8px",
         }}
       >
         correct
@@ -43,7 +43,7 @@ function FeedbackChip({ feedback }: { feedback?: boolean | null }) {
           border: "1px solid rgb(var(--danger-soft-rgb) / 0.3)",
           background: "rgb(var(--danger-soft-rgb) / 0.06)",
           color: "var(--danger)",
-          borderRadius: "2px",
+          borderRadius: "8px",
         }}
       >
         incorrect

@@ -46,7 +46,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
   });
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "2px", padding: "20px" }}>
+    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
@@ -61,7 +61,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 border: "1px solid var(--border-accent)",
                 background: "var(--accent-dim)",
                 color: "var(--accent)",
-                borderRadius: "2px",
+                borderRadius: "8px",
               }}
             >
               Interactive Demo
@@ -79,7 +79,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
             style={{
               border: "1px solid var(--border-subtle)",
               background: "var(--bg-void)",
-              borderRadius: "2px",
+              borderRadius: "8px",
             }}
           >
             <button
@@ -88,7 +88,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               className="font-mono text-xs transition-colors duration-150"
               style={{
                 padding: "4px 8px",
-                borderRadius: "2px",
+                borderRadius: "8px",
                 border: selectedPrincipal === "all" ? "1px solid var(--border-accent)" : "1px solid transparent",
                 background: selectedPrincipal === "all" ? "var(--accent-dim)" : "transparent",
                 color: selectedPrincipal === "all" ? "var(--accent)" : "var(--text-muted)",
@@ -105,7 +105,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 className="font-mono text-xs transition-colors duration-150"
                 style={{
                   padding: "4px 8px",
-                  borderRadius: "2px",
+                  borderRadius: "8px",
                   border: selectedPrincipal === p.principal ? "1px solid var(--border-accent)" : "1px solid transparent",
                   background: selectedPrincipal === p.principal ? "var(--accent-dim)" : "transparent",
                   color: selectedPrincipal === p.principal ? "var(--accent)" : "var(--text-muted)",
@@ -149,7 +149,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               contentStyle={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
-                borderRadius: "2px",
+                borderRadius: "8px",
                 color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
@@ -178,7 +178,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
         style={{
           border: "1px solid rgb(var(--accent-rgb) / 0.3)",
           background: "rgb(var(--accent-rgb) / 0.08)",
-          borderRadius: "2px",
+          borderRadius: "8px",
           padding: "12px",
           color: "rgb(var(--accent-pale-rgb))",
         }}

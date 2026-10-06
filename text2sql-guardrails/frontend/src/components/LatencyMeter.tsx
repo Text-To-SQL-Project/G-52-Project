@@ -48,7 +48,7 @@ export function LatencyMeter({ timings }: { timings: Record<string, number> }) {
         style={{
           background: "var(--bg-elevated)",
           border: "1px solid var(--border-hairline)",
-          borderRadius: "2px",
+          borderRadius: "8px",
           boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / 0.35)",
         }}
       >
