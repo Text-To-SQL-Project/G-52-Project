@@ -13,6 +13,7 @@ the same decision.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -207,3 +208,43 @@ def set_email(user_id: int, email: str | None) -> bool:
         raise EmailTaken from e
     invalidate_principal(user_id)
     return n == 1
+
+
+def email_exists(email: str) -> bool:
+    """Any user (active or not) already owns this email."""
+    with get_engine().connect() as conn:
+        return conn.execute(
+            text("SELECT 1 FROM app.users WHERE lower(email) = lower(:e)"), {"e": email}
+        ).first() is not None
+
+
+def create_guest(email: str, password_hash: str) -> Principal | None:
+    """New 'guest' user for an unlinked Google account. Username comes from
+    the email's local part, made unique with a numeric suffix. password_hash
+    is a hash of a random secret nobody knows, so the account can only sign
+    in through Google. Returns None if the email was taken concurrently."""
+    from sqlalchemy.exc import IntegrityError
+
+    base = re.sub(r"[^a-z0-9._-]", "", email.split("@", 1)[0].lower())[:32] or "user"
+    with get_engine().connect() as conn:
+        taken = {r[0] for r in conn.execute(
+            text("SELECT username FROM app.users WHERE username = :b OR username LIKE :p"),
+            {"b": base, "p": base + "%"},
+        )}
+    username = base if base not in taken else next(
+        f"{base}{i}" for i in range(2, 10_000) if f"{base}{i}" not in taken
+    )
+    try:
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                text(
+                    "INSERT INTO app.users (username, password_hash, role, email) "
+                    "VALUES (:u, :h, 'guest', lower(:e)) "
+                    "RETURNING user_id, username, role, student_id, faculty_id, is_active"
+                ),
+                {"u": username, "h": password_hash, "e": email},
+            ).one()
+    except IntegrityError:
+        return None  # same email or username created by a parallel request
+    logger.info("Created guest user_id=%s via Google sign-up", row.user_id)
+    return _row_to_principal(row)

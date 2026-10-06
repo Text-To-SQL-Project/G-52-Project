@@ -145,6 +145,10 @@ class Settings:
     # Cloud Console. Public by design (it ships to the browser); empty hides
     # the button and disables POST /auth/google.
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    # Open sign-up: an unlinked, verified Google account gets a new 'guest'
+    # user (no student/faculty link, so RLS hides every personal row; see
+    # seed/34_guest_role.sql). false = only admin-linked emails may sign in.
+    GOOGLE_OPEN_SIGNUP: bool = os.getenv("GOOGLE_OPEN_SIGNUP", "true").strip().lower() == "true"
     # Sliding 60 s windows (app/http_guard.py). 0 disables.
     RATE_LIMIT_LOGIN_PER_MIN: int = int(os.getenv("RATE_LIMIT_LOGIN_PER_MIN", "10"))
     RATE_LIMIT_QUERY_PER_MIN: int = int(os.getenv("RATE_LIMIT_QUERY_PER_MIN", "30"))

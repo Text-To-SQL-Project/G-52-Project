@@ -220,7 +220,8 @@ export interface LoginResponse {
   role: UserRole;
 }
 
-export type UserRole = "student" | "faculty" | "admin";
+// guest: open Google sign-up, no ERP link; RLS shows reference data only.
+export type UserRole = "student" | "faculty" | "admin" | "guest";
 
 /** GET /auth/me -- the caller as the SERVER currently sees them.
  * Fetched on mount rather than persisted, because role is deliberately not

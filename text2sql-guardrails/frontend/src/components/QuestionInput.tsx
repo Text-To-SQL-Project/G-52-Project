@@ -26,6 +26,14 @@ function Key({ children }: { children: string }) {
   );
 }
 
+// Guests see reference tables only (no personal rows), so these stick to them.
+const GUEST_SAMPLE_QUERIES = [
+  "How many programs does each department offer?",
+  "Which library book categories have the most titles?",
+  "List the highest-paying placement drives",
+  "How many credits are subjects in semester 3?",
+];
+
 const STUDENT_SAMPLE_QUERIES = [
   "What are my marks in each subject?",
   "Show my attendance percentage",
@@ -96,14 +104,18 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
   };
 
   const sampleQueries =
-    role === "student"
+    role === "guest"
+      ? GUEST_SAMPLE_QUERIES
+      : role === "student"
       ? STUDENT_SAMPLE_QUERIES
       : role === "faculty"
       ? FACULTY_SAMPLE_QUERIES
       : ADMIN_SAMPLE_QUERIES;
 
   const placeholderText =
-    role === "student"
+    role === "guest"
+      ? "e.g. How many programs does each department offer?"
+      : role === "student"
       ? "e.g. What are my marks in each subject?"
       : role === "faculty"
       ? "e.g. What is the average marks obtained per subject?"
@@ -121,6 +133,11 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
             <>
               Admin Console
               <span style={{ color: "var(--text-muted)", fontWeight: 600 }}> — Full DB Access</span>
+            </>
+          ) : role === "guest" ? (
+            <>
+              Guest Workspace
+              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}> — Public College Data</span>
             </>
           ) : role === "faculty" ? (
             <>
@@ -153,6 +170,11 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
               <span className="material-symbols-outlined text-[13px]">admin_panel_settings</span>
               Admin: Full Access
             </span>
+          ) : role === "guest" ? (
+            <span className="pill-tag flex items-center gap-1 px-2.5 py-0.5 font-mono text-[11px]">
+              <span className="material-symbols-outlined text-[13px]">public</span>
+              Reference Data Only
+            </span>
           ) : role === "faculty" ? (
             <span className="pill-tag flex items-center gap-1 px-2.5 py-0.5 font-mono text-[11px]">
               <span className="material-symbols-outlined text-[13px]">school</span>
@@ -166,6 +188,14 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
           )}
         </div>
       </div>
+
+      {role === "guest" && (
+        <p className="mb-4 max-w-2xl text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          You're signed in as a guest. You can explore departments, programmes, subjects, the library
+          catalogue and placements. Personal records (marks, attendance, fees) stay private: ask an
+          administrator to link your account to your student or faculty record to see your own.
+        </p>
+      )}
 
       {/* Hero input — no card, just the textarea with a line-draw underline */}
       <div className="relative">

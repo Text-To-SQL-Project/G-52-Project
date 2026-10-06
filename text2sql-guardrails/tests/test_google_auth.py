@@ -51,9 +51,11 @@ def test_linked_verified_account_gets_a_session(client, monkeypatch):
     (ValueError("bad signature"), TEST_STUDENT, 401, "Google sign-in failed"),
     (claims(email_verified=False), TEST_STUDENT, 401, "not verified"),
     (claims(email_verified="true"), TEST_STUDENT, 401, "not verified"),  # only a real boolean counts
-    (claims(), None, 403, "No account is linked"),  # never auto-creates
+    (claims(), None, 403, "No account is linked"),  # open sign-up off: unlinked is refused
 ])
 def test_rejections(client, monkeypatch, verify, found, code, msg):
+    monkeypatch.setattr(settings, "GOOGLE_OPEN_SIGNUP", False)
+    monkeypatch.setattr(auth_routes, "email_exists", lambda e: False)
     def fake_verify(c):
         if isinstance(verify, Exception):
             raise verify
@@ -66,6 +68,8 @@ def test_rejections(client, monkeypatch, verify, found, code, msg):
 
 
 def test_google_login_shares_the_login_rate_limit(client, monkeypatch):
+    monkeypatch.setattr(settings, "GOOGLE_OPEN_SIGNUP", False)
+    monkeypatch.setattr(auth_routes, "email_exists", lambda e: False)
     monkeypatch.setattr(settings, "RATE_LIMIT_LOGIN_PER_MIN", 2)
     monkeypatch.setattr(auth_routes, "verify_google_credential", lambda c: claims())
     monkeypatch.setattr(auth_routes, "find_by_email", lambda e: None)
@@ -99,3 +103,29 @@ def test_admin_links_emails(client, monkeypatch):
         assert client.get("/v1/admin/users").status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+def test_open_signup_creates_a_guest_for_an_unknown_gmail(client, monkeypatch):
+    monkeypatch.setattr(settings, "GOOGLE_OPEN_SIGNUP", True)
+    monkeypatch.setattr(auth_routes, "verify_google_credential", lambda c: claims(email="New.Person@gmail.com"))
+    monkeypatch.setattr(auth_routes, "find_by_email", lambda e: None)
+    monkeypatch.setattr(auth_routes, "email_exists", lambda e: False)
+    made = []
+    guest = TEST_STUDENT.__class__(user_id=999, username="new.person", role="guest", student_id=None, faculty_id=None)
+    monkeypatch.setattr(auth_routes, "create_guest", lambda e, h: made.append((e, h)) or guest)
+    r = client.post("/auth/google", json=CRED)
+    assert r.status_code == 200 and r.json()["role"] == "guest"
+    assert read_token_subject(r.json()["token"]) == 999
+    (email, pw_hash), = made
+    assert email == "New.Person@gmail.com"
+    assert pw_hash.startswith("$argon2id$")  # unusable random password, hashed
+
+
+def test_deactivated_email_is_refused_not_recreated(client, monkeypatch):
+    monkeypatch.setattr(settings, "GOOGLE_OPEN_SIGNUP", True)
+    monkeypatch.setattr(auth_routes, "verify_google_credential", lambda c: claims())
+    monkeypatch.setattr(auth_routes, "find_by_email", lambda e: None)  # inactive users aren't returned
+    monkeypatch.setattr(auth_routes, "email_exists", lambda e: True)
+    monkeypatch.setattr(auth_routes, "create_guest", lambda e, h: pytest.fail("must not create"))
+    r = client.post("/auth/google", json=CRED)
+    assert r.status_code == 403 and "disabled" in r.json()["detail"]

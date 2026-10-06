@@ -24,6 +24,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   student: "Student",
   faculty: "Faculty",
   admin: "Administrator",
+  guest: "Guest",
 };
 
 interface Props {
