@@ -191,9 +191,10 @@ class QueryResponse(BaseModel):
     # Per-stage wall time (generation, guardrails, ..., total). Also sent as
     # a Server-Timing header so browser devtools and tests can read it.
     timings_ms: dict[str, float] = Field(default_factory=dict)
-    # True while a signal is still being measured in the background; poll
-    # GET /v1/query/{query_id}/confidence for the final score.
+    # True while a signal is still to be measured; redeem confidence_ticket
+    # at POST /v1/query/{query_id}/confidence for the final score.
     confidence_pending: bool = False
+    confidence_ticket: Optional[str] = None
 
     # Always present
     guardrail: GuardrailReport
@@ -208,8 +209,12 @@ class QueryResponse(BaseModel):
     error_message: Optional[str] = None
 
 
+class ConfidenceTicket(BaseModel):
+    ticket: str = Field(..., max_length=64_000)
+
+
 class ConfidenceUpdate(BaseModel):
-    """GET /v1/query/{query_id}/confidence."""
+    """POST /v1/query/{query_id}/confidence."""
     query_id: str
     pending: bool
     confidence: Optional[Confidence] = None

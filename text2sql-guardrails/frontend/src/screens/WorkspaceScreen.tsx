@@ -72,28 +72,14 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
   const finalConfidence = final && final.queryId === response?.query_id ? final.confidence : null;
 
   useEffect(() => {
-    if (!response?.confidence_pending) return;
+    if (!response?.confidence_pending || !response.confidence_ticket) return;
     let cancelled = false;
-    let timer = 0;
-    const started = Date.now();
-    const poll = async () => {
-      try {
-        const update = await getQueryConfidence(response.query_id);
-        if (cancelled) return;
-        if (!update.pending && update.confidence) {
-          return setFinal({ queryId: response.query_id, confidence: update.confidence });
-        }
-      } catch {
-        return; // e.g. server restarted: keep the provisional score
-      }
-      // Under a provider RPM cap the check can be deferred ~1 min.
-      if (Date.now() - started < 90_000) timer = window.setTimeout(poll, 1500);
-    };
-    timer = window.setTimeout(poll, 1200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    getQueryConfidence(response.query_id, response.confidence_ticket)
+      .then((update) => {
+        if (!cancelled && update.confidence) setFinal({ queryId: response.query_id, confidence: update.confidence });
+      })
+      .catch(() => { /* keep the provisional score */ });
+    return () => { cancelled = true; };
   }, [response]);
 
   const run = async (question: string, sqlOverride?: string) => {

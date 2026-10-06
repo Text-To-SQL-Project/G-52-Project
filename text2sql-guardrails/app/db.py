@@ -48,6 +48,16 @@ app/startup_checks.py, which additionally verifies that whatever this
 resolves to is actually a constrained role."""
 
 
+def _driver_url(url: str) -> str:
+    """Hosted Postgres (Neon, Vercel's Postgres integration, Heroku-style
+    configs) hands out postgres:// or driverless postgresql:// URLs, which
+    SQLAlchemy reads as "use psycopg2" -- not installed here. Pin psycopg 3."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """Primary engine: introspection, query history, user accounts.
@@ -58,7 +68,7 @@ def get_engine() -> Engine:
     if settings.DATABASE_URL.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
     return create_engine(
-        settings.DATABASE_URL,
+        _driver_url(settings.DATABASE_URL),
         pool_pre_ping=True,
         connect_args=connect_args,
     )
@@ -93,7 +103,7 @@ def get_readonly_engine() -> Engine:
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
         # ?mode=ro requires the uri=True form; keep simple + safe here.
-    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+    return create_engine(_driver_url(url), pool_pre_ping=True, connect_args=connect_args)
 
 
 @lru_cache(maxsize=1)
@@ -121,4 +131,4 @@ def get_eval_engine() -> Engine:
     connect_args = {}
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
-    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+    return create_engine(_driver_url(url), pool_pre_ping=True, connect_args=connect_args)

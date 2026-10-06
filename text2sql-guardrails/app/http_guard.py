@@ -9,6 +9,7 @@ running several replicas, or each replica gets its own full budget.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -63,8 +64,15 @@ def _enforce(key: str, limit: int) -> None:
 
 
 def client_ip(request: Request) -> str:
-    # request.client is the real peer unless uvicorn runs with
-    # --proxy-headers behind a trusted proxy, which rewrites it correctly.
+    # On Vercel (VERCEL=1 is set by the platform) every request arrives from
+    # Vercel's edge, which writes the real client address into
+    # x-vercel-forwarded-for and overwrites any client-sent value, so it's
+    # trustworthy there and only there. Elsewhere request.client is the real
+    # peer (uvicorn --proxy-headers handles a trusted proxy).
+    if os.environ.get("VERCEL") == "1":
+        ip = request.headers.get("x-vercel-forwarded-for", "").split(",")[0].strip()
+        if ip:
+            return ip
     return request.client.host if request.client else "unknown"
 
 

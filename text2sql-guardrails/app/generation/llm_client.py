@@ -195,7 +195,7 @@ _throttle = _RpmThrottle()
 def wait_for_background_room(max_wait_seconds: float = 60.0) -> bool:
     if effective_provider() == "litellm":
         return True  # LLM_RPM_LIMIT describes the single env key, not the pool
-    """Block (in a background thread) until a call fits under LLM_RPM_LIMIT
+    """Block until a call fits under LLM_RPM_LIMIT
     with a third of the window held back for interactive requests. Returns
     False if it gave up, so the caller can skip its optional work."""
     reserve = max(2, settings.LLM_RPM_LIMIT // 3)

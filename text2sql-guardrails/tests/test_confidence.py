@@ -41,11 +41,8 @@ def test_fail_status_cap_reapplied_after_calibration(monkeypatch):
     the isotonic calibrator would otherwise map the pre-calibration capped
     value to something higher -- the cap is a safety invariant, not a
     statistical property calibration should be trusted to preserve."""
-    class _UpwardCalibrator:
-        def predict(self, values):
-            return [min(1.0, v + 0.5) for v in values]
-
-    monkeypatch.setattr(calibration, "_load_calibrator", lambda: _UpwardCalibrator())
+    # Curve breakpoints (x, y): +0.5 everywhere, capped at 1.0.
+    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 0.5, 1.0], [0.5, 1.0, 1.0]))
 
     fail_signals = _PASS_SIGNALS[:-1] + [
         ConfidenceSignal(key="sql_validity", label="SQL Validity", score=0.0, status=SignalStatus.FAIL, detail="bad"),
@@ -62,10 +59,6 @@ def test_calibrated_false_when_artifact_missing(monkeypatch):
 
 
 def test_calibrated_true_when_artifact_loads(monkeypatch):
-    class _Identity:
-        def predict(self, values):
-            return list(values)
-
-    monkeypatch.setattr(calibration, "_load_calibrator", lambda: _Identity())
+    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 1.0], [0.0, 1.0]))  # identity curve
     result = fuse_confidence(_PASS_SIGNALS)
     assert result.calibrated is True

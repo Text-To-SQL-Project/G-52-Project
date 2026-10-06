@@ -118,8 +118,14 @@ export function postQuery(req: QueryRequest): Promise<QueryResponse> {
   });
 }
 
-export function getQueryConfidence(queryId: string): Promise<ConfidenceUpdate> {
-  return request<ConfidenceUpdate>(`/v1/query/${encodeURIComponent(queryId)}/confidence`);
+/** Redeem the signed ticket from a QueryResponse: runs the deferred check
+ * server-side and returns the final score (one request, no polling). */
+export function getQueryConfidence(queryId: string, ticket: string): Promise<ConfidenceUpdate> {
+  return request<ConfidenceUpdate>(`/v1/query/${encodeURIComponent(queryId)}/confidence`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket }),
+  });
 }
 
 export function getPool(): Promise<PoolStatus> {

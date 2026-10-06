@@ -10,11 +10,13 @@ to fake data, see get_schema()/get_history()'s own docstrings for why.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import logging
-import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -40,6 +42,7 @@ from app.api.models import (
     Clarification,
     Confidence,
     ConfidenceSignal,
+    ConfidenceTicket,
     ConfidenceUpdate,
     GuardrailReport,
     HistoryResponse,
@@ -106,78 +109,76 @@ def _new_id() -> str:
     return f"q_{uuid.uuid4().hex[:12]}"
 
 
-# --- background signals ------------------------------------------------------
+# --- deferred signals -------------------------------------------------------
 # Back-translation is two extra LLM round-trips (~2-4 s), more than the whole
-# interactive budget. It degrades gracefully and doesn't gate execution, so
-# /v1/query answers without it and the client polls
-# GET /v1/query/{id}/confidence for the final score.
-# ponytail: in-process store, so a poll must reach the worker that served the
-# query; move it to a query_history column before running multiple workers.
-_signal_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="signals")
-_pending_lock = threading.Lock()
-_pending: dict[str, tuple[int, float, Confidence | None]] = {}  # id -> (user_id, created, final)
-_PENDING_TTL_SECONDS = 600
+# interactive budget. It doesn't gate execution, so /v1/query answers without
+# it and hands back a signed ticket; the client redeems the ticket once at
+# POST /v1/query/{id}/confidence, which runs the check and returns the final
+# score. Stateless on purpose: no background thread (serverless platforms
+# freeze a function after it responds) and no in-process store (any instance
+# can redeem any ticket).
+_TICKET_TTL_SECONDS = 15 * 60
 
 _BT_PENDING_SIGNAL = ConfidenceSignal(
     key="back_translation_match", label="Back-translation Match", score=0.5,
-    status=SignalStatus.PENDING, detail="Measuring in the background.",
+    status=SignalStatus.PENDING, detail="Measuring after the answer is shown.",
 )
 
 
-def _finish_back_translation(
-    query_id: str, question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool,
-    provider: str | None = None,
-) -> None:
-    with use_provider(provider):
-        _finish_back_translation_inner(query_id, question, sql, signals, row_scoped)
+def _ticket_key() -> bytes:
+    # Derived key: a confidence ticket can never be replayed as a session token.
+    return hmac.new(settings.SECRET_KEY.encode(), b"confidence-ticket", hashlib.sha256).digest()
 
 
-def _finish_back_translation_inner(
-    query_id: str, question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool
-) -> None:
+def _make_ticket(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+    sig = hmac.new(_ticket_key(), body.encode(), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
+
+
+def _read_ticket(ticket: str) -> dict | None:
     try:
-        if not wait_for_background_room():
-            raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for interactive queries")
+        body, sig = ticket.rsplit(".", 1)
+        if not hmac.compare_digest(sig, hmac.new(_ticket_key(), body.encode(), hashlib.sha256).hexdigest()):
+            return None
+        data = json.loads(base64.urlsafe_b64decode(body.encode()))
+        return data if data.get("exp", 0) > time.time() else None
+    except Exception:
+        return None
+
+
+def _finish_back_translation(
+    question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool
+) -> Confidence:
+    try:
+        # Short wait only: this request is the user's, not background work.
+        if not wait_for_background_room(max_wait_seconds=8):
+            raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for new questions")
         bt = check_back_translation(question, sql)  # never raises by contract
-    except Exception as e:  # a background crash must still resolve the poll
+    except Exception as e:
         bt = ConfidenceSignal(
             key="back_translation_match", label="Back-translation Match", score=0.5,
             status=SignalStatus.WARN, detail=f"Back-translation check could not run: {e}",
         )
-    final = fuse_confidence(
+    return fuse_confidence(
         [bt if s.key == "back_translation_match" else s for s in signals], row_scoped=row_scoped
     )
-    with _pending_lock:
-        entry = _pending.get(query_id)
-        if entry:
-            _pending[query_id] = (entry[0], entry[1], final)
-    update_history_confidence(query_id, final.score)
 
 
-def _schedule_back_translation(
-    query_id: str, user_id: int, question: str, sql: str,
-    signals: list[ConfidenceSignal], row_scoped: bool, provider: str,
-) -> None:
-    now = time.monotonic()
-    with _pending_lock:
-        for k in [k for k, v in _pending.items() if now - v[1] > _PENDING_TTL_SECONDS]:
-            del _pending[k]
-        _pending[query_id] = (user_id, now, None)
-    _signal_pool.submit(
-        _finish_back_translation, query_id, question, sql, signals, row_scoped, provider
-    )
-
-
-@router.get("/query/{query_id}/confidence", response_model=ConfidenceUpdate)
-def get_query_confidence(
-    query_id: str, principal: Principal = Depends(require_auth)
+@router.post("/query/{query_id}/confidence", response_model=ConfidenceUpdate)
+def redeem_confidence_ticket(
+    query_id: str, req: ConfidenceTicket, principal: Principal = Depends(require_auth)
 ) -> ConfidenceUpdate:
-    with _pending_lock:
-        entry = _pending.get(query_id)
-    # Same 404 for unknown and for another user's id: never confirm it exists.
-    if entry is None or entry[0] != principal.user_id:
-        raise HTTPException(status_code=404, detail="Unknown query id.")
-    return ConfidenceUpdate(query_id=query_id, pending=entry[2] is None, confidence=entry[2])
+    t = _read_ticket(req.ticket)
+    # One 404 for forged, expired, other-user and wrong-id tickets alike.
+    if t is None or t.get("q") != query_id or t.get("u") != principal.user_id:
+        raise HTTPException(status_code=404, detail="Unknown or expired query.")
+    with use_provider(t.get("p")):
+        final = _finish_back_translation(
+            t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"]
+        )
+    update_history_confidence(query_id, final.score)
+    return ConfidenceUpdate(query_id=query_id, pending=False, confidence=final)
 
 
 @router.post("/query", response_model=QueryResponse, dependencies=[Depends(limit_query)])
@@ -646,10 +647,13 @@ def run_query(
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
     confidence = fuse_confidence(signals, row_scoped=row_scoped)
+    ticket = None
     if bt_pending:
-        _schedule_back_translation(
-            query_id, principal.user_id, req.question, safe_sql, signals, row_scoped, provider
-        )
+        ticket = _make_ticket({
+            "q": query_id, "u": principal.user_id, "exp": int(time.time()) + _TICKET_TTL_SECONDS,
+            "question": req.question, "sql": safe_sql, "rs": row_scoped, "p": provider,
+            "signals": [s.model_dump(mode="json") for s in signals],
+        })
     lap("post_checks")
     write_history_row(
         query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
@@ -674,6 +678,7 @@ def run_query(
         ),
         confidence=confidence,
         confidence_pending=bt_pending,
+        confidence_ticket=ticket,
         execution_time_ms=execution_time_ms,
         timings_ms=_finish_timings(timings, response, lap),
         guardrail=guardrail_report,

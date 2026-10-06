@@ -74,8 +74,9 @@ export interface QueryResponse {
   execution_time_ms?: number | null;
   /** Server-side wall time per stage (generation, guardrails, ..., total). */
   timings_ms?: Record<string, number>;
-  /** True while a signal is still measured in the background. */
+  /** True while a signal is still to be measured; redeem confidence_ticket. */
   confidence_pending?: boolean;
+  confidence_ticket?: string | null;
 
   guardrail: GuardrailReport;
   warnings: Warning[];

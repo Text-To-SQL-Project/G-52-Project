@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import argparse
 import random
 from pathlib import Path
@@ -201,7 +202,12 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(iso, args.out)
-    print(f"Calibrator fit on train split ({len(train_rows)} rows) saved to {args.out}")
+    # The app serves from this JSON (app/detection/calibration.py): same curve,
+    # no scikit-learn at runtime. Keep both in sync by always writing both.
+    json_out = args.out.with_suffix(".json")
+    json_out.write_text(json.dumps(
+        {"x": [float(v) for v in iso.X_thresholds_], "y": [float(v) for v in iso.y_thresholds_]}, indent=1) + "\n")
+    print(f"Calibrator fit on train split ({len(train_rows)} rows) saved to {args.out} and {json_out}")
 
 
 if __name__ == "__main__":

@@ -64,3 +64,18 @@ def test_prod_refuses_weak_config(monkeypatch):
         check_production_config()
     monkeypatch.setattr(settings, "SECRET_KEY", "k" * 40)
     check_production_config()
+
+
+def test_client_ip_trusts_vercel_header_only_on_vercel(monkeypatch):
+    from starlette.requests import Request
+
+    def req(headers):
+        return Request({"type": "http", "headers": [(k.encode(), v.encode()) for k, v in headers.items()],
+                        "client": ("10.0.0.1", 1234)})
+
+    spoofed = {"x-vercel-forwarded-for": "6.6.6.6"}
+    monkeypatch.delenv("VERCEL", raising=False)
+    assert guard.client_ip(req(spoofed)) == "10.0.0.1"  # off Vercel the header is client-controlled
+    monkeypatch.setenv("VERCEL", "1")
+    assert guard.client_ip(req({"x-vercel-forwarded-for": "203.0.113.7"})) == "203.0.113.7"
+    assert guard.client_ip(req({})) == "10.0.0.1"

@@ -1,26 +1,20 @@
+# Runtime only: what app/ imports. Eval/test tooling is in requirements-dev.txt,
+# which keeps the deployed bundle small (serverless size limits) and cold starts fast.
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pydantic==2.13.4
 python-dotenv==1.0.1
-# Wired in later phases:
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.13
 sqlglot==25.34.0
-pandas==2.2.3
-pytest==9.1.1
 anthropic==0.122.0
 openai==3.7.0
-matplotlib==3.11.1
-seaborn==0.13.2
-scikit-learn==1.9.0
-joblib==1.5.3
 # Password hashing for per-user auth (app/auth.py). Argon2id with the
 # RFC 9106 second-recommended parameter set, pinned explicitly in code
 # rather than inherited from the library defaults -- see
 # app/auth.py::ARGON2_* so the paper can cite fixed numbers that a
 # dependency upgrade cannot silently change underneath it.
 argon2-cffi==25.1.0
-tiktoken==0.14.0  # dev-only: eval token-budget estimation, not imported by app/
 # Verifies Google Identity Services ID tokens for POST /auth/google.
 google-auth==2.60.0
 requests==2.34.2  # google-auth's HTTP transport (fetches Google's signing keys)

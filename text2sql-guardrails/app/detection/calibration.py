@@ -9,26 +9,44 @@ own, so it never makes an LLM call or touches eval/results.jsonl.
 """
 from __future__ import annotations
 
+import json
+from bisect import bisect_right
 from functools import lru_cache
 from pathlib import Path
 
-CALIBRATOR_PATH = Path(__file__).parent / "calibrator.joblib"
+CALIBRATOR_PATH = Path(__file__).parent / "calibrator.json"
 
 
 @lru_cache(maxsize=1)
 def _load_calibrator():
-    """Returns the fitted IsotonicRegression, or None if the artifact is
-    missing or fails to load -- callers must degrade to the raw
+    """The fitted isotonic curve as (x, y) breakpoints, or None if the
+    artifact is missing or unreadable -- callers must degrade to the raw
     (uncalibrated) score rather than fail the request. A missing calibrator
     (e.g. a fresh clone before eval/fit_calibration.py has been run) is not
-    a reason to break query serving."""
-    if not CALIBRATOR_PATH.exists():
-        return None
+    a reason to break query serving.
+
+    The curve is stored as JSON (written by eval/fit_calibration.py next to
+    the .joblib) and applied with plain linear interpolation, which is
+    exactly what IsotonicRegression.predict does with out_of_bounds="clip".
+    That keeps scikit-learn, SciPy and NumPy out of the serving path:
+    smaller deploys (serverless size limits) and no ~4 s import on cold start.
+    """
     try:
-        import joblib
-        return joblib.load(CALIBRATOR_PATH)
+        data = json.loads(CALIBRATOR_PATH.read_text())
+        xs, ys = [float(v) for v in data["x"]], [float(v) for v in data["y"]]
+        return (xs, ys) if xs and len(xs) == len(ys) else None
     except Exception:
         return None
+
+
+def _interpolate(xs: list[float], ys: list[float], x: float) -> float:
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[-1]:
+        return ys[-1]
+    i = bisect_right(xs, x)
+    x0, x1, y0, y1 = xs[i - 1], xs[i], ys[i - 1], ys[i]
+    return y0 if x1 == x0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0)
 
 
 def is_available() -> bool:
@@ -44,5 +62,5 @@ def calibrate(raw_score: float) -> tuple[float, bool]:
     calibrator = _load_calibrator()
     if calibrator is None:
         return raw_score, False
-    calibrated = float(calibrator.predict([raw_score])[0])
+    calibrated = _interpolate(*calibrator, raw_score)
     return max(0.0, min(1.0, calibrated)), True

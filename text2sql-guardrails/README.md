@@ -103,7 +103,7 @@ question ──▶ generation (LLM, cached schema prompt)
 ### Without Docker
 
     # backend
-    python -m venv venv && venv\Scripts\pip install -r requirements.txt
+    python -m venv venv && venv\Scripts\pip install -r requirements-dev.txt
     # ... point DATABASE_URL at your own college_erp Postgres instance (see .env.example)
     uvicorn app.main:app --reload
 

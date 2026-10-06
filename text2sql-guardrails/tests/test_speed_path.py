@@ -1,6 +1,6 @@
 """The interactive latency path: hedged LLM calls, back-translation moved off
-the critical path (pending signal + poll endpoint), and the RPM reserve that
-keeps background checks from starving interactive questions. No DB, no LLM."""
+the critical path (pending signal + signed ticket), and the RPM reserve that
+keeps the deferred check from starving new questions. No DB, no LLM."""
 from __future__ import annotations
 
 import time
@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 import app.api.routes as routes
-from app.api.models import ConfidenceSignal, SignalStatus
+from app.api.models import ConfidenceSignal, ConfidenceTicket, SignalStatus
 from app.detection.confidence import fuse_confidence
 from app.generation import llm_client
 from app.generation.llm_client import _hedged
@@ -69,38 +69,47 @@ def test_pending_signal_is_excluded_and_marks_score_uncalibrated():
     assert pending.score > measured_fail.score  # a pending 0.5 placeholder must not drag the mean
 
 
-def test_background_result_reaches_only_its_owner(monkeypatch):
+def _ticket(**over):
+    payload = {
+        "q": "q_test", "u": TEST_STUDENT.user_id, "exp": int(time.time()) + 60,
+        "question": "question", "sql": "SELECT 1", "rs": True, "p": None,
+        "signals": [s.model_dump(mode="json") for s in
+                    [_sig("sql_validity", 1.0), _sig("schema_alignment", 1.0), routes._BT_PENDING_SIGNAL]],
+    }
+    return routes._make_ticket({**payload, **over})
+
+
+def test_ticket_redeems_only_for_its_owner_and_query(monkeypatch):
+    monkeypatch.setattr(routes.settings, "SECRET_KEY", "k" * 40)
     final_bt = _sig("back_translation_match", 0.2, SignalStatus.FAIL, "drifted")
     monkeypatch.setattr(routes, "check_back_translation", lambda q, s: final_bt)
-    monkeypatch.setattr(routes, "wait_for_background_room", lambda: True)
+    monkeypatch.setattr(routes, "wait_for_background_room", lambda **_: True)
     written = {}
     monkeypatch.setattr(routes, "update_history_confidence", lambda qid, s: written.update({qid: s}))
 
-    signals = [_sig("sql_validity", 1.0), _sig("schema_alignment", 1.0), routes._BT_PENDING_SIGNAL]
-    with routes._pending_lock:
-        routes._pending["q_test"] = (TEST_STUDENT.user_id, time.monotonic(), None)
-    assert routes.get_query_confidence("q_test", TEST_STUDENT).pending is True
-
-    routes._finish_back_translation("q_test", "question", "SELECT 1", signals, row_scoped=True)
-
-    update = routes.get_query_confidence("q_test", TEST_STUDENT)
+    update = routes.redeem_confidence_ticket("q_test", ConfidenceTicket(ticket=_ticket()), TEST_STUDENT)
     assert update.pending is False
     assert update.confidence.score <= 0.40  # FAIL cap applied once the real signal lands
     assert written == {"q_test": update.confidence.score}
-    with pytest.raises(HTTPException) as e:
-        routes.get_query_confidence("q_test", TEST_FACULTY)
-    assert e.value.status_code == 404
+
+    good = _ticket()
+    for qid, ticket, who in [
+        ("q_test", good, TEST_FACULTY),                        # someone else's
+        ("q_other", good, TEST_STUDENT),                        # wrong query id
+        ("q_test", good[:-2] + "00", TEST_STUDENT),             # tampered signature
+        ("q_test", _ticket(exp=int(time.time()) - 1), TEST_STUDENT),  # expired
+    ]:
+        with pytest.raises(HTTPException) as e:
+            routes.redeem_confidence_ticket(qid, ConfidenceTicket(ticket=ticket), who)
+        assert e.value.status_code == 404
 
 
-def test_background_check_skips_instead_of_starving_interactive_quota(monkeypatch):
-    monkeypatch.setattr(routes, "wait_for_background_room", lambda: False)
+def test_check_skips_instead_of_starving_new_questions(monkeypatch):
+    monkeypatch.setattr(routes.settings, "SECRET_KEY", "k" * 40)
+    monkeypatch.setattr(routes, "wait_for_background_room", lambda **_: False)
     monkeypatch.setattr(routes, "update_history_confidence", lambda *a: None)
-    with routes._pending_lock:
-        routes._pending["q_quota"] = (TEST_STUDENT.user_id, time.monotonic(), None)
-    routes._finish_back_translation(
-        "q_quota", "q", "SELECT 1", [routes._BT_PENDING_SIGNAL], row_scoped=False
-    )
-    bt = routes.get_query_confidence("q_quota", TEST_STUDENT).confidence.signals[0]
+    update = routes.redeem_confidence_ticket("q_test", ConfidenceTicket(ticket=_ticket()), TEST_STUDENT)
+    bt = next(s for s in update.confidence.signals if s.key == "back_translation_match")
     assert bt.status == SignalStatus.WARN and "LLM_RPM_LIMIT" in bt.detail
 
 

@@ -1,0 +1,15 @@
+# Backend Vercel project: ship app/ + api/ only.
+venv/
+frontend/
+eval/
+tests/
+docs/
+seed/
+litellm/
+scripts/
+**/__pycache__/
+*.png
+*.joblib
+.env
+.env.*
+!.env.example
