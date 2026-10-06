@@ -114,6 +114,13 @@
   --accent-rgb: 232 116 59;
   --accent-bright-rgb: 240 138 82;
   --accent-pale-rgb: 247 200 168;
+  /* Schema module palette: categorical, earthy, never the status colours */
+  --mod-academic: #e8743b;
+  --mod-exams: #d9a441;
+  --mod-attendance: #a8a29e;
+  --mod-fees: #8fb06f;
+  --mod-library: #6fa3ad;
+  --mod-placement: #c08aa8;
   --btn-bg: #f4f1ea;
   --btn-fg: #16181d;
   --danger-rgb: 239 68 68;
@@ -171,6 +178,12 @@
   --accent-rgb: 168 58 13;
   --accent-bright-rgb: 158 54 12;
   --accent-pale-rgb: 150 52 10;
+  --mod-academic: #a83a0d;
+  --mod-exams: #b07818;
+  --mod-attendance: #6b6b6b;
+  --mod-fees: #5b7f4a;
+  --mod-library: #3f6f7a;
+  --mod-placement: #8a4a6b;
   --btn-bg: #16181d;
   --btn-fg: #ffffff;
   --danger-rgb: 185 28 28;
@@ -786,12 +799,12 @@ textarea:-webkit-autofill {
 @media (prefers-reduced-motion: reduce) { .erd-node, .erd-edge-focus { animation: none; } }
 .erd-minimap .react-flow__minimap-mask { fill: rgb(var(--void-rgb) / 0.55); }
 .erd-minimap .react-flow__minimap-node { stroke: none; }
-.erd-minimap .mod-academic { fill: var(--accent); }
-.erd-minimap .mod-exams { fill: rgb(var(--accent-pale-rgb)); }
-.erd-minimap .mod-attendance { fill: var(--text-secondary); }
-.erd-minimap .mod-fees { fill: var(--success); }
-.erd-minimap .mod-library { fill: rgb(var(--info-rgb)); }
-.erd-minimap .mod-placement { fill: rgb(var(--danger-soft-rgb)); }
+.erd-minimap .mod-academic { fill: var(--mod-academic); }
+.erd-minimap .mod-exams { fill: var(--mod-exams); }
+.erd-minimap .mod-attendance { fill: var(--mod-attendance); }
+.erd-minimap .mod-fees { fill: var(--mod-fees); }
+.erd-minimap .mod-library { fill: var(--mod-library); }
+.erd-minimap .mod-placement { fill: var(--mod-placement); }
 
 /* Italic serif accent word (replaces gradient text in serif headlines) */
 .serif-accent { font-family: var(--font-display); font-style: italic; color: var(--accent); }

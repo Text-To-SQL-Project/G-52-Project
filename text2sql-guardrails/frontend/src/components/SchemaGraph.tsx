@@ -8,14 +8,15 @@ import { Graph, layout } from "@dagrejs/dagre";
 import "@xyflow/react/dist/base.css";
 import type { TableInfo } from "../types/api";
 
-// Module colour = what part of the ERP a table belongs to (theme tokens).
+// Module colour = what part of the ERP a table belongs to (--mod-* tokens,
+// a categorical palette kept apart from the success/danger/info colours).
 const MODULES: { key: string; label: string; color: string; match: (t: string) => boolean }[] = [
-  { key: "placement", label: "Placement", color: "rgb(var(--danger-soft-rgb))", match: (t) => t.startsWith("placement_") },
-  { key: "library", label: "Library", color: "rgb(var(--info-rgb))", match: (t) => t.startsWith("library_") },
-  { key: "fees", label: "Fees", color: "var(--success)", match: (t) => t.startsWith("fee_") },
-  { key: "exams", label: "Exams & marks", color: "rgb(var(--accent-pale-rgb))", match: (t) => t.startsWith("exam") || t === "marks" },
-  { key: "attendance", label: "Attendance", color: "var(--text-secondary)", match: (t) => t === "attendance" },
-  { key: "academic", label: "Academic", color: "var(--accent)", match: () => true },
+  { key: "placement", label: "Placement", color: "var(--mod-placement)", match: (t) => t.startsWith("placement_") },
+  { key: "library", label: "Library", color: "var(--mod-library)", match: (t) => t.startsWith("library_") },
+  { key: "fees", label: "Fees", color: "var(--mod-fees)", match: (t) => t.startsWith("fee_") },
+  { key: "exams", label: "Exams & marks", color: "var(--mod-exams)", match: (t) => t.startsWith("exam") || t === "marks" },
+  { key: "attendance", label: "Attendance", color: "var(--mod-attendance)", match: (t) => t === "attendance" },
+  { key: "academic", label: "Academic", color: "var(--mod-academic)", match: () => true },
 ];
 const moduleOf = (t: string) => MODULES.find((m) => m.match(t))!;
 
