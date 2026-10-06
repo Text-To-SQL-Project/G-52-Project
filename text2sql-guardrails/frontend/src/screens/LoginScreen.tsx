@@ -5,7 +5,10 @@ import { GoogleSignIn } from "../components/GoogleSignIn";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { setToken } from "../hooks/useAuthToken";
 
-const DEMO_PERSONAS = [
+// Local development only. Production builds compile this to `[]`: the
+// minifier drops the dead branch, so no password ships in the public bundle,
+// and the panel below isn't rendered. Deployed accounts use separate passwords.
+const DEMO_PERSONAS = import.meta.env.DEV ? [
   {
     name: "Student",
     username: "student1",
@@ -21,7 +24,7 @@ const DEMO_PERSONAS = [
     username: "admin",
     password: "BHe3TjQIgh7zL0zOr9B7Z1SNaHP8",
   },
-];
+] : [];
 
 export function LoginScreen({ onBack }: { onBack?: () => void }) {
   const [username, setUsername] = useState("");
@@ -159,7 +162,8 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
           </p>
         </div>
 
-        {/* Demo personas — hairline-divided row, not cards */}
+        {/* Demo personas — dev builds only (see DEMO_PERSONAS) */}
+        {DEMO_PERSONAS.length > 0 && (
         <div className="mb-8" style={{ opacity: 0 }}>
           <div className="mb-3 flex items-center justify-between">
             <p className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
@@ -203,6 +207,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
             ))}
           </div>
         </div>
+        )}
 
         {/* Form — line-draw inputs */}
         <div className="space-y-6" style={{ opacity: 0 }}>
