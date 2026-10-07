@@ -93,8 +93,8 @@ const tokenColor = (name: string) => {
   return v.startsWith("#") ? v : `rgb(${v.split(/\s+/).join(", ")})`;
 };
 const RIM: Record<NonNullable<Props["status"]>, string> = {
-  ready: "--accent-pale-rgb",
-  loading: "--accent-bright-rgb",
+  ready: "--orb-rim-rgb",
+  loading: "--brand-bright-rgb",
   success: "--success-rgb",
   blocked: "--danger-rgb",
   error: "--danger-rgb",
@@ -138,8 +138,10 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
       uColor3: { value: new THREE.Color() },
     };
     const paint = () => {
-      uniforms.uColor1.value.setStyle(tokenColor("--accent"));
-      uniforms.uColor2.value.setStyle(tokenColor("--accent-bright"));
+      // Blocked / crashed: the whole orb turns red, not just its rim.
+      const alarm = statusRef.current === "blocked" || statusRef.current === "error";
+      uniforms.uColor1.value.setStyle(tokenColor(alarm ? "--orb-alarm-1" : "--orb-1"));
+      uniforms.uColor2.value.setStyle(tokenColor(alarm ? "--orb-alarm-2" : "--orb-2"));
       uniforms.uColor3.value.setStyle(tokenColor(RIM[statusRef.current]));
     };
     paint();
@@ -174,7 +176,9 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
       }
       const loading = currentStatus === "loading";
       uniforms.uTime.value += delta * (loading ? 2.4 : 0.85);
-      uniforms.uDistortionScale.value = loading ? 0.55 : currentStatus === "blocked" ? 0.32 : 0.38;
+      const alarm = currentStatus === "blocked" || currentStatus === "error";
+      uniforms.uDistortionScale.value = loading ? 0.55 : alarm ? 0.48 : 0.38;
+      if (alarm) uniforms.uTime.value += delta * 1.6; // agitated, not calm
       orb.rotation.y += delta * (loading ? 0.8 : 0.25);
       orb.rotation.x += delta * (loading ? 0.3 : 0.1);
       renderer.render(scene, camera);
@@ -230,47 +234,11 @@ export function AiOrb({ status = "ready", className = "" }: Props) {
     };
   }, []);
 
-  const getStatusLabel = () => {
-    switch (status) {
-      case "loading":
-        return "GENERATING & CHECKING SQL";
-      case "blocked":
-        return "GUARDRAIL ENGAGED";
-      case "error":
-        return "SYSTEM ERROR";
-      case "success":
-        return "QUERY EXECUTED";
-      default:
-        return "AI ENGINE READY";
-    }
-  };
-
-  const getIndicatorDotClass = () => {
-    switch (status) {
-      case "loading":
-        return "bg-[var(--accent-bright)] animate-ping";
-      case "blocked":
-        return "bg-[var(--warning)] animate-pulse";
-      case "error":
-        return "bg-[var(--danger)]";
-      case "success":
-        return "bg-[var(--success)]";
-      default:
-        return "bg-[var(--accent)] animate-pulse";
-    }
-  };
-
   return (
     <div
-      className={`glass-card relative flex flex-col items-center justify-center overflow-hidden rounded-2xl p-4 ${className}`}
+      className={`relative flex flex-col items-center justify-center ${className}`}
     >
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
-        <div className={`h-2 w-2 rounded-full ${getIndicatorDotClass()}`} />
-        <span className="font-mono text-[10px] font-semibold tracking-wider text-[var(--text-secondary)]">
-          {getStatusLabel()}
-        </span>
-      </div>
-      <div ref={containerRef} className="h-[170px] w-[170px] cursor-grab active:cursor-grabbing" />
+      <div ref={containerRef} aria-hidden className="h-[72%] w-[72%] cursor-grab active:cursor-grabbing" />
     </div>
   );
 }

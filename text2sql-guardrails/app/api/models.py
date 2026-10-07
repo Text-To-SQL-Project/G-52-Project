@@ -146,11 +146,17 @@ class ResultTable(BaseModel):
     )
 
 
+class ClarificationOption(BaseModel):
+    label: str
+    description: str = ""
+    question: str = Field(..., description="Fully specified rewrite, re-submitted on click.")
+
+
 class Clarification(BaseModel):
     """Returned when the question is ambiguous. The UI renders the options as
-    buttons instead of results."""
+    choices (plus a free-text answer) instead of results."""
     reason: str
-    options: list[str] = Field(..., description="Interpretations to choose from.")
+    options: list[ClarificationOption] = Field(..., description="Interpretations to choose from.")
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +208,7 @@ class QueryResponse(BaseModel):
 
     # Present on CLARIFICATION_NEEDED only -- REFUSED conveys its reason via
     # status_reason alone, since there's nothing to clarify about a flat
-    # safety refusal. options is typically empty in practice.
+    # safety refusal. options is empty when the model offered none.
     clarification: Optional[Clarification] = None
 
     # Present on ERROR

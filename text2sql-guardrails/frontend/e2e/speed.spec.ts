@@ -28,14 +28,15 @@ test('answers arrive under 3 s and the score refines in place', async ({ page })
   for (const q of QUESTIONS) {
     await input.fill(q)
     const [res] = await Promise.all([
-      page.waitForResponse((r) => r.url().endsWith('/v1/query') && r.request().method() === 'POST'),
+      page.waitForResponse((r) => r.url().endsWith('/v1/query/stream') && r.request().method() === 'POST'),
       input.press('Enter'),
     ])
-    const body = await res.json()
+    // NDJSON stream: the last line carries the QueryResponse.
+    const body = JSON.parse((await res.text()).trim().split('\n').at(-1)!).data
     expect(body.status).toBe('success')
     const total = body.timings_ms.total as number
     totals.push(total)
-    expect(res.headers()['server-timing']).toContain('generation;dur=')
+    expect(body.timings_ms.generation).toBeGreaterThan(0) // stream headers go out before timings exist
 
     // Latency readout shows the server total and opens to a breakdown.
     const meter = page.locator('details.latency')

@@ -1,4 +1,11 @@
+import { motion } from "motion/react";
+import { Ban, Download, Info, SearchX, Table2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ResultTable } from "../types/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useTweened } from "../hooks/useTweened";
+import { EASE, Panel } from "./kit";
 
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "—";
@@ -9,17 +16,43 @@ function formatCell(value: unknown): string {
   return String(value);
 }
 
-function numericColumns(results: ResultTable): boolean[] {
+/** Per column: the largest absolute value if every non-null cell is a number, else null. */
+function numericMax(results: ResultTable): (number | null)[] {
   return results.columns.map((_, j) => {
+    let max = 0;
     let sawNumber = false;
     for (const row of results.rows) {
       const cell = row[j];
       if (cell === null || cell === undefined) continue;
-      if (typeof cell !== "number") return false;
+      if (typeof cell !== "number") return null;
       sawNumber = true;
+      max = Math.max(max, Math.abs(cell));
     }
-    return sawNumber;
+    return sawNumber ? max : null;
   });
+}
+
+function Empty({ icon: Icon, title, body }: { icon: typeof Ban; title: string; body: string }) {
+  return (
+    <motion.div
+      className="flex flex-col items-center px-6 py-14 text-center"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: EASE }}
+    >
+      <motion.span
+        aria-hidden
+        className="mb-4 grid size-11 place-items-center rounded-xl border border-dashed border-border text-muted-foreground"
+        initial={{ rotate: -12, scale: 0.8 }}
+        animate={{ rotate: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 16, delay: 0.1 }}
+      >
+        <Icon className="size-5" />
+      </motion.span>
+      <p className="text-sm font-medium text-soft">{title}</p>
+      <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">{body}</p>
+    </motion.div>
+  );
 }
 
 interface Props {
@@ -28,7 +61,8 @@ interface Props {
 }
 
 export function ResultsTable({ results, executed }: Props) {
-  const numeric = results ? numericColumns(results) : [];
+  const max = results ? numericMax(results) : [];
+  const rowCount = Math.round(useTweened(results?.row_count ?? 0, 700, 0));
 
   const handleExportCsv = () => {
     if (!results || results.rows.length === 0) return;
@@ -38,14 +72,11 @@ export function ResultsTable({ results, executed }: Props) {
         .map((val) => {
           if (val === null || val === undefined) return "";
           const str = String(val);
-          return str.includes(",") || str.includes('"') || str.includes("\n")
-            ? `"${str.replace(/"/g, '""')}"`
-            : str;
+          return str.includes(",") || str.includes('"') || str.includes("\n") ? `"${str.replace(/"/g, '""')}"` : str;
         })
-        .join(",")
+        .join(","),
     );
-    const csvContent = [header, ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
@@ -54,102 +85,45 @@ export function ResultsTable({ results, executed }: Props) {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    toast.success("CSV exported", { description: `${results.rows.length.toLocaleString()} rows · ${results.columns.length} columns` });
   };
 
   return (
-    <section className="animate-rise overflow-hidden" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
-      <header
-        className="flex items-center justify-between gap-3 px-6 py-3.5"
-        style={{ borderBottom: "1px solid var(--border-subtle)", background: "rgb(var(--ink-rgb) / 0.01)" }}
-      >
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>table_chart</span>
-          <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
-            Query Results
-          </h3>
-        </div>
-
-        {executed && results && (
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--accent)" }}>
-              <span className="font-semibold text-[var(--text-primary)]">{results.row_count.toLocaleString()}</span>{" "}
+    <Panel
+      icon={Table2}
+      title="Query Results"
+      bodyClassName="p-0"
+      meta={
+        executed && results ? (
+          <>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              <span className="font-semibold tabular-nums text-foreground">{rowCount.toLocaleString()}</span>{" "}
               {results.row_count === 1 ? "row" : "rows"}
             </span>
-
-            {results.truncated && (
-              <span
-                className="font-mono text-[10px] font-semibold uppercase"
-                style={{
-                  padding: "2px 8px",
-                  border: "1px solid rgb(var(--accent-bright-rgb) / 0.3)",
-                  background: "rgb(var(--accent-bright-rgb) / 0.06)",
-                  color: "var(--warning)",
-                  borderRadius: "8px",
-                }}
-              >
-                capped
-              </span>
-            )}
-
+            {results.truncated && <Badge variant="warning">capped</Badge>}
             {results.rows.length > 0 && (
-              <button
-                onClick={handleExportCsv}
-                title="Export results as CSV"
-                className="flex items-center gap-1 px-2.5 py-1 font-mono text-xs transition duration-200 focus-visible:outline-none"
-                style={{
-                  border: "1px solid var(--border-subtle)",
-                  background: "transparent",
-                  color: "var(--text-secondary)",
-                  borderRadius: "8px",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border-accent)";
-                  e.currentTarget.style.color = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border-subtle)";
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                }}
-              >
-                <span className="material-symbols-outlined text-[14px]">download</span>
-                <span>Export CSV</span>
-              </button>
+              <Button variant="outline" size="xs" onClick={handleExportCsv} className="group font-mono" title="Export results as CSV">
+                <Download className="transition-transform duration-300 group-hover:translate-y-0.5" /> Export CSV
+              </Button>
             )}
-          </div>
-        )}
-      </header>
-
+          </>
+        ) : undefined
+      }
+    >
       {!executed || !results ? (
-        <div className="px-6 py-12 text-center">
-          <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>block</span>
-          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Query not executed</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            No SQL was executed against the database.
-          </p>
-        </div>
+        <Empty icon={Ban} title="Query not executed" body="No SQL was executed against the database." />
       ) : results.rows.length === 0 ? (
-        <div className="px-6 py-12 text-center">
-          <span className="material-symbols-outlined mb-3 text-[20px]" style={{ color: "var(--text-ghost)" }}>search_off</span>
-          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>No matching records</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            The query executed successfully and matched 0 rows.
-          </p>
-        </div>
+        <Empty icon={SearchX} title="No matching records" body="The query executed successfully and matched 0 rows." />
       ) : (
-        <div className="max-h-[32rem] overflow-auto">
+        <div className="max-h-[32rem] overflow-auto" data-lenis-prevent>
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-10" style={{ background: "rgb(var(--void-rgb) / 0.95)", backdropFilter: "blur(8px)" }}>
+            <thead className="sticky top-0 z-10 bg-[rgb(var(--surface-rgb)/0.92)] backdrop-blur-md">
               <tr>
+                <th className="w-10 border-b border-border px-3 py-2.5 text-right font-mono text-[10px] font-medium text-muted-foreground">#</th>
                 {results.columns.map((col, j) => (
                   <th
                     key={col}
-                    className={`px-5 py-3 font-mono text-[11px] font-semibold tracking-wider whitespace-nowrap uppercase ${
-                      numeric[j] ? "text-right" : ""
-                    }`}
-                    style={{
-                      color: "var(--text-muted)",
-                      borderBottom: "1px solid var(--border-hairline)",
-                    }}
+                    className={`border-b border-border px-4 py-2.5 font-mono text-[11px] font-medium tracking-wide whitespace-nowrap text-muted-foreground uppercase ${max[j] !== null ? "text-right" : ""}`}
                   >
                     {col}
                   </th>
@@ -160,34 +134,30 @@ export function ResultsTable({ results, executed }: Props) {
               {results.rows.map((row, i) => (
                 <tr
                   key={i}
-                  className="row-in transition-colors duration-150"
-                  style={{
-                    animationDelay: `${Math.min(i, 30) * 22}ms`,
-                    borderBottom: "1px solid rgb(var(--ink-rgb) / 0.03)",
-                    background: i % 2 === 1 ? "rgb(var(--ink-rgb) / 0.01)" : "transparent",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--accent-rgb) / 0.025)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = i % 2 === 1 ? "rgb(var(--ink-rgb) / 0.01)" : "transparent"; }}
+                  className="row-in group/row border-b border-[rgb(var(--ink-rgb)/0.045)] transition-colors duration-150 hover:bg-[rgb(var(--brand-rgb)/0.045)]"
+                  style={{ animationDelay: `${Math.min(i, 30) * 22}ms` }}
                 >
-                  {row.map((cell, j) => (
-                    <td
-                      key={j}
-                      className={`px-5 py-2.5 font-mono text-[13px] whitespace-nowrap ${
-                        numeric[j] ? "text-right tabular-nums" : ""
-                      }`}
-                      style={{
-                        color:
-                          cell === null || cell === undefined
-                            ? "var(--text-muted)"
-                            : numeric[j]
-                            ? "var(--accent)"
-                            : "var(--text-primary)",
-                        fontStyle: cell === null || cell === undefined ? "italic" : "normal",
-                      }}
-                    >
-                      {formatCell(cell)}
-                    </td>
-                  ))}
+                  <td className="px-3 py-2.5 text-right font-mono text-[11px] tabular-nums text-muted-foreground transition-colors group-hover/row:text-brand">
+                    {i + 1}
+                  </td>
+                  {row.map((cell, j) => {
+                    const m = max[j];
+                    const isNull = cell === null || cell === undefined;
+                    const pct = m && typeof cell === "number" ? (Math.abs(cell) / m) * 100 : 0;
+                    return (
+                      <td
+                        key={j}
+                        className={`px-4 py-2.5 font-mono text-[13px] whitespace-nowrap ${m !== null ? "text-right tabular-nums" : ""} ${isNull ? "italic text-muted-foreground" : m !== null ? "text-foreground" : "text-foreground"}`}
+                        style={
+                          m !== null && !isNull
+                            ? { backgroundImage: "linear-gradient(rgb(var(--brand-rgb) / 0.55), rgb(var(--brand-rgb) / 0.55))", backgroundSize: `${pct * 0.8}% 2px`, backgroundPosition: "right 1rem bottom 6px", backgroundRepeat: "no-repeat" }
+                            : undefined
+                        }
+                      >
+                        {formatCell(cell)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -196,20 +166,11 @@ export function ResultsTable({ results, executed }: Props) {
       )}
 
       {executed && results?.truncated && (
-        <div
-          className="flex items-center gap-2 px-6 py-2.5 text-xs"
-          style={{
-            borderTop: "1px solid rgb(var(--accent-bright-rgb) / 0.15)",
-            background: "rgb(var(--accent-bright-rgb) / 0.03)",
-            color: "var(--warning)",
-          }}
-        >
-          <span className="material-symbols-outlined text-[16px]">info</span>
-          <span>
-            Output capped at {results.row_count} rows. Refine your query for more specific results.
-          </span>
+        <div className="flex items-center gap-2 border-t border-[color-mix(in_srgb,var(--warning)_25%,transparent)] bg-[color-mix(in_srgb,var(--warning)_6%,transparent)] px-5 py-2.5 text-xs text-warning">
+          <Info aria-hidden className="size-4" />
+          <span>Output capped at {results.row_count} rows. Refine your query for more specific results.</span>
         </div>
       )}
-    </section>
+    </Panel>
   );
 }

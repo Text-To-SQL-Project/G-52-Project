@@ -1,3 +1,4 @@
+import { Layers } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -38,11 +39,11 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
   ];
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
+    <div className="panel spotlight p-5 sm:p-6">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>security</span>
+            <span aria-hidden className="grid size-7 place-items-center rounded-md border border-[rgb(var(--brand-rgb)/0.25)] bg-[rgb(var(--brand-rgb)/0.08)] text-brand"><Layers className="size-3.5" /></span>
             <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Multi-Layer Safety Stack Breakdown
             </h3>
@@ -50,9 +51,9 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               className="font-mono text-[10px] font-semibold"
               style={{
                 padding: "2px 8px",
-                border: "1px solid var(--border-accent)",
-                background: "var(--accent-dim)",
-                color: "var(--accent)",
+                border: "1px solid var(--border-brand)",
+                background: "var(--brand-dim)",
+                color: "var(--brand)",
                 borderRadius: "8px",
               }}
             >
@@ -84,7 +85,8 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               contentStyle={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
-                borderRadius: "8px",
+                borderRadius: "10px",
+                boxShadow: "var(--shadow-lift)",
                 color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
@@ -94,8 +96,8 @@ export function SafetyLayerBreakdown({ metrics }: SafetyLayerBreakdownProps) {
               ]}
             />
             <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-            <Bar dataKey="Anthropic" fill="var(--accent)" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="Gemini" fill="var(--success)" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Anthropic" fill="var(--brand)" radius={[5, 5, 0, 0]} />
+            <Bar dataKey="Gemini" fill="var(--chart-2)" radius={[5, 5, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

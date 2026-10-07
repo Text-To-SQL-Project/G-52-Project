@@ -26,6 +26,11 @@ class GenerationResult:
     explanation: str
     tables_used: list[str]
     columns_used: list[str]
+    # Only ever set for an "ambiguous" refusal with clarify=True: the model's
+    # question to the user and its raw option dicts. Unvalidated -- routes.py
+    # filters it before anything reaches a client.
+    clarifying_question: str | None = None
+    options: list | None = None
 
 
 def generate_sql(
@@ -35,6 +40,7 @@ def generate_sql(
     timeout: float | None = None,
     max_attempts: int | None = None,
     hedge_after: float | None = None,
+    clarify: bool = False,
 ) -> GenerationResult:
     """Call the LLM to translate `question` into SQL over the live schema.
 
@@ -46,6 +52,10 @@ def generate_sql(
 
     `is_admin` authorizes generation of DDL/DML administrative statements.
 
+    `clarify` asks the model to answer derivable/vague questions and, when
+    it must decline as ambiguous, to return a question plus options. Off by
+    default for the same eval-baseline reason as `row_scoped`.
+
     `timeout`/`max_attempts`/`hedge_after` bound the LLM call (see llm_client.complete);
     routes.py passes the app latency budget, eval passes neither.
 
@@ -55,7 +65,7 @@ def generate_sql(
     """
     return _generate(
         question, extra_instructions=None, row_scoped=row_scoped, is_admin=is_admin,
-        timeout=timeout, max_attempts=max_attempts, hedge_after=hedge_after,
+        clarify=clarify, timeout=timeout, max_attempts=max_attempts, hedge_after=hedge_after,
     )
 
 
@@ -140,6 +150,7 @@ def _generate(
     extra_instructions: str | None,
     row_scoped: bool = False,
     is_admin: bool = False,
+    clarify: bool = False,
     timeout: float | None = None,
     max_attempts: int | None = None,
     hedge_after: float | None = None,
@@ -154,6 +165,7 @@ def _generate(
         extra_instructions=extra_instructions,
         row_scoped=row_scoped,
         is_admin=is_admin,
+        clarify=clarify,
     )
     user = build_user_prompt(question)
 
@@ -195,4 +207,6 @@ def _generate(
         explanation=data.get("explanation", ""),
         tables_used=data.get("tables_used", []),
         columns_used=data.get("columns_used", []),
+        clarifying_question=data.get("clarifying_question") if refusal_kind == "ambiguous" else None,
+        options=data.get("options") if refusal_kind == "ambiguous" else None,
     )

@@ -1,3 +1,4 @@
+import { BarChart3 } from "lucide-react";
 import { useState } from "react";
 import {
   BarChart,
@@ -29,13 +30,13 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
       name: "In-sample Raw",
       AUROC: comparison.in_sample_raw,
       citable: true,
-      fill: "var(--accent)",
+      fill: "var(--brand)",
     },
     {
       name: "Held-out Raw",
       AUROC: comparison.held_out_raw,
       citable: true,
-      fill: "var(--accent-bright)",
+      fill: "var(--brand-bright)",
     },
     {
       name: "Held-out Calibrated",
@@ -77,11 +78,11 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
   }));
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
+    <div className="panel spotlight p-5 sm:p-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>analytics</span>
+            <span aria-hidden className="grid size-7 place-items-center rounded-md border border-[rgb(var(--brand-rgb)/0.25)] bg-[rgb(var(--brand-rgb)/0.08)] text-brand"><BarChart3 className="size-3.5" /></span>
             <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Confidence AUROC &amp; Ablation Analysis
             </h3>
@@ -119,9 +120,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             style={{
               padding: "4px 10px",
               borderRadius: "8px",
-              border: activeTab === "summary" ? "1px solid var(--border-accent)" : "1px solid transparent",
-              background: activeTab === "summary" ? "var(--accent-dim)" : "transparent",
-              color: activeTab === "summary" ? "var(--accent)" : "var(--text-muted)",
+              border: activeTab === "summary" ? "1px solid var(--border-brand)" : "1px solid transparent",
+              background: activeTab === "summary" ? "var(--brand-dim)" : "transparent",
+              color: activeTab === "summary" ? "var(--brand)" : "var(--text-muted)",
               fontWeight: activeTab === "summary" ? 600 : 400,
             }}
           >
@@ -134,9 +135,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             style={{
               padding: "4px 10px",
               borderRadius: "8px",
-              border: activeTab === "ablation" ? "1px solid var(--border-accent)" : "1px solid transparent",
-              background: activeTab === "ablation" ? "var(--accent-dim)" : "transparent",
-              color: activeTab === "ablation" ? "var(--accent)" : "var(--text-muted)",
+              border: activeTab === "ablation" ? "1px solid var(--border-brand)" : "1px solid transparent",
+              background: activeTab === "ablation" ? "var(--brand-dim)" : "transparent",
+              color: activeTab === "ablation" ? "var(--brand)" : "var(--text-muted)",
               fontWeight: activeTab === "ablation" ? 600 : 400,
             }}
           >
@@ -149,9 +150,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
             style={{
               padding: "4px 10px",
               borderRadius: "8px",
-              border: activeTab === "persignal" ? "1px solid var(--border-accent)" : "1px solid transparent",
-              background: activeTab === "persignal" ? "var(--accent-dim)" : "transparent",
-              color: activeTab === "persignal" ? "var(--accent)" : "var(--text-muted)",
+              border: activeTab === "persignal" ? "1px solid var(--border-brand)" : "1px solid transparent",
+              background: activeTab === "persignal" ? "var(--brand-dim)" : "transparent",
+              color: activeTab === "persignal" ? "var(--brand)" : "var(--text-muted)",
               fontWeight: activeTab === "persignal" ? 600 : 400,
             }}
           >
@@ -171,7 +172,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 type="checkbox"
                 checked={showHistoricalDebug}
                 onChange={(e) => setShowHistoricalDebug(e.target.checked)}
-                style={{ accentColor: "var(--accent)" }}
+                style={{ accentColor: "var(--brand)" }}
               />
               <span>Show Superseded 0.649 Value (Debug)</span>
             </label>
@@ -223,7 +224,7 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                     "AUROC",
                   ]}
                 />
-                <Bar dataKey="AUROC" radius={[2, 2, 0, 0]}>
+                <Bar dataKey="AUROC" radius={[5, 5, 0, 0]}>
                   {summaryData.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
@@ -251,9 +252,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 style={{
                   padding: "2px 8px",
                   borderRadius: "8px",
-                  border: selectedProvider === "Anthropic" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
-                  background: selectedProvider === "Anthropic" ? "var(--accent-dim)" : "transparent",
-                  color: selectedProvider === "Anthropic" ? "var(--accent)" : "var(--text-muted)",
+                  border: selectedProvider === "Anthropic" ? "1px solid var(--border-brand)" : "1px solid var(--border-subtle)",
+                  background: selectedProvider === "Anthropic" ? "var(--brand-dim)" : "transparent",
+                  color: selectedProvider === "Anthropic" ? "var(--brand)" : "var(--text-muted)",
                 }}
               >
                 Anthropic (repeats=3)
@@ -265,9 +266,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 style={{
                   padding: "2px 8px",
                   borderRadius: "8px",
-                  border: selectedProvider === "Gemini" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
-                  background: selectedProvider === "Gemini" ? "var(--accent-dim)" : "transparent",
-                  color: selectedProvider === "Gemini" ? "var(--accent)" : "var(--text-muted)",
+                  border: selectedProvider === "Gemini" ? "1px solid var(--border-brand)" : "1px solid var(--border-subtle)",
+                  background: selectedProvider === "Gemini" ? "var(--brand-dim)" : "transparent",
+                  color: selectedProvider === "Gemini" ? "var(--brand)" : "var(--text-muted)",
                 }}
               >
                 Gemini (repeats=1)
@@ -306,15 +307,15 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="5-Signal (with MQ)" fill="var(--accent)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="4-Signal (dropped MQ)" fill="var(--text-muted)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="5-Signal (with MQ)" fill="var(--brand)" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="4-Signal (dropped MQ)" fill="var(--chart-4)" radius={[5, 5, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
             <strong style={{ color: "var(--text-primary)" }}>Key finding:</strong> In 6 of 8 cells across providers, dropping{" "}
-            <code style={{ color: "var(--accent)" }}>multi_query_agreement</code> hurts AUROC. The original
+            <code style={{ color: "var(--brand)" }}>multi_query_agreement</code> hurts AUROC. The original
             justification (+0.065) appeared only in Anthropic Permissive In-sample and reverses sign
             on Gemini (−0.034).
           </p>
@@ -333,9 +334,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 style={{
                   padding: "2px 8px",
                   borderRadius: "8px",
-                  border: selectedProvider === "Anthropic" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
-                  background: selectedProvider === "Anthropic" ? "var(--accent-dim)" : "transparent",
-                  color: selectedProvider === "Anthropic" ? "var(--accent)" : "var(--text-muted)",
+                  border: selectedProvider === "Anthropic" ? "1px solid var(--border-brand)" : "1px solid var(--border-subtle)",
+                  background: selectedProvider === "Anthropic" ? "var(--brand-dim)" : "transparent",
+                  color: selectedProvider === "Anthropic" ? "var(--brand)" : "var(--text-muted)",
                 }}
               >
                 Anthropic
@@ -347,9 +348,9 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                 style={{
                   padding: "2px 8px",
                   borderRadius: "8px",
-                  border: selectedProvider === "Gemini" ? "1px solid var(--border-accent)" : "1px solid var(--border-subtle)",
-                  background: selectedProvider === "Gemini" ? "var(--accent-dim)" : "transparent",
-                  color: selectedProvider === "Gemini" ? "var(--accent)" : "var(--text-muted)",
+                  border: selectedProvider === "Gemini" ? "1px solid var(--border-brand)" : "1px solid var(--border-subtle)",
+                  background: selectedProvider === "Gemini" ? "var(--brand-dim)" : "transparent",
+                  color: selectedProvider === "Gemini" ? "var(--brand)" : "var(--text-muted)",
                 }}
               >
                 Gemini
@@ -386,8 +387,8 @@ export function AurocChart({ comparison, ablationCells, perSignalAuroc }: AurocC
                   ]}
                 />
                 <Legend wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }} />
-                <Bar dataKey="Permissive" fill="var(--accent)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="Strict" fill="var(--chart-orange)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Permissive" fill="var(--brand)" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="Strict" fill="var(--chart-2)" radius={[5, 5, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

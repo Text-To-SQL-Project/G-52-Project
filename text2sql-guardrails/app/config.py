@@ -131,6 +131,11 @@ class Settings:
     # app/main.py (no localhost CORS wildcard, HSTS, 32+ char SECRET_KEY).
     ENV: str = os.getenv("ENV", "dev").strip().lower()
 
+    # Developer trace (POST /v1/query/stream): requests carrying a matching
+    # X-Dev-Trace-Key header get the live pipeline log (SQL, reasons, app.*
+    # log records). Empty = nobody gets it. Not a role: admins don't see it.
+    DEV_TRACE_KEY: str = os.getenv("DEV_TRACE_KEY", "").strip()
+
     # Admin-managed key pool: a LiteLLM proxy (docker-compose service
     # `litellm`) holds every provider key and routes by latency with
     # failover. Empty URL = pool disabled.

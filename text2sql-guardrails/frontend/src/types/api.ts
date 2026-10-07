@@ -52,9 +52,16 @@ export interface ResultTable {
   truncated: boolean;
 }
 
+export interface ClarificationOption {
+  label: string;
+  description: string;
+  /** Fully specified rewrite of the question; submitted when chosen. */
+  question: string;
+}
+
 export interface Clarification {
   reason: string;
-  options: string[];
+  options: ClarificationOption[];
 }
 
 export interface QueryResponse {

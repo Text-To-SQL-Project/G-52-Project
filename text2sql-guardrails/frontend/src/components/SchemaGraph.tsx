@@ -6,6 +6,7 @@ import {
 } from "@xyflow/react";
 import { Graph, layout } from "@dagrejs/dagre";
 import "@xyflow/react/dist/base.css";
+import { KeyRound, Link2 } from "lucide-react";
 import type { TableInfo } from "../types/api";
 
 // Module colour = what part of the ERP a table belongs to (--mod-* tokens,
@@ -48,9 +49,9 @@ function TableCard({ data }: NodeProps<TableNode>) {
       {data.keys.map((c) => (
         <div key={c.name} className="erd-row" style={{ height: ROW_H }}>
           <Handle type="target" id={`${c.name}-t`} position={Position.Left} className="erd-handle" />
-          <span aria-hidden className="material-symbols-outlined text-[13px]" style={{ color: c.is_primary_key ? "var(--accent)" : "var(--text-muted)" }}>
-            {c.is_primary_key ? "key" : "link"}
-          </span>
+          {c.is_primary_key
+            ? <KeyRound aria-hidden className="size-3 shrink-0 text-brand" />
+            : <Link2 aria-hidden className="size-3 shrink-0 text-muted-foreground" />}
           <span className="truncate">{c.name}</span>
           <span className="ml-auto text-[10px]" style={{ color: "var(--text-muted)" }}>{c.data_type.toLowerCase().split("(")[0]}</span>
           <Handle type="source" id={`${c.name}-s`} position={Position.Right} className="erd-handle" />

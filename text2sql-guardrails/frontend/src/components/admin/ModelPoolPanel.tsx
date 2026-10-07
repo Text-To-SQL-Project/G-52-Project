@@ -1,4 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { motion } from "motion/react";
+import { Activity, Loader2, Network, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { EASE, Panel } from "../kit";
 import { addToPool, ApiError, checkPoolHealth, getPool, removeFromPool } from "../../api/client";
 import type { PoolDeployment, PoolHealth, PoolStatus } from "../../types/api";
 
@@ -15,12 +20,7 @@ const MODEL_HINT: Record<string, string> = {
 };
 
 const label = "font-mono text-[10px] uppercase tracking-wider";
-const field: React.CSSProperties = {
-  background: "var(--bg-void)",
-  border: "1px solid var(--border-hairline)",
-  borderRadius: "8px",
-  color: "var(--text-primary)",
-};
+const fieldCls = "h-9 w-full rounded-lg border border-input bg-background/60 px-3 text-xs text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-[rgb(var(--brand-rgb)/0.5)] focus:shadow-[0_0_0_4px_rgb(var(--brand-rgb)/0.1)]";
 const fmtMs = (ms?: number | null) => (ms == null ? "—" : ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`);
 
 function StatusPill({ status }: { status: PoolStatus }) {
@@ -33,7 +33,7 @@ function StatusPill({ status }: { status: PoolStatus }) {
         : [`Idle — app uses ${status.app_provider}`, "var(--warning)"];
   return (
     <span className="inline-flex items-center gap-2 font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
-      <span aria-hidden className="h-[7px] w-[7px] rounded-full" style={{ background: color, boxShadow: `0 0 0 3px color-mix(in srgb, ${color} 18%, transparent)` }} />
+      <span aria-hidden className="live-dot" style={{ "--dot": color } as React.CSSProperties} />
       {text}
     </span>
   );
@@ -49,7 +49,7 @@ function Row({ d, health, onRemove }: { d: PoolDeployment; health?: string | tru
   }, [confirming]);
 
   return (
-    <tr className="animate-fade" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+    <motion.tr layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }} className="border-t border-border transition-colors hover:bg-hover/60">
       <td className="py-3 pr-4">
         <div className="flex items-center gap-2">
           <span
@@ -89,18 +89,13 @@ function Row({ d, health, onRemove }: { d: PoolDeployment; health?: string | tru
             setBusy(true);
             try { await onRemove(); } finally { setBusy(false); setConfirming(false); }
           }}
-          className="px-2.5 py-1 font-mono text-[11px] transition-colors"
-          style={{
-            borderRadius: "8px",
-            border: `1px solid ${confirming ? "var(--danger)" : "var(--border-hairline)"}`,
-            color: confirming ? "var(--danger)" : "var(--text-secondary)",
-            background: confirming ? "color-mix(in srgb, var(--danger) 8%, transparent)" : "transparent",
-          }}
+          className={`press inline-flex h-7 items-center gap-1 rounded-md border px-2.5 font-mono text-[11px] transition-colors ${confirming ? "border-destructive bg-[rgb(var(--danger-rgb)/0.08)] text-danger-text" : "border-border text-soft hover:border-[rgb(var(--danger-rgb)/0.4)] hover:text-danger-text"}`}
         >
+          <Trash2 aria-hidden className="size-3" />
           {busy ? "Removing…" : confirming ? "Confirm remove" : "Remove"}
         </button>
       </td>
-    </tr>
+    </motion.tr>
   );
 }
 
@@ -143,18 +138,8 @@ export function ModelPoolPanel() {
   };
 
   return (
-    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }} aria-labelledby="pool-title">
-      <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>hub</span>
-          <h3 id="pool-title" className="font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-            AI key pool
-          </h3>
-        </div>
-        {status && <StatusPill status={status} />}
-      </header>
-
-      <div className="space-y-6 p-6">
+    <Panel icon={Network} title="AI key pool" id="pool-title" aria-labelledby="pool-title" meta={status && <StatusPill status={status} />} bodyClassName="p-0">
+      <div className="space-y-6 p-5 sm:p-6">
         <p className="max-w-prose text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
           Keys from any provider. Each question goes to the fastest healthy key; a failing or
           rate-limited key is skipped for 30 seconds. Keys are stored encrypted by the pool service
@@ -162,7 +147,7 @@ export function ModelPoolPanel() {
         </p>
 
         {error && (
-          <p role="alert" className="px-3 py-2 text-xs" style={{ border: "1px solid color-mix(in srgb, var(--danger) 35%, transparent)", color: "var(--danger)", borderRadius: "8px" }}>
+          <p role="alert" className="rounded-lg border border-[rgb(var(--danger-rgb)/0.35)] bg-[rgb(var(--danger-rgb)/0.06)] px-3 py-2 text-xs text-danger-text">
             {error}
           </p>
         )}
@@ -170,7 +155,7 @@ export function ModelPoolPanel() {
         {status && !status.configured && (
           <div className="space-y-2 text-xs" style={{ color: "var(--text-secondary)" }}>
             <p>The pool service isn't set up. From <code className="font-mono">text2sql-guardrails/</code>:</p>
-            <pre className="sql-editor-card overflow-x-auto px-3 py-2 font-mono text-[11px]">docker compose up -d litellm</pre>
+            <pre className="code-surface overflow-x-auto px-3 py-2 font-mono text-[11px]">docker compose up -d litellm</pre>
             <p style={{ color: "var(--text-muted)" }}>and set LITELLM_URL, LITELLM_MASTER_KEY and LITELLM_SALT_KEY in .env (see .env.example).</p>
           </div>
         )}
@@ -204,59 +189,62 @@ export function ModelPoolPanel() {
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 disabled={checking || status.deployments.length === 0}
                 onClick={async () => {
                   setChecking(true);
                   setError(null);
-                  try { setHealth(await checkPoolHealth()); }
+                  try { setHealth(await checkPoolHealth()); toast.success("Health check finished"); }
                   catch (x) { setError(x instanceof ApiError ? x.message : "Health check failed."); }
                   finally { setChecking(false); }
                 }}
-                className="px-3 py-1.5 font-mono text-[11px] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
-                style={{ border: "1px solid var(--border-hairline)", borderRadius: "8px", color: "var(--text-secondary)" }}
+                className="font-mono text-[11px]"
               >
+                {checking ? <Loader2 className="animate-spin" /> : <Activity />}
                 {checking ? "Checking every key…" : "Check health"}
-              </button>
+              </Button>
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>Sends one tiny request through each key.</span>
             </div>
 
-            <form onSubmit={add} className="grid gap-3 pt-5 sm:grid-cols-12" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+            <form onSubmit={add} className="grid gap-3 border-t border-border pt-5 sm:grid-cols-12">
               <p className={`${label} sm:col-span-12`} style={{ color: "var(--text-muted)" }}>Add a key</p>
               <label className="flex flex-col gap-1 sm:col-span-3">
                 <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Provider</span>
-                <select value={provider} onChange={(e) => setProvider(e.target.value)} className="px-2.5 py-2 font-mono text-xs" style={field}>
+                <select value={provider} onChange={(e) => setProvider(e.target.value)} className={`${fieldCls} font-mono`}>
                   {status.providers.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-1 sm:col-span-4">
                 <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Model</span>
-                <input name="model" required maxLength={200} placeholder={MODEL_HINT[provider] ?? "model-id"} className="px-2.5 py-2 font-mono text-xs" style={field} />
+                <input name="model" required maxLength={200} placeholder={MODEL_HINT[provider] ?? "model-id"} className={`${fieldCls} font-mono`} />
               </label>
               <label className="flex flex-col gap-1 sm:col-span-5">
                 <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>API key</span>
-                <input name="api_key" type="password" required minLength={8} maxLength={500} autoComplete="off" spellCheck={false} className="px-2.5 py-2 font-mono text-xs" style={field} />
+                <input name="api_key" type="password" required minLength={8} maxLength={500} autoComplete="off" spellCheck={false} className={`${fieldCls} font-mono`} />
               </label>
               <label className="flex flex-col gap-1 sm:col-span-4">
                 <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Label <span style={{ color: "var(--text-muted)" }}>(optional)</span></span>
-                <input name="label" maxLength={80} placeholder="e.g. Team Groq key" className="px-2.5 py-2 text-xs" style={field} />
+                <input name="label" maxLength={80} placeholder="e.g. Team Groq key" className={fieldCls} />
               </label>
               <label className="flex flex-col gap-1 sm:col-span-5">
                 <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
                   API base <span style={{ color: "var(--text-muted)" }}>(only for self-hosted / OpenAI-compatible)</span>
                 </span>
-                <input name="api_base" type="url" maxLength={500} placeholder="https://…" className="px-2.5 py-2 font-mono text-xs" style={field} />
+                <input name="api_base" type="url" maxLength={500} placeholder="https://…" className={`${fieldCls} font-mono`} />
               </label>
               <div className="flex items-end sm:col-span-3">
-                <button type="submit" disabled={saving} className="glow-button w-full px-4 py-2 font-sans text-xs font-semibold disabled:opacity-50" style={{ borderRadius: "8px" }}>
+                <Button type="submit" disabled={saving} variant="brand" className="w-full" data-magnetic="0.12">
+                  {saving ? <Loader2 className="animate-spin" /> : <Plus />}
                   {saving ? "Adding…" : "Add key"}
-                </button>
+                </Button>
               </div>
             </form>
           </>
         )}
       </div>
-    </section>
+    </Panel>
   );
 }

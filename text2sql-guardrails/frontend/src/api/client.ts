@@ -34,7 +34,8 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** fetch + auth header + the shared error mapping; returns the OK response. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init?.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -67,7 +68,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(res.status, `Request failed (${res.status}): ${detail}`);
   }
 
-  return (await res.json()) as T;
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await (await send(path, init)).json()) as T;
 }
 
 export function login(req: LoginRequest): Promise<LoginResponse> {
@@ -116,6 +121,48 @@ export function postQuery(req: QueryRequest): Promise<QueryResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
+}
+
+/** Events from POST /v1/query/stream (see app/api/routes.py::run_query_stream). */
+export type StreamEvent =
+  | { t: "hello"; dev: boolean }
+  | { t: "stage"; stage: string; ms: number }
+  | { t: "log"; level: string; src: string; msg: string; at: number; data?: Record<string, unknown> }
+  | { t: "result"; data: QueryResponse }
+  | { t: "fatal" };
+
+/** Developers paste the server's DEV_TRACE_KEY here (browser console) to get
+ * the live log. Without it the server sends progress only. */
+export function devTraceKey(): string | null {
+  try { return localStorage.getItem("dev_trace_key"); } catch { return null; }
+}
+
+/** Same as postQuery, but reports pipeline progress while it runs. */
+export async function postQueryStream(req: QueryRequest, onEvent: (e: StreamEvent) => void): Promise<QueryResponse> {
+  const key = devTraceKey();
+  const res = await send("/v1/query/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(key ? { "X-Dev-Trace-Key": key } : {}) },
+    body: JSON.stringify(req),
+  });
+  if (!res.body) return postQuery(req); // no streaming support: plain request
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += value;
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      const ev = JSON.parse(line) as StreamEvent;
+      if (ev.t === "result") return ev.data;
+      if (ev.t === "fatal") throw new ApiError(500, "The system hit an internal error while answering. Please try again.");
+      onEvent(ev);
+    }
+    if (done) throw new ApiError(0, "The connection closed before the answer arrived.");
+  }
 }
 
 /** Redeem the signed ticket from a QueryResponse: runs the deferred check

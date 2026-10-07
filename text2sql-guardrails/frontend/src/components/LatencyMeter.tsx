@@ -1,10 +1,12 @@
+import { ChevronDown, Timer } from "lucide-react";
+
 const STAGES: { key: string; label: string; color: string }[] = [
-  { key: "generation", label: "SQL generation", color: "var(--accent)" },
-  { key: "guardrails", label: "Guardrails", color: "var(--text-secondary)" },
-  { key: "pre_checks", label: "Pre-execution checks", color: "var(--text-secondary)" },
+  { key: "generation", label: "SQL generation", color: "var(--brand)" },
+  { key: "guardrails", label: "Guardrails", color: "var(--chart-3)" },
+  { key: "pre_checks", label: "Pre-execution checks", color: "var(--chart-5)" },
   { key: "execution", label: "Query execution", color: "var(--success)" },
-  { key: "post_checks", label: "Result checks", color: "var(--text-secondary)" },
-  { key: "history", label: "Audit log", color: "var(--text-muted)" },
+  { key: "post_checks", label: "Result checks", color: "var(--chart-4)" },
+  { key: "history", label: "Audit log", color: "var(--ghost)" },
 ];
 
 const fmt = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${Math.round(ms)} ms`);
@@ -19,54 +21,40 @@ export function LatencyMeter({ timings }: { timings: Record<string, number> }) {
   return (
     <details className="latency group relative">
       <summary
-        className="flex cursor-pointer list-none items-center gap-2.5 rounded-[2px] px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]"
+        className="flex list-none items-center gap-2.5 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 transition-colors hover:border-[rgb(var(--ink-rgb)/0.18)] hover:bg-hover [&::-webkit-details-marker]:hidden"
         aria-label={`Answered in ${fmt(total)}. Show timing breakdown.`}
       >
-        <span className="font-mono text-xs tabular-nums" style={{ color: "var(--text-primary)" }}>
-          {fmt(total)}
-        </span>
-        <span aria-hidden className="flex h-1 w-24 overflow-hidden rounded-[1px]" style={{ background: "var(--border-subtle)" }}>
-          {stages.map((s) => (
+        <Timer aria-hidden className="size-3.5 text-muted-foreground" />
+        <span className="font-mono text-xs tabular-nums text-foreground">{fmt(total)}</span>
+        <span aria-hidden className="flex h-1.5 w-24 gap-px overflow-hidden rounded-full bg-muted">
+          {stages.map((s, i) => (
             <span
               key={s.key}
-              className="animate-bar h-full"
-              style={{ width: `${(timings[s.key] / total) * 100}%`, background: s.color }}
+              className="animate-bar h-full origin-left"
+              style={{ width: `${(timings[s.key] / total) * 100}%`, background: s.color, animationDelay: `${i * 60}ms` }}
             />
           ))}
         </span>
-        <span
-          aria-hidden
-          className="material-symbols-outlined text-[16px] transition-transform duration-200 group-open:rotate-180"
-          style={{ color: "var(--text-muted)" }}
-        >
-          expand_more
-        </span>
+        <ChevronDown aria-hidden className="size-3.5 text-muted-foreground transition-transform duration-300 group-open:rotate-180" />
       </summary>
 
-      <div
-        className="animate-fade absolute right-0 z-20 mt-2 w-64 p-3"
-        style={{
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border-hairline)",
-          borderRadius: "8px",
-          boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / 0.35)",
-        }}
-      >
-        <p className="mb-2 font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-          Server time by stage
-        </p>
-        <ul className="space-y-1.5">
+      <div className="animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 absolute right-0 z-40 mt-2 w-72 origin-top-right rounded-xl border border-border bg-popover p-3.5 shadow-[var(--shadow-lift)] duration-200">
+        <p className="eyebrow mb-2.5 !text-[10px]">Server time by stage</p>
+        <ul className="space-y-2">
           {stages.map((s) => (
-            <li key={s.key} className="flex items-center gap-2 text-xs">
-              <span aria-hidden className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: s.color }} />
-              <span style={{ color: "var(--text-secondary)" }}>{s.label}</span>
-              <span className="ml-auto font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>
-                {fmt(timings[s.key])}
+            <li key={s.key} className="text-xs">
+              <div className="flex items-center gap-2">
+                <span aria-hidden className="size-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
+                <span className="text-soft">{s.label}</span>
+                <span className="ml-auto font-mono tabular-nums text-foreground">{fmt(timings[s.key])}</span>
+              </div>
+              <span aria-hidden className="mt-1 block h-px w-full bg-muted">
+                <span className="animate-bar block h-px origin-left" style={{ width: `${(timings[s.key] / total) * 100}%`, background: s.color }} />
               </span>
             </li>
           ))}
         </ul>
-        <p className="mt-2.5 pt-2 text-[11px] leading-snug" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }}>
+        <p className="mt-3 border-t border-border pt-2.5 text-[11px] leading-snug text-muted-foreground">
           Back-translation runs after the answer is shown and isn't counted here.
         </p>
       </div>

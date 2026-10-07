@@ -1,7 +1,4 @@
-/**
- * Loading placeholders — the app's one signature live animation, shared by all
- * five screens so a pending state looks the same wherever it appears.
- */
+/** Loading placeholders, shared by every screen so pending looks the same everywhere. */
 
 export function SkeletonLine({ w = "w-full", h = "h-4" }: { w?: string; h?: string }) {
   return <span className={`skeleton block ${h} ${w}`} />;
@@ -20,7 +17,7 @@ export function SkeletonText({ lines = 3 }: { lines?: number }) {
 
 export function SkeletonCard({ lines = 2 }: { lines?: number }) {
   return (
-    <div style={{ borderBottom: "1px solid var(--border-subtle)", padding: "16px 0" }}>
+    <div className="panel p-5">
       <SkeletonLine w="w-1/3" h="h-3" />
       <div className="mt-4">
         <SkeletonText lines={lines} />
@@ -31,9 +28,11 @@ export function SkeletonCard({ lines = 2 }: { lines?: number }) {
 
 export function SkeletonList({ count = 5, lines = 2 }: { count?: number; lines?: number }) {
   return (
-    <div aria-hidden>
+    <div aria-hidden className="space-y-3">
       {Array.from({ length: count }, (_, i) => (
-        <SkeletonCard key={i} lines={lines} />
+        <div key={i} className="animate-fade" style={{ animationDelay: `${i * 70}ms` }}>
+          <SkeletonCard lines={lines} />
+        </div>
       ))}
     </div>
   );

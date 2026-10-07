@@ -15,6 +15,7 @@ from app.auth import require_auth
 from app.config import settings
 from app.http_guard import GuardMiddleware
 from app.startup_checks import run_startup_checks
+from app.trace import install_log_forwarding
 
 # Root handler so every `logging.getLogger(__name__)` call in app/ actually
 # reaches stdout (and therefore `docker logs`) -- without this, records
@@ -23,6 +24,7 @@ from app.startup_checks import run_startup_checks
 # reasons behind REFUSED/CLARIFICATION_NEEDED/BLOCKED responses, which must
 # be logged server-side but never sent to the client -- see app/api/routes.py.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+install_log_forwarding()  # app/trace.py: developer stream only, inert otherwise
 
 
 @asynccontextmanager
@@ -76,7 +78,7 @@ app.add_middleware(
     # Auth is a bearer header, never a cookie, so credentialed CORS isn't needed.
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Dev-Trace-Key"],
     expose_headers=["Server-Timing", "X-Request-ID", "Retry-After"],
     max_age=600,
 )

@@ -1,9 +1,15 @@
-import { useState, useRef, useEffect } from "react";
-import { gsap } from "gsap";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, Eye, EyeOff, Loader2 } from "lucide-react";
 import { ApiError, getAuthProviders, googleLogin, login } from "../api/client";
 import { GoogleSignIn } from "../components/GoogleSignIn";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { EASE, LogoMark, Wordmark } from "../components/kit";
 import { setToken } from "../hooks/useAuthToken";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 // Local development only. Production builds compile this to `[]`: the
 // minifier drops the dead branch, so no password ships in the public bundle,
@@ -26,9 +32,92 @@ const DEMO_PERSONAS = import.meta.env.DEV ? [
   },
 ] : [];
 
+const LAYERS = [
+  { k: "01", t: "Generate", d: "one SELECT from your words" },
+  { k: "02", t: "Guard", d: "AST check, writes rejected" },
+  { k: "03", t: "Scope", d: "row-level security bound to you" },
+  { k: "04", t: "Execute", d: "read-only role, 2.5 s cap" },
+  { k: "05", t: "Score", d: "calibrated confidence" },
+];
+
+/** Left panel: a question descends through the five layers on a loop. */
+function PipelineArt() {
+  const [reduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [lit, setLit] = useState(() => (reduced ? LAYERS.length : -1));
+  useEffect(() => {
+    if (reduced) return;
+    const t = window.setInterval(() => setLit((n) => (n >= LAYERS.length + 2 ? -1 : n + 1)), 650);
+    return () => window.clearInterval(t);
+  }, [reduced]);
+
+  return (
+    <div className="relative">
+      <div className="panel crop mb-5 px-4 py-3 font-mono text-[13px] text-foreground">
+        <span className="text-brand">›</span> Which departments have the most students?
+        <span className="caret" aria-hidden />
+      </div>
+      <ol className="relative space-y-2 pl-7">
+        <span aria-hidden className="absolute top-2 bottom-2 left-[9px] w-px bg-border" />
+        <motion.span
+          aria-hidden
+          className="absolute top-2 left-[9px] w-px origin-top bg-gradient-to-b from-brand to-[var(--brand-bright)]"
+          animate={{ height: `${Math.max(0, Math.min(lit, LAYERS.length - 1)) * 20 + (lit >= 0 ? 4 : 0)}%` }}
+          transition={{ duration: 0.6, ease: EASE }}
+        />
+        {LAYERS.map((l, i) => {
+          const on = lit >= i;
+          return (
+            <li key={l.k} className="relative">
+              <motion.span
+                aria-hidden
+                className="absolute top-1/2 -left-[26px] grid size-[18px] -translate-y-1/2 place-items-center rounded-full border"
+                animate={{
+                  backgroundColor: on ? "var(--brand)" : "var(--card)",
+                  borderColor: on ? "var(--brand)" : "var(--border)",
+                  scale: lit === i ? 1.2 : 1,
+                }}
+                transition={{ type: "spring", stiffness: 400, damping: 22 }}
+              >
+                <Check className={cn("size-2.5 text-brand-foreground transition-opacity", on ? "opacity-100" : "opacity-0")} strokeWidth={3.5} />
+              </motion.span>
+              <motion.div
+                className="flex items-baseline justify-between gap-4 rounded-lg border px-3.5 py-2.5"
+                animate={{
+                  borderColor: lit === i ? "rgb(var(--brand-rgb) / 0.45)" : "var(--border)",
+                  backgroundColor: lit === i ? "rgb(var(--brand-rgb) / 0.06)" : "rgb(var(--surface-rgb) / 0.6)",
+                }}
+                transition={{ duration: 0.35 }}
+              >
+                <span className="flex items-baseline gap-2.5">
+                  <span className="font-mono text-[10px] text-muted-foreground">{l.k}</span>
+                  <span className={cn("text-sm font-medium transition-colors duration-300", on ? "text-foreground" : "text-muted-foreground")}>{l.t}</span>
+                </span>
+                <span className="hidden truncate text-xs text-muted-foreground xl:inline">{l.d}</span>
+              </motion.div>
+            </li>
+          );
+        })}
+      </ol>
+      <motion.div
+        className="mt-5 grid grid-cols-[1fr_auto] gap-y-1 rounded-lg border border-border bg-card/60 px-4 py-3 font-mono text-xs"
+        animate={{ opacity: lit >= LAYERS.length ? 1 : 0.25, y: lit >= LAYERS.length ? 0 : 6 }}
+        transition={{ duration: 0.5, ease: EASE }}
+      >
+        {[["Computer Science", "412"], ["Mechanical", "298"], ["Civil", "201"]].map(([a, b]) => (
+          <span key={a} className="contents">
+            <span className="text-soft">{a}</span>
+            <span className="text-right tabular-nums text-brand">{b}</span>
+          </span>
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
 export function LoginScreen({ onBack }: { onBack?: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [reveal, setReveal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
@@ -56,25 +145,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
       setLoading(false);
     }
   };
-  const formRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (formRef.current) {
-      const children = formRef.current.children;
-      gsap.fromTo(
-        children,
-        { opacity: 0, y: 30 },
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.6,
-          stagger: 0.1,
-          ease: "expo.out",
-          delay: 0.3,
-        }
-      );
-    }
-  }, []);
 
   const submit = async (u = username, p = password) => {
     if (!u || !p || loading) return;
@@ -85,15 +155,10 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
       setToken(resp.token);
     } catch (e) {
       if (e instanceof ApiError) {
-        if (e.status === 401) {
-          setError("Incorrect username or password.");
-        } else if (e.status === 429) {
-          setError(`Too many sign-in attempts. Try again in ${e.retryAfter ?? 60} seconds.`);
-        } else if (e.status === 0) {
-          setError(e.message);
-        } else {
-          setError(e.message || "Authentication failed.");
-        }
+        if (e.status === 401) setError("Incorrect username or password.");
+        else if (e.status === 429) setError(`Too many sign-in attempts. Try again in ${e.retryAfter ?? 60} seconds.`);
+        else if (e.status === 0) setError(e.message);
+        else setError(e.message || "Authentication failed.");
       } else {
         setError("Could not reach the server.");
       }
@@ -102,201 +167,206 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
     }
   };
 
-  const handleSelectPersona = (persona: typeof DEMO_PERSONAS[0]) => {
+  const handleSelectPersona = (persona: (typeof DEMO_PERSONAS)[0]) => {
     setUsername(persona.username);
     setPassword(persona.password);
     setError(null);
   };
 
+  const item = {
+    hidden: { opacity: 0, y: 16, filter: "blur(6px)" },
+    show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.7, ease: EASE } },
+  };
+
   return (
-    <div
-      className="relative z-[1] flex min-h-screen items-center justify-center px-5 py-12"
-    >
-      <ThemeToggle className="fixed right-5 top-5 z-20" />
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="landing-link fixed left-5 top-5 z-20 flex items-center gap-1 py-1 text-xs"
+    <div className="relative z-[1] grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* Brand side */}
+      <aside className="relative hidden overflow-hidden border-r border-border lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(40rem_28rem_at_20%_0%,rgb(var(--brand-rgb)/0.12),transparent_70%)]" />
+        <motion.div className="relative flex items-center gap-2.5" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.7, ease: EASE }}>
+          <LogoMark className="size-9" />
+          <Wordmark />
+        </motion.div>
+        <motion.div
+          className="relative mx-auto w-full max-w-md"
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: EASE, delay: 0.15 }}
         >
-          <span className="material-symbols-outlined text-[16px]">arrow_back</span> Back
-        </button>
-      )}
-      <div ref={formRef} className="w-full max-w-md space-y-0">
-        {/* Brand — oversized, editorial */}
-        <div className="mb-10 text-center" style={{ opacity: 0 }}>
-          <div
-            className="mx-auto mb-4 flex h-10 w-10 items-center justify-center"
-            style={{
-              border: "1px solid var(--border-accent)",
-              background: "var(--accent-dim)",
-              borderRadius: "10px",
+          <PipelineArt />
+        </motion.div>
+        <motion.p
+          className="relative max-w-sm font-display text-2xl leading-tight text-foreground"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, ease: EASE, delay: 0.3 }}
+        >
+          The model writes the first step<span className="mark-brand">.</span>{" "}
+          <span className="text-muted-foreground">Four more decide whether it runs.</span>
+        </motion.p>
+      </aside>
+
+      {/* Form side */}
+      <div className="relative flex min-h-screen flex-col px-5 py-6 sm:px-10">
+        <div className="flex items-center justify-between">
+          {onBack ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onBack} className="group -ml-2">
+              <ArrowLeft className="transition-transform duration-300 group-hover:-translate-x-0.5" /> Back
+            </Button>
+          ) : <span />}
+          <ThemeToggle />
+        </div>
+
+        <motion.div
+          className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10"
+          initial="hidden"
+          animate="show"
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } }}
+        >
+          <motion.div variants={item} className="mb-8">
+            <LogoMark className="mb-6 size-10 lg:hidden" />
+            <p className="eyebrow eyebrow-brand">Secure workspace</p>
+            <h1 className="font-display mt-3 text-[2.6rem] leading-[0.95] text-foreground">
+              Welcome back<span className="mark-brand">.</span>
+            </h1>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              Sign in to ask the college database in plain English, scoped to your own role.
+            </p>
+          </motion.div>
+
+          {DEMO_PERSONAS.length > 0 && (
+            <motion.div variants={item} className="mb-6">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="eyebrow !text-[10px]">Demo accounts</p>
+                <span className="font-mono text-[10px] text-muted-foreground">click to fill</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {DEMO_PERSONAS.map((persona) => {
+                  const on = username === persona.username;
+                  return (
+                    <button
+                      key={persona.username}
+                      type="button"
+                      onClick={() => handleSelectPersona(persona)}
+                      className={cn(
+                        "press spotlight relative flex flex-col items-start rounded-xl border px-3 py-2.5 text-left transition-colors",
+                        on ? "border-[rgb(var(--brand-rgb)/0.5)] bg-[rgb(var(--brand-rgb)/0.07)]" : "border-border bg-card/60 hover:border-[rgb(var(--ink-rgb)/0.2)]",
+                      )}
+                    >
+                      <span className={cn("text-xs font-semibold", on ? "text-brand" : "text-foreground")}>{persona.name}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">{persona.username}</span>
+                      {on && (
+                        <motion.span layoutId="persona-check" className="absolute top-2 right-2 grid size-4 place-items-center rounded-full bg-brand text-brand-foreground">
+                          <Check className="size-2.5" strokeWidth={3.5} />
+                        </motion.span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+
+          <motion.form
+            variants={item}
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
             }}
           >
-            <span className="material-symbols-outlined text-[24px]" style={{ color: "var(--accent)" }}>
-              terminal
-            </span>
-          </div>
-          <h1
-            className="font-display text-[var(--text-primary)]"
-            style={{ fontSize: "clamp(2.25rem, 6vw, 3rem)", lineHeight: 1.05, letterSpacing: "-0.02em" }}
-          >
-            SQL.AI <span className="serif-accent">Guardrails</span>
-          </h1>
-          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            Sign in to access your secure Text-to-SQL workspace
-          </p>
-        </div>
-
-        {/* Demo personas — dev builds only (see DEMO_PERSONAS) */}
-        {DEMO_PERSONAS.length > 0 && (
-        <div className="mb-8" style={{ opacity: 0 }}>
-          <div className="mb-3 flex items-center justify-between">
-            <p className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-              Demo Accounts
-            </p>
-            <span className="pill-tag px-2 py-0.5 font-mono text-[9px]">Click to fill</span>
-          </div>
-          <div className="flex gap-0" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }}>
-            {DEMO_PERSONAS.map((persona, i) => (
-              <button
-                key={persona.username}
-                type="button"
-                onClick={() => handleSelectPersona(persona)}
-                className="flex flex-1 flex-col items-center py-3 transition-colors duration-200 focus-visible:outline-none"
-                style={{
-                  background:
-                    username === persona.username ? "var(--accent-dim)" : "transparent",
-                  borderRight:
-                    i < DEMO_PERSONAS.length - 1 ? "1px solid var(--border-subtle)" : "none",
-                  color:
-                    username === persona.username ? "var(--accent)" : "var(--text-secondary)",
-                }}
-                onMouseEnter={(e) => {
-                  if (username !== persona.username) {
-                    e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.02)";
-                    e.currentTarget.style.color = "var(--text-primary)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (username !== persona.username) {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "var(--text-secondary)";
-                  }
-                }}
-              >
-                <span className="font-sans text-xs font-semibold">{persona.name}</span>
-                <span className="font-mono text-[10px]" style={{ opacity: 0.7 }}>
-                  {persona.username}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-        )}
-
-        {/* Form — line-draw inputs */}
-        <div className="space-y-6" style={{ opacity: 0 }}>
-          <div>
-            <label
-              htmlFor="username"
-              className="mb-2 block font-mono text-[11px] uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              autoFocus
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              className="signal-input"
-              placeholder="e.g. student1"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="password"
-              className="mb-2 block font-mono text-[11px] uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              className="signal-input"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && (
-            <div
-              className="animate-rise flex items-center gap-2.5 py-2.5 text-xs"
-              style={{
-                borderLeft: "2px solid var(--danger)",
-                paddingLeft: "12px",
-                color: "var(--danger-text)",
-              }}
-            >
-              <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--danger)" }}>
-                error
-              </span>
-              <span>{error}</span>
+            <div className="space-y-1.5">
+              <Label htmlFor="username" className="text-xs text-soft">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                autoFocus
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. student1"
+                className="h-11 rounded-xl bg-card/60 px-3.5 transition-[border-color,box-shadow] focus-visible:border-[rgb(var(--brand-rgb)/0.5)] focus-visible:ring-[rgb(var(--brand-rgb)/0.15)]"
+              />
             </div>
-          )}
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs text-soft">Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={reveal ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="h-11 rounded-xl bg-card/60 px-3.5 pr-11 transition-[border-color,box-shadow] focus-visible:border-[rgb(var(--brand-rgb)/0.5)] focus-visible:ring-[rgb(var(--brand-rgb)/0.15)]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setReveal((r) => !r)}
+                  aria-label={reveal ? "Hide password" : "Show password"}
+                  className="press absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground"
+                >
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span key={String(reveal)} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={{ duration: 0.15 }}>
+                      {reveal ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </motion.span>
+                  </AnimatePresence>
+                </button>
+              </div>
+            </div>
 
-          <button
-            onClick={() => submit()}
-            disabled={loading || !username || !password}
-            className="glow-button mt-4 flex w-full items-center justify-center gap-2 py-3 font-sans text-sm font-semibold transition"
-            style={{ borderRadius: "8px" }}
-          >
-            {loading ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-                <span>Authenticating…</span>
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[18px]">lock_open</span>
-                <span>Sign In</span>
-              </>
-            )}
-          </button>
+            <AnimatePresence initial={false}>
+              {error && (
+                <motion.div
+                  role="alert"
+                  className="flex items-start gap-2.5 rounded-xl border border-[rgb(var(--danger-rgb)/0.35)] bg-[rgb(var(--danger-rgb)/0.06)] px-3.5 py-2.5 text-xs text-danger-text"
+                  initial={{ opacity: 0, height: 0, x: 0 }}
+                  animate={{ opacity: 1, height: "auto", x: [0, -6, 6, -3, 3, 0] }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.45, ease: EASE }}
+                >
+                  <CircleAlert aria-hidden className="mt-px size-4 shrink-0" />
+                  <span>{error}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <Button
+              type="submit"
+              variant="brand"
+              size="lg"
+              disabled={loading || !username || !password}
+              data-magnetic="0.1"
+              className="group w-full"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" /> Authenticating…
+                </>
+              ) : (
+                <>
+                  Sign In
+                  <ArrowRight className="nudge" />
+                </>
+              )}
+            </Button>
+          </motion.form>
 
           {googleClientId && (
-            <div className="animate-fade mt-5 space-y-4">
+            <motion.div className="mt-5 space-y-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
               <div className="flex items-center gap-3" aria-hidden>
-                <span className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
-                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>or</span>
-                <span className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
+                <span className="h-px flex-1 bg-border" />
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">or</span>
+                <span className="h-px flex-1 bg-border" />
               </div>
               <GoogleSignIn clientId={googleClientId} onCredential={signInWithGoogle} />
-            </div>
+            </motion.div>
           )}
-        </div>
 
-        {/* Bottom accent line */}
-        <div
-          className="relative mt-8 h-[1px] overflow-hidden"
-          style={{ background: "var(--border-subtle)", opacity: 0 }}
-        >
-          {loading && (
-            <div
-              className="animate-sweep absolute inset-y-0 w-1/3"
-              style={{ background: `linear-gradient(to right, transparent, var(--accent), transparent)` }}
-            />
-          )}
-        </div>
+          <motion.p variants={item} className="mt-8 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+            <span className="live-dot" /> Read-only by default · RLS-scoped · every query audited
+          </motion.p>
+        </motion.div>
       </div>
     </div>
   );

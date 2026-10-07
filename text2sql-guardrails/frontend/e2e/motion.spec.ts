@@ -60,10 +60,12 @@ test('"/" focuses the question, Esc leaves it', async ({ page }) => {
 })
 
 test('running border while waiting, then rows cascade in', async ({ page }) => {
-  await page.route('**/v1/query', async (r) => {
+  await page.route('**/v1/query/stream', async (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     await new Promise((res) => setTimeout(res, 1200))
-    return r.fulfill({ json: ANSWER })
+    return r.fulfill({ status: 200, contentType: 'application/x-ndjson', body: `${JSON.stringify({ t: 'hello', dev: false })}
+${JSON.stringify({ t: 'result', data: ANSWER })}
+` })
   })
   await signIn(page)
   await page.locator('#question').fill(ANSWER.question)
@@ -90,10 +92,12 @@ test('admin numbers count up and settle on the exact values', async ({ page }) =
 
 test('reduced motion switches the motion off', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.route('**/v1/query', async (r) => {
+  await page.route('**/v1/query/stream', async (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     await new Promise((res) => setTimeout(res, 800))
-    return r.fulfill({ json: ANSWER })
+    return r.fulfill({ status: 200, contentType: 'application/x-ndjson', body: `${JSON.stringify({ t: 'hello', dev: false })}
+${JSON.stringify({ t: 'result', data: ANSWER })}
+` })
   })
   await signIn(page)
   await page.locator('#question').fill('x')

@@ -219,3 +219,27 @@ def test_error_response_has_no_schema_identifiers():
     assert resp.status == "error"
     leaked = _leaked_identifiers(resp, IDENTIFIERS)
     assert not leaked, f"schema identifiers leaked in ERROR response: {leaked}"
+
+
+def test_clarification_returns_options_but_never_restricted_columns(monkeypatch):
+    """The model's question and options reach the client so the user can
+    pick one; any option naming a restricted column is dropped."""
+    def fake_generate_sql(question, row_scoped=False, **kwargs):
+        assert kwargs.get("clarify") is True
+        return GenerationResult(
+            refusal=True, refusal_kind="ambiguous", reason="internal reason",
+            sql=None, explanation="", tables_used=[], columns_used=[],
+            clarifying_question="How should GPA be calculated?",
+            options=[
+                {"label": "10-point grade scale", "description": "O=10 ... F=0",
+                 "question": "Average GPA of Civil students on a 10-point scale"},
+                {"label": "Leak", "description": "", "question": "Average salary by blood_group"},
+                "not a dict",
+            ],
+        )
+
+    monkeypatch.setattr("app.api.routes.generate_sql", fake_generate_sql)
+    resp = run_query(QueryRequest(question="average gpa of civil students"), TEST_STUDENT)
+    assert resp.status == "clarification"
+    assert resp.clarification.reason == "How should GPA be calculated?"
+    assert [o.label for o in resp.clarification.options] == ["10-point grade scale"]
