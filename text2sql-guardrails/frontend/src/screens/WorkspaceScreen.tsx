@@ -1,11 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Eye, LockKeyhole, MessageSquareQuote, ScanSearch } from "lucide-react";
+import { MessageSquareQuote } from "lucide-react";
 import { ApiError, getQueryConfidence, postQueryStream, type StreamEvent } from "../api/client";
 import { toast } from "sonner";
 import { DevConsole, ThinkingPanel, type LogLine, type StageDone } from "../components/LiveTrace";
-// three.js is ~600 KB; let the input render first and stream the orb in.
-const AiOrb = lazy(() => import("../components/AiOrb").then((m) => ({ default: m.AiOrb })));
+import { OrbStage } from "../components/OrbStage";
 import { ClarificationPanel } from "../components/ClarificationPanel";
 import { ConfidenceCard } from "../components/ConfidenceCard";
 import { LatencyMeter } from "../components/LatencyMeter";
@@ -141,24 +140,8 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
               </AnimatePresence>
             </span>
           </div>
-          <div className="relative flex flex-1 items-center justify-center overflow-hidden py-6">
-            <div className="orb-frame relative size-[210px] sm:size-[230px]" data-status={orbStatus}>
-              <Suspense fallback={null}>
-                <AiOrb status={orbStatus} className="h-full w-full" />
-              </Suspense>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 border-t border-border text-center">
-            {[
-              { icon: LockKeyhole, t: "Read-only" },
-              { icon: Eye, t: "RLS scoped" },
-              { icon: ScanSearch, t: "AST guard" },
-            ].map(({ icon: Icon, t }, i) => (
-              <div key={t} className={`group flex flex-col items-center gap-1 px-2 py-3 transition-colors hover:bg-hover ${i ? "border-l border-border" : ""}`}>
-                <Icon aria-hidden className="size-3.5 text-brand transition-transform duration-300 group-hover:-translate-y-0.5" />
-                <span className="font-mono text-[10px] text-muted-foreground">{t}</span>
-              </div>
-            ))}
+          <div className="relative flex flex-1 items-center justify-center overflow-hidden px-10 py-8">
+            <OrbStage status={orbStatus} className="max-w-[300px]" />
           </div>
           <p className="sr-only" aria-live="polite">{orb.detail}</p>
         </motion.aside>

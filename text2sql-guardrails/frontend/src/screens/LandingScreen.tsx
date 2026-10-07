@@ -1,12 +1,13 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { animate, motion, useInView, useMotionValue, useScroll, useSpring, useTransform } from "motion/react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
 import {
-  ArrowRight, ArrowUpRight, Eye, Gauge, GitBranch, Globe, GraduationCap, History, IdCard, Lock,
-  Presentation, ScanSearch, ShieldCheck, Timer, type LucideIcon,
+  ArrowRight, ArrowUpRight, Gauge, GitBranch, Globe, GraduationCap, History, IdCard, Lock,
+  Presentation, ShieldCheck, Timer, type LucideIcon,
 } from "lucide-react";
+import { OrbStage } from "../components/OrbStage";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { ADMIN_SAMPLE_QUERIES, FACULTY_SAMPLE_QUERIES, GUEST_SAMPLE_QUERIES, STUDENT_SAMPLE_QUERIES } from "../components/QuestionInput";
 import { EASE, LogoMark, Reveal, Wordmark } from "../components/kit";
@@ -15,7 +16,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(ScrollTrigger);
-const AiOrb = lazy(() => import("../components/AiOrb").then((m) => ({ default: m.AiOrb })));
 
 // Illustrative only: shaped like real answers from the college_erp schema.
 const DEMOS = [
@@ -99,12 +99,6 @@ const ROLES: { r: string; icon: LucideIcon; d: string }[] = [
   { r: "Guest", icon: Globe, d: "Anyone with a Google account. Explores public reference data (departments, programs, subjects, library, placements) with no personal rows." },
 ];
 
-const ORBIT = [
-  { t: "AST guard", icon: ScanSearch, pos: "left-[-6%] top-[18%]", d: 0 },
-  { t: "Read-only", icon: Lock, pos: "right-[-8%] top-[30%]", d: 0.8 },
-  { t: "RLS scoped", icon: Eye, pos: "left-[2%] bottom-[16%]", d: 1.6 },
-  { t: "Scored 92%", icon: Gauge, pos: "right-[0%] bottom-[8%]", d: 2.4 },
-];
 
 function DemoConsole() {
   const root = useRef<HTMLDivElement>(null);
@@ -425,27 +419,7 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 1.4, ease: EASE, delay: 0.3 }}
           >
-            <div className="orb-frame relative mx-auto aspect-square w-full max-w-[400px]">
-              <div aria-hidden className="absolute inset-[6%] rounded-full border border-dashed border-border" />
-              <motion.div aria-hidden className="absolute inset-[-2%] rounded-full border border-border" animate={{ rotate: 360 }} transition={{ duration: 60, repeat: Infinity, ease: "linear" }}>
-                <span className="absolute top-1/2 -left-1 size-2 rounded-full bg-brand shadow-[0_0_12px_var(--brand)]" />
-              </motion.div>
-              <Suspense fallback={null}>
-                <AiOrb status="ready" className="h-full w-full" />
-              </Suspense>
-              {ORBIT.map(({ t, icon: Icon, pos, d }) => (
-                <motion.span
-                  key={t}
-                  aria-hidden
-                  className={cn("absolute hidden items-center gap-1.5 rounded-full border border-border bg-card/85 px-2.5 py-1 font-mono text-[11px] text-soft shadow-[var(--shadow-lift)] backdrop-blur-md sm:inline-flex", pos)}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1, y: [0, -7, 0] }}
-                  transition={{ opacity: { delay: 1 + d * 0.2 }, scale: { delay: 1 + d * 0.2, type: "spring" }, y: { duration: 5, repeat: Infinity, ease: "easeInOut", delay: d } }}
-                >
-                  <Icon className="size-3 text-brand" /> {t}
-                </motion.span>
-              ))}
-            </div>
+            <OrbStage className="max-w-[400px]" />
           </motion.div>
         </div>
 
