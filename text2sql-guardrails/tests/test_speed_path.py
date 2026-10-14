@@ -90,7 +90,7 @@ def test_ticket_redeems_only_for_its_owner_and_query(monkeypatch):
     update = routes.redeem_confidence_ticket("q_test", ConfidenceTicket(ticket=_ticket()), TEST_STUDENT)
     assert update.pending is False
     assert update.confidence.score <= 0.40  # FAIL cap applied once the real signal lands
-    assert written == {"q_test": update.confidence.score}
+    assert written["q_test"]["score"] == update.confidence.score  # snapshot gets the full breakdown
 
     good = _ticket()
     for qid, ticket, who in [

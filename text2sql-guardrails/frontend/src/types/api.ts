@@ -143,6 +143,8 @@ export interface HistoryItem {
   row_count?: number | null;
   timestamp: string;
   user_feedback?: boolean | null;
+  /** A full answer snapshot exists: GET /v1/history/{query_id}. */
+  has_detail?: boolean;
 }
 
 export interface HistoryResponse {

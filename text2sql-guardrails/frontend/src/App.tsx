@@ -164,7 +164,7 @@ export default function App() {
                 {currentScreen !== "workspace" && (
                   <motion.div key={currentScreen} variants={screenVariants} initial="initial" animate="enter" exit="exit">
                     <Suspense fallback={null}>
-                      {currentScreen === "history" && <HistoryScreen />}
+                      {currentScreen === "history" && <HistoryScreen student={me?.student} />}
                       {currentScreen === "schema" && isAdmin && <SchemaScreen />}
                       {currentScreen === "admin" && <AdminScreen />}
                     </Suspense>

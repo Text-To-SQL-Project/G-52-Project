@@ -268,6 +268,9 @@ class SchemaResponse(BaseModel):
 
 class HistoryItem(BaseModel):
     query_id: str
+    has_detail: bool = Field(
+        False, description="A full answer snapshot exists: GET /v1/history/{query_id}."
+    )
     question: str
     sql_preview: Optional[str] = Field(
         None,

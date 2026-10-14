@@ -91,6 +91,7 @@ from app.users import Principal
 from app.history import (
     read_blocked_queries,
     read_history,
+    read_history_detail,
     update_history_confidence,
     write_history_row,
 )
@@ -227,7 +228,7 @@ def redeem_confidence_ticket(
             t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"],
             provider=t.get("p"),
         )
-    update_history_confidence(query_id, final.score)
+    update_history_confidence(query_id, final.model_dump(mode="json"))
     return ConfidenceUpdate(query_id=query_id, pending=False, confidence=final)
 
 
@@ -499,7 +500,7 @@ def run_query(
         bt_pending = settings.BACK_TRANSLATION_ENABLED
         back_translation_signal = (
             _BT_PENDING_SIGNAL if bt_pending
-            else check_back_translation(req.question, safe_sql)  # the disabled placeholder
+            else check_back_translation(req.question, sql)  # the disabled placeholder
         )
         signals = [
             ConfidenceSignal(
@@ -717,17 +718,14 @@ def run_query(
     if bt_pending:
         ticket = _make_ticket({
             "q": query_id, "u": principal.user_id, "exp": int(time.time()) + _TICKET_TTL_SECONDS,
-            "question": req.question, "sql": safe_sql, "rs": row_scoped, "p": provider,
+            # The SQL as written, not safe_sql: the guardrail's injected row cap
+            # ("LIMIT 1000") is not the model's intent, and back-translating it
+            # read as "the first 1000 records", failing a correct answer.
+            "question": req.question, "sql": sql, "rs": row_scoped, "p": provider,
             "signals": [s.model_dump(mode="json") for s in signals],
         })
     lap("post_checks")
-    write_history_row(
-        query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question,
-        status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
-        confidence_score=confidence.score, row_count=len(result_rows),
-    )
-    return QueryResponse(
+    resp = QueryResponse(
         query_id=query_id,
         status=QueryStatus.SUCCESS,
         question=req.question,
@@ -750,6 +748,29 @@ def run_query(
         guardrail=guardrail_report,
         warnings=[],
     )
+    write_history_row(
+        query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+        question=req.question,
+        status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
+        confidence_score=confidence.score, row_count=len(result_rows),
+        detail=_history_snapshot(resp),
+    )
+    return resp
+
+
+# Rows kept in a history snapshot: enough to re-check an answer, small enough
+# that a large result set can't bloat the history table.
+_SNAPSHOT_ROWS = 200
+
+
+def _history_snapshot(resp: QueryResponse) -> dict:
+    """The answer as History re-opens it: capped rows, no single-use ticket."""
+    snap = resp.model_dump(mode="json", exclude={"confidence_ticket"})
+    res = snap.get("results")
+    if res and len(res["rows"]) > _SNAPSHOT_ROWS:
+        res["rows"] = res["rows"][:_SNAPSHOT_ROWS]
+        res["row_count"], res["truncated"] = _SNAPSHOT_ROWS, True
+    return snap
 
 
 @router.post("/query/stream", dependencies=[Depends(limit_query)])
@@ -870,6 +891,22 @@ def get_history(
     except Exception as e:
         logger.error("Failed to read history for session_id=%r: %s", session_id, e)
         raise HTTPException(status_code=503, detail="History unavailable — could not reach the database.")
+
+
+@router.get("/history/{query_id}", response_model=QueryResponse)
+def get_history_detail(query_id: str, principal: Principal = Depends(require_auth)) -> QueryResponse:
+    """A past successful answer in full (SQL, confidence breakdown, up to
+    200 rows), from the snapshot stored when it ran -- not re-executed, so
+    it shows exactly what the user saw. Owner or admin only; one 404 for
+    unknown, not-yours and no-snapshot alike."""
+    try:
+        detail = read_history_detail(query_id, user_id=principal.user_id, is_admin=principal.is_admin)
+    except Exception as e:
+        logger.error("Failed to read history detail %r: %s", query_id, e)
+        raise HTTPException(status_code=503, detail="History unavailable — could not reach the database.")
+    if detail is None:
+        raise HTTPException(status_code=404, detail="No saved result for this query.")
+    return QueryResponse(**detail)
 
 
 @router.get("/admin/config", response_model=AdminConfigResponse)

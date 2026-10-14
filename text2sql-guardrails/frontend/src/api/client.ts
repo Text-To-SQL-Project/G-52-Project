@@ -207,6 +207,11 @@ export function getHistory(sessionId?: string, limit = 50): Promise<HistoryRespo
   return request<HistoryResponse>(`/v1/history?${params.toString()}`);
 }
 
+/** A past answer in full, from the snapshot stored when it ran. */
+export function getHistoryDetail(queryId: string): Promise<QueryResponse> {
+  return request<QueryResponse>(`/v1/history/${encodeURIComponent(queryId)}`);
+}
+
 export function getAdminConfig(): Promise<AdminConfigResponse> {
   return request<AdminConfigResponse>("/v1/admin/config");
 }

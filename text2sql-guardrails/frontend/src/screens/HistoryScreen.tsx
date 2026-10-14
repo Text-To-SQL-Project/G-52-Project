@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Clock3, Gauge, History as HistoryIcon, Rows3, Search, ThumbsDown, ThumbsUp } from "lucide-react";
-import { ApiError, getHistory } from "../api/client";
+import { ChevronRight, Clock3, Gauge, History as HistoryIcon, Loader2, Rows3, Search, ThumbsDown, ThumbsUp } from "lucide-react";
+import { toast } from "sonner";
+import { ApiError, getHistory, getHistoryDetail } from "../api/client";
+import { HistoryDetail } from "../components/HistoryDetail";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { LoadingStatus, SkeletonList } from "../components/Skeleton";
 import { StatusBanner } from "../components/StatusBanner";
 import { EASE, PageHeader } from "../components/kit";
 import { getSessionId } from "../hooks/useSessionId";
 import { useTweened } from "../hooks/useTweened";
-import type { HistoryItem, QueryStatus } from "../types/api";
+import type { HistoryItem, QueryResponse, QueryStatus, StudentProfile } from "../types/api";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "success" | "blocked" | "other";
@@ -57,8 +59,18 @@ function Count({ n }: { n: number }) {
   return <>{Math.round(useTweened(n, 900, 0))}</>;
 }
 
-export function HistoryScreen() {
+export function HistoryScreen({ student }: { student?: StudentProfile | null }) {
   const [items, setItems] = useState<HistoryItem[] | null>(null);
+  const [detail, setDetail] = useState<QueryResponse | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+
+  const openDetail = (id: string) => {
+    setOpening(id);
+    getHistoryDetail(id)
+      .then((r) => { setDetail(r); window.scrollTo({ top: 0 }); })
+      .catch((e) => toast.error("Couldn't open this result", { description: e instanceof ApiError ? e.message : undefined }))
+      .finally(() => setOpening(null));
+  };
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
@@ -90,13 +102,21 @@ export function HistoryScreen() {
     return c;
   }, [items]);
 
+  if (detail) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-8 lg:px-10 lg:pt-12">
+        <HistoryDetail resp={detail} student={student} onBack={() => setDetail(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 pt-8 sm:px-8 lg:pt-12">
       <PageHeader
         index="§ 02"
         eyebrow="History"
         title={<>Query execution history<span className="mark-brand">.</span></>}
-        lede="Every question you asked this session, the SQL it became, and what the guardrails decided."
+        lede="Every question you asked, the SQL it became, and what the guardrails decided. Open an answered query to re-check its full results."
         actions={
           items && items.length > 0 ? (
             <div className="text-right">
@@ -228,6 +248,18 @@ export function HistoryScreen() {
                               )}
                               <span className="ml-auto"><Feedback feedback={item.user_feedback} /></span>
                             </div>
+                            {item.has_detail && (
+                              <button
+                                type="button"
+                                onClick={() => openDetail(item.query_id)}
+                                disabled={opening !== null}
+                                className="press mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-soft transition-colors hover:border-[rgb(var(--brand-rgb)/0.4)] hover:text-foreground disabled:opacity-60"
+                              >
+                                {opening === item.query_id ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                                View full result
+                                <ChevronRight className="size-3.5" />
+                              </button>
+                            )}
                           </article>
                         </motion.li>
                       ))}
