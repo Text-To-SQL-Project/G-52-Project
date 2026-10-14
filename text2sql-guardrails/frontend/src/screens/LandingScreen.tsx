@@ -342,6 +342,8 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         </motion.div>
       </header>
 
+      <main>
+
       {/* Hero */}
       <section id="top" ref={hero} className="relative">
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[44rem] bg-[radial-gradient(50rem_26rem_at_70%_10%,rgb(var(--brand-rgb)/0.13),transparent_70%)]" />
@@ -619,6 +621,8 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
         </Reveal>
       </section>
 
+      </main>
+
       <footer className="relative overflow-hidden border-t border-border">
         <div className="mx-auto max-w-6xl px-5 pt-14 pb-10 sm:px-8">
           <div className="flex flex-wrap items-start justify-between gap-10">
@@ -628,18 +632,18 @@ export function LandingScreen({ onSignIn }: { onSignIn: () => void }) {
             </div>
             <nav aria-label="Footer" className="flex gap-16 text-sm text-soft">
               <ul className="space-y-2.5">
-                <li><a href="#product" className="link-draw hover:text-foreground">Product</a></li>
-                <li><a href="#how" className="link-draw hover:text-foreground">How it works</a></li>
-                <li><a href="#security" className="link-draw hover:text-foreground">Security</a></li>
+                <li><a href="#product" className="link-draw inline-block py-1.5 hover:text-foreground">Product</a></li>
+                <li><a href="#how" className="link-draw inline-block py-1.5 hover:text-foreground">How it works</a></li>
+                <li><a href="#security" className="link-draw inline-block py-1.5 hover:text-foreground">Security</a></li>
               </ul>
               <ul className="space-y-2.5">
-                <li><a href="#faq" className="link-draw hover:text-foreground">FAQ</a></li>
+                <li><a href="#faq" className="link-draw inline-block py-1.5 hover:text-foreground">FAQ</a></li>
                 <li>
-                  <a href="https://github.com/Text-To-SQL-Project/G-52-Project" target="_blank" rel="noreferrer" className="link-draw inline-flex items-center gap-1 hover:text-foreground">
+                  <a href="https://github.com/Text-To-SQL-Project/G-52-Project" target="_blank" rel="noreferrer" className="link-draw inline-flex items-center gap-1 py-1.5 hover:text-foreground">
                     <GithubMark /> GitHub
                   </a>
                 </li>
-                <li><button onClick={onSignIn} className="link-draw hover:text-foreground">Open the workspace</button></li>
+                <li><button onClick={onSignIn} className="link-draw inline-block py-1.5 hover:text-foreground">Open the workspace</button></li>
               </ul>
             </nav>
           </div>

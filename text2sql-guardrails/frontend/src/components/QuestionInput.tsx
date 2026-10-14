@@ -130,7 +130,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
             {scope.badge}
           </span>
         </motion.p>
-        <motion.h2
+        <motion.h1
           className="font-display mt-3 text-[clamp(2rem,4.6vw,3.4rem)] leading-[0.95] text-foreground text-balance"
           initial={{ opacity: 0, y: 20, filter: "blur(8px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -138,7 +138,7 @@ export function QuestionInput({ onSubmit, loading, isAdmin = false, role }: Prop
         >
           Ask in plain English. <span className="text-muted-foreground">Get guarded SQL</span>
           <span className="mark-brand">.</span>
-        </motion.h2>
+        </motion.h1>
         <motion.p
           className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground"
           initial={{ opacity: 0, y: 10 }}

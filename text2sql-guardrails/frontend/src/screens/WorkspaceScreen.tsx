@@ -103,6 +103,14 @@ export function WorkspaceScreen({ isAdmin = false, role, student }: Props) {
     }
   };
 
+  // Phones stack the answer below the question and the engine card, so bring it
+  // into view instead of leaving it below the fold.
+  useEffect(() => {
+    if (response && !loading && window.matchMedia("(max-width: 1023px)").matches) {
+      document.getElementById("answer")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [response?.query_id, loading]); // eslint-disable-line react-hooks/exhaustive-deps -- once per answer
+
   const orbStatus = loading
     ? "loading"
     : clientError || response?.status === "error"
@@ -125,7 +133,7 @@ export function WorkspaceScreen({ isAdmin = false, role, student }: Props) {
 
         {/* Engine card: the orb plus live state. overflow clip: the halo is wider than the frame. */}
         <motion.aside
-          className={`panel crop relative flex flex-col overflow-hidden lg:col-span-4 ${alarm ? "alarm" : ""}`}
+          className={`panel crop relative flex flex-col overflow-hidden lg:col-span-4 ${alarm ? "alarm" : ""} ${response && !loading ? "max-lg:hidden" : ""}`}
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, ease: EASE, delay: 0.2 }}
@@ -166,7 +174,7 @@ export function WorkspaceScreen({ isAdmin = false, role, student }: Props) {
       {dev && <DevConsole lines={logs} live={loading} />}
 
       {response && !loading && (
-        <Stagger key={response.query_id} className="space-y-6">
+        <Stagger key={response.query_id} id="answer" className="scroll-mt-24 space-y-6">
           {/* Status & timing. z-30: the latency popover must sit above later panels. */}
           <StaggerItem className="relative z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border pb-4">
             <div className="min-w-0 space-y-2.5">

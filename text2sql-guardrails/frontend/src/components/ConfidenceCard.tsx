@@ -132,7 +132,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
             </span>
           ) : (
             !confidence.calibrated && (
-              <Badge variant="brand" title="Plain weighted average of the checks; see 'How this score is calculated'.">uncalibrated</Badge>
+              <Badge variant="muted" title="Plain weighted average of the checks; see 'How this score is calculated'.">uncalibrated</Badge>
             )
           )}
           <Badge variant={LABEL_VARIANT[confidence.label] ?? "muted"} className="font-sans text-xs">

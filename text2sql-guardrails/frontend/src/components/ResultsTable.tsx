@@ -18,8 +18,7 @@ function chartShape(r: ResultTable): ChartShape | null {
   if (r.rows.length < 2 || r.rows.length > 60) return null;
   const numeric = r.columns.map((_, j) => {
     const cells = r.rows.map((row) => row[j]).filter((v) => v !== null && v !== undefined);
-    // Postgres NUMERIC arrives as text ("34.24"), so numeric strings count too.
-    return cells.length > 0 && cells.every((v) => typeof v === "number" || (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))));
+    return cells.length > 0 && cells.every((v) => asNumber(v) !== null);
   });
   const label = numeric.findIndex((n) => !n);
   const values = numeric.flatMap((n, j) => (n ? [j] : [])).slice(0, 3);
@@ -28,8 +27,13 @@ function chartShape(r: ResultTable): ChartShape | null {
 import { useTweened } from "../hooks/useTweened";
 import { EASE, Panel } from "./kit";
 
+/** Postgres NUMERIC arrives as text ("34.24"); treat it as a number. */
+const asNumber = (v: unknown): number | null =>
+  typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" && !isNaN(Number(v)) ? Number(v) : null;
+
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "—";
+  if (typeof value === "string" && asNumber(value) !== null) return formatCell(asNumber(value));
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
     return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
@@ -45,9 +49,10 @@ function numericMax(results: ResultTable): (number | null)[] {
     for (const row of results.rows) {
       const cell = row[j];
       if (cell === null || cell === undefined) continue;
-      if (typeof cell !== "number") return null;
+      const n = asNumber(cell);
+      if (n === null) return null;
       sawNumber = true;
-      max = Math.max(max, Math.abs(cell));
+      max = Math.max(max, Math.abs(n));
     }
     return sawNumber ? max : null;
   });
@@ -117,7 +122,7 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
                     type="button"
                     aria-pressed={view === v}
                     onClick={() => setView(v)}
-                    className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] capitalize transition-colors ${view === v ? "bg-[rgb(var(--brand-rgb)/0.12)] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    className={`flex min-h-8 items-center gap-1 rounded px-2.5 py-1 font-mono text-[11px] capitalize transition-colors ${view === v ? "bg-[rgb(var(--brand-rgb)/0.12)] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     {v === "table" ? <Table2 className="size-3.5" /> : <BarChart3 className="size-3.5" />} {v}
                   </button>
@@ -170,7 +175,7 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
           <ResultChart results={results} shape={shape} />
         </Suspense>
       ) : (
-        <div className="max-h-[32rem] overflow-auto" data-lenis-prevent>
+        <div className="max-h-[32rem] overflow-auto" data-lenis-prevent tabIndex={0} aria-label="Query results table">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-[rgb(var(--surface-rgb)/0.92)] backdrop-blur-md">
               <tr>
@@ -180,7 +185,7 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
                     key={col}
                     className={`border-b border-border px-4 py-2.5 font-mono text-[11px] font-medium tracking-wide whitespace-nowrap text-muted-foreground uppercase ${max[j] !== null ? "text-right" : ""}`}
                   >
-                    {col}
+                    {col.replace(/_/g, " ")}
                   </th>
                 ))}
               </tr>
@@ -198,7 +203,8 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
                   {row.map((cell, j) => {
                     const m = max[j];
                     const isNull = cell === null || cell === undefined;
-                    const pct = m && typeof cell === "number" ? (Math.abs(cell) / m) * 100 : 0;
+                    const n = asNumber(cell);
+                    const pct = m && n !== null ? (Math.abs(n) / m) * 100 : 0;
                     return (
                       <td
                         key={j}

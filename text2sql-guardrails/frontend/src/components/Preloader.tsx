@@ -46,14 +46,16 @@ export function Preloader({ onComplete }: { onComplete: () => void }) {
       .fromTo(el.querySelector("[data-bar]"), { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.inOut" }, "<")
       .to(el.querySelector("[data-stage]"), { y: -24, opacity: 0, duration: 0.45, ease: "power2.in" }, "+=0.1")
       .to(el, { clipPath: "inset(0 0 100% 0)", duration: 0.75, ease: "expo.inOut" }, "-=0.15");
-    return () => { tl.kill(); };
+    // The timeline runs ~2.6 s; finish anyway if frames are being throttled.
+    const fallback = window.setTimeout(() => tl.progress(1), 4000);
+    return () => { window.clearTimeout(fallback); tl.kill(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once: `show` only starts true/false
   }, []);
 
   if (!show) return null;
 
   return (
-    <div ref={root} className="preloader" style={{ clipPath: "inset(0 0 0 0)" }}>
+    <div ref={root} aria-hidden className="preloader" style={{ clipPath: "inset(0 0 0 0)" }}>
       <div aria-hidden className="app-bg absolute inset-0" />
       <div data-stage className="relative flex flex-col items-center gap-6">
         <svg viewBox="0 0 32 32" className="size-16">

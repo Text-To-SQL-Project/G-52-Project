@@ -190,7 +190,11 @@ export function SqlPanel({ sql, explanation, tablesUsed, columnsUsed, onRerun, r
                 showLineNumbers
                 lineNumberStyle={{ color: "var(--muted-foreground)", minWidth: "2.2em", paddingRight: "1em", userSelect: "none" }}
                 customStyle={{ margin: 0, background: "transparent", fontSize: "0.84rem", lineHeight: 1.8, padding: "1rem 1.1rem", overflowX: "auto" }}
-                codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
+                tabIndex={0}
+                aria-label="Generated SQL"
+                // Plain CSS wrapping: the highlighter's wrapLongLines splits tokens
+                // onto separate lines when combined with line numbers.
+                codeTagProps={{ style: { fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word" } }}
               >
                 {displaySql}
               </SyntaxHighlighter>

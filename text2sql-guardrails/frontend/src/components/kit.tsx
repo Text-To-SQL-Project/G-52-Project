@@ -139,14 +139,14 @@ export function PageHeader({
             <span aria-hidden className="h-px w-6 bg-border" />
             {eyebrow}
           </motion.p>
-          <motion.h2
+          <motion.h1
             className="font-display mt-3 text-[clamp(1.9rem,4vw,2.9rem)] leading-[0.98] text-foreground text-balance"
             initial={{ opacity: 0, y: 18, filter: "blur(8px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 0.8, ease: EASE, delay: 0.05 }}
           >
             {title}
-          </motion.h2>
+          </motion.h1>
           {lede && (
             <motion.p
               className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground"
@@ -207,9 +207,9 @@ export function Panel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3.5 sm:px-6">
           <div className="flex min-w-0 items-center gap-2.5">
             {icon && <IconChip icon={icon} tone={tone} />}
-            <h3 id={id} className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+            <h2 id={id} className="truncate text-[13px] font-semibold tracking-tight text-foreground">
               {title}
-            </h3>
+            </h2>
           </div>
           {meta && <div className="flex flex-wrap items-center gap-2">{meta}</div>}
         </div>
@@ -257,7 +257,7 @@ export function Callout({
           <Icon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className={cn("text-sm font-semibold", tones.title)}>{title}</h3>
+          <h2 className={cn("text-sm font-semibold", tones.title)}>{title}</h2>
           {children && <div className="mt-1 text-sm leading-relaxed text-soft">{children}</div>}
         </div>
       </div>

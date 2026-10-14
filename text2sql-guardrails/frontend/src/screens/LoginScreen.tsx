@@ -179,7 +179,7 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
   };
 
   return (
-    <div className="relative z-[1] grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+    <main className="relative z-[1] grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
       {/* Brand side */}
       <aside className="relative hidden overflow-hidden border-r border-border lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(40rem_28rem_at_20%_0%,rgb(var(--brand-rgb)/0.12),transparent_70%)]" />
@@ -368,6 +368,6 @@ export function LoginScreen({ onBack }: { onBack?: () => void }) {
           </motion.p>
         </motion.div>
       </div>
-    </div>
+    </main>
   );
 }

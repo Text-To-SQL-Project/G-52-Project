@@ -44,7 +44,9 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   try {
     res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError(0, `Could not reach the API at ${API_BASE}.`);
+    // API_BASE goes to the console for debugging; users get plain words.
+    console.error(`Could not reach the API at ${API_BASE}`);
+    throw new ApiError(0, "Can't reach the server right now. Check your connection and try again.");
   }
 
   if (!res.ok) {
