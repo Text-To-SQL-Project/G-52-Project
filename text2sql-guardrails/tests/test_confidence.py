@@ -2,6 +2,8 @@
 Pure logic tests -- no DB, no LLM, no network."""
 from __future__ import annotations
 
+import pytest
+
 from app.api.models import ConfidenceSignal, SignalStatus
 from app.detection import calibration
 from app.detection.confidence import FAIL_SCORE_CAP, WEIGHTS, fuse_confidence
@@ -42,7 +44,7 @@ def test_fail_status_cap_reapplied_after_calibration(monkeypatch):
     value to something higher -- the cap is a safety invariant, not a
     statistical property calibration should be trusted to preserve."""
     # Curve breakpoints (x, y): +0.5 everywhere, capped at 1.0.
-    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 0.5, 1.0], [0.5, 1.0, 1.0]))
+    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 0.5, 1.0], [0.5, 1.0, 1.0], None))
 
     fail_signals = _PASS_SIGNALS[:-1] + [
         ConfidenceSignal(key="sql_validity", label="SQL Validity", score=0.0, status=SignalStatus.FAIL, detail="bad"),
@@ -59,6 +61,18 @@ def test_calibrated_false_when_artifact_missing(monkeypatch):
 
 
 def test_calibrated_true_when_artifact_loads(monkeypatch):
-    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 1.0], [0.0, 1.0]))  # identity curve
+    monkeypatch.setattr(calibration, "_load_calibrator", lambda: ([0.0, 1.0], [0.0, 1.0], None))  # identity curve
     result = fuse_confidence(_PASS_SIGNALS)
     assert result.calibrated is True
+
+
+def test_curve_fit_on_another_provider_is_not_applied(monkeypatch):
+    """The Anthropic curve tops out near 0.78; reusing it on Gemini output
+    capped every answer there. A provider mismatch reports the raw score."""
+    curve = ([0.0, 1.0], [0.3, 0.775], "anthropic")
+    monkeypatch.setattr(calibration, "_load_calibrator", lambda: curve)
+    sigs = [ConfidenceSignal(key=k, label=k, score=1.0, status=SignalStatus.PASS) for k in WEIGHTS]
+    assert fuse_confidence(sigs, provider="anthropic").score == 0.78
+    other = fuse_confidence(sigs, provider="gemini")
+    assert other.score == 1.0 and other.calibrated is False and other.label == "High"
+    assert sum(s.weight for s in other.signals) == pytest.approx(1.0, abs=0.01)

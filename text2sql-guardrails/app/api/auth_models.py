@@ -36,6 +36,16 @@ class LoginResponse(BaseModel):
     role: str
 
 
+class StudentProfile(BaseModel):
+    """The signed-in student's own record, printed on their result statement."""
+    name: str
+    prn: str
+    roll: str
+    program: str
+    department: str
+    semester: int
+
+
 class MeResponse(BaseModel):
     """GET /v1/auth/me -- the caller's identity as the server currently
     sees it, so a client that has been open across a role change can
@@ -45,3 +55,4 @@ class MeResponse(BaseModel):
     role: str
     student_id: int | None = None
     faculty_id: int | None = None
+    student: StudentProfile | None = None

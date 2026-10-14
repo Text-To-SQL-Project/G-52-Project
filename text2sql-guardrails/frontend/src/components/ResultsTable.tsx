@@ -1,9 +1,30 @@
+import { lazy, Suspense, useState } from "react";
 import { motion } from "motion/react";
-import { Ban, Download, Info, SearchX, Table2 } from "lucide-react";
+import { Award, Ban, BarChart3, Download, FileText, FileType, Info, SearchX, Sheet, Table2 } from "lucide-react";
 import { toast } from "sonner";
-import type { ResultTable } from "../types/api";
+import type { ResultTable, StudentProfile } from "../types/api";
+import type { ChartShape } from "./ResultChart";
+import { certificateDoc, exportCsv, exportDocx, isResultQuery, printPdf, resultsDoc } from "../export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+const ResultChart = lazy(() => import("./ResultChart"));
+
+/** A label column plus up to three numeric columns, or null if it won't chart. */
+function chartShape(r: ResultTable): ChartShape | null {
+  if (r.rows.length < 2 || r.rows.length > 60) return null;
+  const numeric = r.columns.map((_, j) => {
+    const cells = r.rows.map((row) => row[j]).filter((v) => v !== null && v !== undefined);
+    // Postgres NUMERIC arrives as text ("34.24"), so numeric strings count too.
+    return cells.length > 0 && cells.every((v) => typeof v === "number" || (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))));
+  });
+  const label = numeric.findIndex((n) => !n);
+  const values = numeric.flatMap((n, j) => (n ? [j] : [])).slice(0, 3);
+  return label >= 0 && values.length ? { label, values } : null;
+}
 import { useTweened } from "../hooks/useTweened";
 import { EASE, Panel } from "./kit";
 
@@ -58,35 +79,22 @@ function Empty({ icon: Icon, title, body }: { icon: typeof Ban; title: string; b
 interface Props {
   results: ResultTable | null | undefined;
   executed: boolean;
+  question?: string;
+  queryId?: string;
+  /** Set for a signed-in student: enables the result statement export. */
+  student?: StudentProfile | null;
 }
 
-export function ResultsTable({ results, executed }: Props) {
+export function ResultsTable({ results, executed, question, queryId, student }: Props) {
   const max = results ? numericMax(results) : [];
   const rowCount = Math.round(useTweened(results?.row_count ?? 0, 700, 0));
+  const shape = results ? chartShape(results) : null;
+  const [view, setView] = useState<"table" | "chart">("table");
+  const showChart = view === "chart" && shape !== null;
+  const canCertify = !!student && !!results && isResultQuery(results.columns);
 
-  const handleExportCsv = () => {
-    if (!results || results.rows.length === 0) return;
-    const header = results.columns.join(",");
-    const rows = results.rows.map((row) =>
-      row
-        .map((val) => {
-          if (val === null || val === undefined) return "";
-          const str = String(val);
-          return str.includes(",") || str.includes('"') || str.includes("\n") ? `"${str.replace(/"/g, '""')}"` : str;
-        })
-        .join(","),
-    );
-    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `query_results_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success("CSV exported", { description: `${results.rows.length.toLocaleString()} rows · ${results.columns.length} columns` });
-  };
+  const exported = (what: string) =>
+    toast.success(`${what} ready`, { description: `${results!.rows.length.toLocaleString()} rows · ${results!.columns.length} columns` });
 
   return (
     <Panel
@@ -101,10 +109,53 @@ export function ResultsTable({ results, executed }: Props) {
               {results.row_count === 1 ? "row" : "rows"}
             </span>
             {results.truncated && <Badge variant="warning">capped</Badge>}
+            {shape && (
+              <div role="group" aria-label="Result view" className="flex rounded-md border border-border p-0.5">
+                {(["table", "chart"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={view === v}
+                    onClick={() => setView(v)}
+                    className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] capitalize transition-colors ${view === v ? "bg-[rgb(var(--brand-rgb)/0.12)] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {v === "table" ? <Table2 className="size-3.5" /> : <BarChart3 className="size-3.5" />} {v}
+                  </button>
+                ))}
+              </div>
+            )}
             {results.rows.length > 0 && (
-              <Button variant="outline" size="xs" onClick={handleExportCsv} className="group font-mono" title="Export results as CSV">
-                <Download className="transition-transform duration-300 group-hover:translate-y-0.5" /> Export CSV
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="xs" className="group font-mono">
+                    <Download className="transition-transform duration-300 group-hover:translate-y-0.5" /> Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Export results</DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={() => { exportCsv(results); exported("CSV"); }}>
+                    <Sheet /> CSV <span className="ml-auto text-[10px] text-muted-foreground">spreadsheet</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => printPdf(resultsDoc(results, question))}>
+                    <FileText /> PDF <span className="ml-auto text-[10px] text-muted-foreground">print → save</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { exportDocx(resultsDoc(results, question)); exported("Word document"); }}>
+                    <FileType /> Word (.docx)
+                  </DropdownMenuItem>
+                  {canCertify && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Result statement</DropdownMenuLabel>
+                      <DropdownMenuItem onSelect={() => printPdf(certificateDoc(results, student!, queryId ?? "—", question))}>
+                        <Award /> Statement as PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { exportDocx(certificateDoc(results, student!, queryId ?? "—", question)); exported("Result statement"); }}>
+                        <Award /> Statement as Word
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </>
         ) : undefined
@@ -114,6 +165,10 @@ export function ResultsTable({ results, executed }: Props) {
         <Empty icon={Ban} title="Query not executed" body="No SQL was executed against the database." />
       ) : results.rows.length === 0 ? (
         <Empty icon={SearchX} title="No matching records" body="The query executed successfully and matched 0 rows." />
+      ) : showChart ? (
+        <Suspense fallback={<div className="h-[22rem]" />}>
+          <ResultChart results={results} shape={shape} />
+        </Suspense>
       ) : (
         <div className="max-h-[32rem] overflow-auto" data-lenis-prevent>
           <table className="w-full border-collapse text-left text-sm">

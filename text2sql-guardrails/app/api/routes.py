@@ -195,20 +195,22 @@ def _read_ticket(ticket: str) -> dict | None:
 
 
 def _finish_back_translation(
-    question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool
+    question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool,
+    provider: str | None = None,
 ) -> Confidence:
     try:
         # Short wait only: this request is the user's, not background work.
         if not wait_for_background_room(max_wait_seconds=8):
             raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for new questions")
-        bt = check_back_translation(question, sql)  # never raises by contract
+        bt = check_back_translation(question, sql, row_scoped)  # never raises by contract
     except Exception as e:
         bt = ConfidenceSignal(
             key="back_translation_match", label="Back-translation Match", score=0.5,
             status=SignalStatus.WARN, detail=f"Back-translation check could not run: {e}",
         )
     return fuse_confidence(
-        [bt if s.key == "back_translation_match" else s for s in signals], row_scoped=row_scoped
+        [bt if s.key == "back_translation_match" else s for s in signals],
+        row_scoped=row_scoped, provider=provider,
     )
 
 
@@ -222,7 +224,8 @@ def redeem_confidence_ticket(
         raise HTTPException(status_code=404, detail="Unknown or expired query.")
     with use_provider(t.get("p")):
         final = _finish_back_translation(
-            t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"]
+            t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"],
+            provider=t.get("p"),
         )
     update_history_confidence(query_id, final.score)
     return ConfidenceUpdate(query_id=query_id, pending=False, confidence=final)
@@ -705,7 +708,7 @@ def run_query(
     # overall score (weighted mean + hard fail-override; see
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
-    confidence = fuse_confidence(signals, row_scoped=row_scoped)
+    confidence = fuse_confidence(signals, row_scoped=row_scoped, provider=provider)
     ptrace.log(
         f"confidence {confidence.score:.2f} ({confidence.label}){' · back-translation deferred' if bt_pending else ''}",
         **{x.key: f"{getattr(x.status, 'value', x.status)} {x.score:.2f}" for x in signals},

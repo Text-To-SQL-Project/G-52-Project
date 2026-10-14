@@ -93,6 +93,9 @@ class ConfidenceSignal(BaseModel):
     detail: Optional[str] = Field(
         None, description="Short reason shown on hover, e.g. 'all 3 tables exist'."
     )
+    weight: Optional[float] = Field(
+        None, description="Share of the weighted mean (0..1); None when not measured."
+    )
 
 
 class Confidence(BaseModel):
@@ -101,6 +104,9 @@ class Confidence(BaseModel):
     label: str = Field(..., description="'High' / 'Medium' / 'Low'.")
     calibrated: bool = Field(
         True, description="True once the learned+isotonic model is wired in."
+    )
+    capped: bool = Field(
+        False, description="A check failed, so the score was capped at 40%."
     )
     signals: list[ConfidenceSignal]
 

@@ -16,6 +16,14 @@ const SIGNAL_COLOR: Record<SignalStatus, string> = {
   pending: "var(--muted-foreground)",
 };
 
+/** What each check measures, in plain words (keys from app/detection/). */
+const SIGNAL_INFO: Record<string, string> = {
+  schema_alignment: "Every table and column the SQL uses exists, and they match what your question talks about.",
+  back_translation_match: "The SQL is translated back into English and compared with your question, to catch answering a different question.",
+  result_sanity: "The rows look plausible: no unexpected empty result, all-empty columns or impossible values.",
+  sql_validity: "The query parses cleanly and passed the read-only safety guardrail.",
+};
+
 const LABEL_VARIANT: Record<string, "success" | "warning" | "danger"> = {
   High: "success",
   Medium: "warning",
@@ -43,7 +51,7 @@ function SignalMark({ status }: { status: SignalStatus }) {
 function Dial({ value, shown }: { value: number; shown: number }) {
   const TICKS = 40;
   const lit = Math.round((value / 100) * TICKS);
-  const tone = value >= 85 ? "var(--success)" : value >= 65 ? "var(--warning)" : "var(--destructive)";
+  const tone = value >= 80 ? "var(--success)" : value >= 55 ? "var(--warning)" : "var(--destructive)";
   const r = 42;
   const arc = 2 * Math.PI * r * 0.75;
   return (
@@ -124,7 +132,7 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
             </span>
           ) : (
             !confidence.calibrated && (
-              <Badge variant="brand" title="Hand-tuned weights, not yet learned + isotonic calibrated.">uncalibrated</Badge>
+              <Badge variant="brand" title="Plain weighted average of the checks; see 'How this score is calculated'.">uncalibrated</Badge>
             )
           )}
           <Badge variant={LABEL_VARIANT[confidence.label] ?? "muted"} className="font-sans text-xs">
@@ -139,11 +147,13 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
           <p className="min-w-[12rem] flex-1 text-sm leading-relaxed text-soft">
             {pending.length > 0
               ? "Provisional score. Results are final; the remaining check refines this number when it finishes."
-              : confidence.score >= 0.85
-                ? "High confidence in schema alignment, AST safety, and semantic intent."
-                : confidence.score >= 0.65
-                  ? "Moderate confidence. Check schema mapping and join conditions."
-                  : "Low confidence. Review generated SQL or clarify query phrasing."}
+              : confidence.capped
+                ? "One check failed, so the score is capped at 40%. Review the generated SQL before relying on this result."
+                : confidence.score >= 0.8
+                  ? "The checks agree: the SQL uses the right tables, means what you asked, and returned plausible rows."
+                  : confidence.score >= 0.55
+                    ? "Mostly consistent, but at least one check is unsure. Glance at the SQL and the flagged check below."
+                    : "Several checks disagree. Review the generated SQL or rephrase the question."}
           </p>
         </div>
 
@@ -182,6 +192,48 @@ export function ConfidenceCard({ confidence }: { confidence: Confidence | null |
             </motion.div>
           ))}
         </div>
+
+        <details className="group/how rounded-lg border border-border px-4 py-3 text-xs">
+          <summary className="cursor-pointer list-none font-medium text-soft marker:hidden hover:text-foreground">
+            How this score is calculated <span aria-hidden className="ml-1 inline-block transition-transform group-open/how:rotate-90">›</span>
+          </summary>
+          <div className="mt-3 space-y-3 leading-relaxed text-muted-foreground">
+            <p>
+              Four independent checks each score the answer from 0 to 100%. The overall score is their
+              weighted average: each check's score × its weight, added up.
+            </p>
+            <table className="w-full font-mono text-[11px]">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wider">
+                  <th className="py-1 font-medium">Check</th>
+                  <th className="py-1 pl-3 text-right font-medium">Score</th>
+                  <th className="py-1 pl-3 text-right font-medium">Weight</th>
+                  <th className="py-1 pl-3 text-right font-medium">Adds</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signals.filter((s) => s.weight != null).map((s) => (
+                  <tr key={s.key} className="border-t border-border align-top" title={SIGNAL_INFO[s.key]}>
+                    <td className="py-1.5 pr-2 font-sans text-soft">
+                      {s.label}
+                      <span className="block text-[11px] text-muted-foreground">{SIGNAL_INFO[s.key]}</span>
+                    </td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums">{Math.round(s.score * 100)}%</td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums">{Math.round(s.weight! * 100)}%</td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums text-foreground">{(s.score * s.weight! * 100).toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {confidence.capped && <p>A check failed outright, so the score is capped at 40% no matter how well the others did.</p>}
+            <p>
+              {confidence.calibrated
+                ? "That average is then mapped through a calibration curve fitted on evaluated questions, so the number reads as the measured chance the answer is right."
+                : "No calibration curve is applied: the one on file was fitted for a different model or setting, and reusing it would misstate this answer's accuracy. The number is the plain weighted average."}
+            </p>
+            <p>High is 80% and above, Medium 55–79%, Low below 55%. Hover a check for its detail.</p>
+          </div>
+        </details>
       </div>
     </Panel>
   );

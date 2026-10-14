@@ -17,7 +17,7 @@ import { StatusBanner } from "../components/StatusBanner";
 import { WarningsList } from "../components/WarningsList";
 import { EASE, Stagger, StaggerItem } from "../components/kit";
 import { getSessionId } from "../hooks/useSessionId";
-import type { Confidence, QueryResponse, UserRole } from "../types/api";
+import type { Confidence, QueryResponse, UserRole, StudentProfile } from "../types/api";
 
 const ORB_COPY = {
   ready: { label: "Ready", detail: "Waiting for a question", dot: "var(--success)" },
@@ -31,9 +31,10 @@ const ORB_COPY = {
 interface Props {
   isAdmin?: boolean;
   role?: UserRole;
+  student?: StudentProfile | null;
 }
 
-export function WorkspaceScreen({ isAdmin = false, role }: Props) {
+export function WorkspaceScreen({ isAdmin = false, role, student }: Props) {
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
@@ -226,7 +227,13 @@ export function WorkspaceScreen({ isAdmin = false, role }: Props) {
           </div>
 
           <StaggerItem>
-            <ResultsTable results={response.results} executed={response.status === "success"} />
+            <ResultsTable
+              results={response.results}
+              executed={response.status === "success"}
+              question={response.question}
+              queryId={response.query_id}
+              student={student}
+            />
           </StaggerItem>
         </Stagger>
       )}

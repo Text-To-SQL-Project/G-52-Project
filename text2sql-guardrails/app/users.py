@@ -263,3 +263,21 @@ def create_guest(email: str, password_hash: str) -> Principal | None:
         return None  # same email or username created by a parallel request
     logger.info("Created guest user_id=%s via Google sign-up", row.user_id)
     return _row_to_principal(row)
+
+
+def student_profile(student_id: int) -> dict | None:
+    """Name, PRN, roll number, programme and department for one student."""
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT s.first_name || ' ' || s.last_name AS name, s.prn_number AS prn, "
+                "s.roll_number AS roll, p.program_name AS program, "
+                "d.department_name AS department, s.current_semester AS semester "
+                "FROM college_erp.students s "
+                "JOIN college_erp.programs p ON p.program_id = s.program_id "
+                "JOIN college_erp.departments d ON d.department_id = s.department_id "
+                "WHERE s.student_id = :id"
+            ),
+            {"id": student_id},
+        ).mappings().first()
+    return dict(row) if row else None

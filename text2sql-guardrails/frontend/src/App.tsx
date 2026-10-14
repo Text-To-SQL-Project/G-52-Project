@@ -156,7 +156,7 @@ export default function App() {
               {/* Workspace stays mounted to preserve result state. */}
               <motion.div variants={keepAliveVariants} initial="hidden" animate={currentScreen === "workspace" ? "shown" : "hidden"}>
                 <Suspense fallback={null}>
-                  <WorkspaceScreen isAdmin={isAdmin} role={me?.role} />
+                  <WorkspaceScreen isAdmin={isAdmin} role={me?.role} student={me?.student} />
                 </Suspense>
               </motion.div>
               {/* One boundary per screen: loading one chunk must not blank the others. */}

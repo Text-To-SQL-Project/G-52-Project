@@ -107,6 +107,7 @@ def compute_raw_score(
 def fuse_confidence(
     signals: list[ConfidenceSignal],
     row_scoped: bool = False,
+    provider: str | None = None,
 ) -> Confidence:
     """`row_scoped` marks a request that ran under per-user RLS.
 
@@ -139,7 +140,7 @@ def fuse_confidence(
     # wiring it in here. calibrated=True only when an actual fitted
     # calibrator was loaded -- a missing artifact degrades to the raw score
     # with calibrated=False, exactly as before this existed.
-    score, calibrated = calibrate(score)
+    score, calibrated = calibrate(score, provider)
     if row_scoped or any(s.status == SignalStatus.PENDING for s in signals):
         # A provisional score from fewer signals than the calibrator saw.
         calibrated = False
@@ -158,9 +159,19 @@ def fuse_confidence(
     else:
         label = "Low"
 
+    # Each signal's share of the weighted mean (renormalised over the ones
+    # that were measured), so the breakdown in the UI adds up to the score.
+    measured = sum(WEIGHTS[s.key] for s in signals if s.key in WEIGHTS and not _is_disabled(s))
+    signals = [
+        s.model_copy(update={"weight": round(WEIGHTS[s.key] / measured, 3)})
+        if measured and s.key in WEIGHTS and not _is_disabled(s) else s
+        for s in signals
+    ]
+
     return Confidence(
         score=round(score, 2),
         label=label,
         calibrated=calibrated,
+        capped=is_fail_capped,
         signals=signals,
     )
