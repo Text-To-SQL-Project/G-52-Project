@@ -1,11 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { AnimatePresence, MotionConfig, motion, type Variants } from "motion/react";
 import { ApiError, getMe } from "./api/client";
 import { LiveBackground } from "./components/LiveBackground";
 import { NavBar, type Screen } from "./components/NavBar";
 import { Preloader } from "./components/Preloader";
+import { EASE } from "./components/kit";
 import { AUTH_CHANGED_EVENT, getToken } from "./hooks/useAuthToken";
-import { useScreenTransition } from "./hooks/useScreenTransition";
 import { LoginScreen } from "./screens/LoginScreen";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import type { MeResponse } from "./types/api";
 
 // Split per screen: the login page shouldn't download three.js (workspace
 // orb) or recharts (admin) before it can render.
@@ -19,7 +23,20 @@ const LandingScreen = lazy(() => import("./screens/LandingScreen").then((m) => (
 // Signed-out routing: "/" is the landing page, "/login" the sign-in form.
 // Real URLs + history, so Back works and the sign-in page is linkable.
 const onLoginPath = () => window.location.pathname === "/login";
-import type { MeResponse } from "./types/api";
+
+/** Screen change: the old screen dissolves upward, the new one rises out of a blur. */
+const screenVariants: Variants = {
+  initial: { opacity: 0, y: 18, filter: "blur(8px)" },
+  enter: { opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" }, transition: { duration: 0.6, ease: EASE } },
+  exit: { opacity: 0, y: -10, filter: "blur(6px)", transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } },
+};
+
+/** The workspace never unmounts (it holds the current answer), so it gets the
+ * same entrance by toggling between two states instead of remounting. */
+const keepAliveVariants: Variants = {
+  hidden: { opacity: 0, y: 18, filter: "blur(8px)", transitionEnd: { display: "none" }, transition: { duration: 0 } },
+  shown: { display: "block", opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" }, transition: { duration: 0.6, ease: EASE, delay: 0.08 } },
+};
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("workspace");
@@ -27,7 +44,6 @@ export default function App() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(false);
   const [preloaderDone, setPreloaderDone] = useState(false);
-  const { trigger, WipeOverlay } = useScreenTransition();
   const [loginView, setLoginView] = useState(onLoginPath);
 
   useEffect(() => {
@@ -100,61 +116,66 @@ export default function App() {
       ? "workspace"
       : screen;
 
-  // Screen change with wipe transition
   const handleScreenChange = useCallback(
-    (newScreen: Screen) => {
-      if (newScreen === currentScreen) return;
-      trigger(() => {
-        setScreen(newScreen);
-      });
+    (next: Screen) => {
+      if (next === currentScreen) return;
+      setScreen(next);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [currentScreen, trigger]
+    [currentScreen],
   );
 
   return (
-    <>
-      <Preloader onComplete={() => setPreloaderDone(true)} />
-      <LiveBackground />
-      {WipeOverlay}
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider delayDuration={250}>
+        <Preloader onComplete={() => setPreloaderDone(true)} />
+        <LiveBackground />
 
-      {!token ? (
-        loginView ? (
-          <LoginScreen onBack={() => goTo(false)} />
+        {!token ? (
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={loginView ? "login" : "landing"} variants={screenVariants} initial="initial" animate="enter" exit="exit">
+              {loginView ? (
+                <LoginScreen onBack={() => goTo(false)} />
+              ) : (
+                <Suspense fallback={null}>
+                  <LandingScreen onSignIn={() => goTo(true)} />
+                </Suspense>
+              )}
+            </motion.div>
+          </AnimatePresence>
         ) : (
-          <Suspense fallback={null}>
-            <LandingScreen onSignIn={() => goTo(true)} />
-          </Suspense>
-        )
-      ) : (
-        <div
-          className="relative z-[1] min-h-screen"
-          style={{
-            opacity: preloaderDone ? 1 : 0,
-            transition: "opacity 0.3s ease-out",
-          }}
-        >
-          <NavBar
-            active={currentScreen}
-            onChange={handleScreenChange}
-            me={me}
-            meLoading={meLoading}
-          />
-          <main>
-            {/* One boundary per screen: loading one chunk must not blank the others. */}
-            {/* Workspace stays mounted to preserve result state */}
-            <div className={currentScreen === "workspace" ? undefined : "hidden"}>
-              <Suspense fallback={null}>
-                <WorkspaceScreen isAdmin={isAdmin} role={me?.role} />
-              </Suspense>
-            </div>
-            <Suspense fallback={null}>
-              {currentScreen === "history" && <HistoryScreen />}
-              {currentScreen === "schema" && isAdmin && <SchemaScreen />}
-              {currentScreen === "admin" && <AdminScreen />}
-            </Suspense>
-          </main>
-        </div>
-      )}
-    </>
+          <div
+            className="relative z-[1] min-h-screen"
+            style={{
+              opacity: preloaderDone ? 1 : 0,
+              transition: "opacity 0.4s ease-out",
+            }}
+          >
+            <NavBar active={currentScreen} onChange={handleScreenChange} me={me} meLoading={meLoading} />
+            <main className="pb-24">
+              {/* Workspace stays mounted to preserve result state. */}
+              <motion.div variants={keepAliveVariants} initial="hidden" animate={currentScreen === "workspace" ? "shown" : "hidden"}>
+                <Suspense fallback={null}>
+                  <WorkspaceScreen isAdmin={isAdmin} role={me?.role} student={me?.student} />
+                </Suspense>
+              </motion.div>
+              {/* One boundary per screen: loading one chunk must not blank the others. */}
+              <AnimatePresence mode="popLayout">
+                {currentScreen !== "workspace" && (
+                  <motion.div key={currentScreen} variants={screenVariants} initial="initial" animate="enter" exit="exit">
+                    <Suspense fallback={null}>
+                      {currentScreen === "history" && <HistoryScreen student={me?.student} />}
+                      {currentScreen === "schema" && isAdmin && <SchemaScreen />}
+                      {currentScreen === "admin" && <AdminScreen />}
+                    </Suspense>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </main>
+          </div>
+        )}
+        <Toaster />
+      </TooltipProvider>
+    </MotionConfig>
   );
 }

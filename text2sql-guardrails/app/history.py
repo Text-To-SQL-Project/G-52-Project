@@ -20,6 +20,7 @@ row.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -64,6 +65,7 @@ def write_history_row(
     status_reason: str | None,
     confidence_score: float | None = None,
     row_count: int | None = None,
+    detail: dict | None = None,
 ) -> None:
     if not session_id:
         # No session to group this under -- nothing meaningful to write.
@@ -75,10 +77,10 @@ def write_history_row(
                 text(
                     "INSERT INTO app.query_history "
                     "(query_id, session_id, user_id, question, sql_preview, "
-                    "status, status_reason, confidence_score, row_count) "
+                    "status, status_reason, confidence_score, row_count, detail) "
                     "VALUES (:query_id, :session_id, :user_id, :question, "
                     ":sql_preview, :status, :status_reason, :confidence_score, "
-                    ":row_count)"
+                    ":row_count, CAST(:detail AS JSONB))"
                 ),
                 {
                     "query_id": query_id,
@@ -90,6 +92,7 @@ def write_history_row(
                     "status_reason": status_reason,
                     "confidence_score": confidence_score,
                     "row_count": row_count,
+                    "detail": json.dumps(detail) if detail else None,
                 },
             )
     except Exception as e:
@@ -98,13 +101,20 @@ def write_history_row(
         logger.error("Failed to write history row for query_id=%r: %s", query_id, e)
 
 
-def update_history_confidence(query_id: str, confidence_score: float) -> None:
-    """Replace the provisional score once background signals finish."""
+def update_history_confidence(query_id: str, confidence: dict) -> None:
+    """Replace the provisional score (and the snapshot's breakdown) once
+    background signals finish. `confidence` is Confidence.model_dump(mode="json")."""
     try:
         with get_engine().begin() as conn:
             conn.execute(
-                text("UPDATE app.query_history SET confidence_score = :s WHERE query_id = :q"),
-                {"s": confidence_score, "q": query_id},
+                text(
+                    "UPDATE app.query_history SET confidence_score = :s, "
+                    "detail = CASE WHEN detail IS NULL THEN NULL ELSE "
+                    "jsonb_set(jsonb_set(detail, '{confidence}', CAST(:c AS JSONB)), "
+                    "'{confidence_pending}', 'false') END "
+                    "WHERE query_id = :q"
+                ),
+                {"s": confidence["score"], "c": json.dumps(confidence), "q": query_id},
             )
     except Exception as e:
         logger.error("Failed to update confidence for query_id=%r: %s", query_id, e)
@@ -141,7 +151,8 @@ def read_history(
         rows = conn.execute(
             text(
                 "SELECT query_id, question, sql_preview, status, status_reason, "
-                "confidence_score, row_count, created_at, user_id "
+                "confidence_score, row_count, created_at, user_id, "
+                "detail IS NOT NULL AS has_detail "
                 "FROM app.query_history "
                 "WHERE " + " AND ".join(clauses) + " "
                 "ORDER BY created_at DESC "
@@ -170,9 +181,23 @@ def read_history(
                 row_count=r.row_count,
                 timestamp=r.created_at,
                 user_feedback=None,
+                has_detail=r.has_detail,
             )
         )
     return items
+
+
+def read_history_detail(query_id: str, *, user_id: int, is_admin: bool = False) -> dict | None:
+    """The stored answer snapshot for one past query, or None if it doesn't
+    exist, has no snapshot, or belongs to someone else (same owner-or-admin
+    rule as read_history; callers answer all three with one 404)."""
+    owner = "" if is_admin else " AND user_id = :user_id"
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            text("SELECT detail FROM app.query_history WHERE query_id = :q" + owner),
+            {"q": query_id, "user_id": user_id},
+        ).first()
+    return row.detail if row and row.detail else None
 
 
 def read_blocked_queries(limit: int = 50) -> list[dict]:

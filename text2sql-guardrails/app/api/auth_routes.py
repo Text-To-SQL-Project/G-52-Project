@@ -13,7 +13,7 @@ from app.api.auth_models import AuthProviders, GoogleLoginRequest, LoginRequest,
 from app.auth import TOKEN_TTL_SECONDS, authenticate, create_token, hash_password, require_auth
 from app.config import settings
 from app.http_guard import limit_login
-from app.users import Principal, create_guest, email_exists, find_by_email
+from app.users import Principal, create_guest, email_exists, find_by_email, student_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -123,4 +123,5 @@ def me(principal: Principal = Depends(require_auth)) -> MeResponse:
         role=principal.role,
         student_id=principal.student_id,
         faculty_id=principal.faculty_id,
+        student=student_profile(principal.student_id) if principal.student_id else None,
     )

@@ -1,3 +1,4 @@
+import { ShieldHalf, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import {
   BarChart,
@@ -24,8 +25,8 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
 
   // Functional colors for each principal (distinct, zero blue and zero purple)
   const principalColors: Record<string, string> = {
-    admin: "var(--accent)",     // Solar Amber
-    faculty1: "var(--accent-bright)",  // Radiant Gold
+    admin: "var(--brand)",     // Solar Amber
+    faculty1: "var(--brand-bright)",  // Radiant Gold
     student1: "var(--success)",  // Emerald
     student2: "var(--info)",  // Neutral Silver
   };
@@ -46,11 +47,11 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
   });
 
   return (
-    <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "20px" }}>
+    <div className="panel spotlight p-5 sm:p-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>policy</span>
+            <span aria-hidden className="grid size-7 place-items-center rounded-md border border-[rgb(var(--brand-rgb)/0.25)] bg-[rgb(var(--brand-rgb)/0.08)] text-brand"><ShieldHalf className="size-3.5" /></span>
             <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
               Row Level Security (RLS) Scoping Impact
             </h3>
@@ -58,9 +59,9 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               className="font-mono text-[10px] font-semibold"
               style={{
                 padding: "2px 8px",
-                border: "1px solid var(--border-accent)",
-                background: "var(--accent-dim)",
-                color: "var(--accent)",
+                border: "1px solid var(--border-brand)",
+                background: "var(--brand-dim)",
+                color: "var(--brand)",
                 borderRadius: "8px",
               }}
             >
@@ -89,9 +90,9 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               style={{
                 padding: "4px 8px",
                 borderRadius: "8px",
-                border: selectedPrincipal === "all" ? "1px solid var(--border-accent)" : "1px solid transparent",
-                background: selectedPrincipal === "all" ? "var(--accent-dim)" : "transparent",
-                color: selectedPrincipal === "all" ? "var(--accent)" : "var(--text-muted)",
+                border: selectedPrincipal === "all" ? "1px solid var(--border-brand)" : "1px solid transparent",
+                background: selectedPrincipal === "all" ? "var(--brand-dim)" : "transparent",
+                color: selectedPrincipal === "all" ? "var(--brand)" : "var(--text-muted)",
                 fontWeight: selectedPrincipal === "all" ? 600 : 400,
               }}
             >
@@ -106,9 +107,9 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 style={{
                   padding: "4px 8px",
                   borderRadius: "8px",
-                  border: selectedPrincipal === p.principal ? "1px solid var(--border-accent)" : "1px solid transparent",
-                  background: selectedPrincipal === p.principal ? "var(--accent-dim)" : "transparent",
-                  color: selectedPrincipal === p.principal ? "var(--accent)" : "var(--text-muted)",
+                  border: selectedPrincipal === p.principal ? "1px solid var(--border-brand)" : "1px solid transparent",
+                  background: selectedPrincipal === p.principal ? "var(--brand-dim)" : "transparent",
+                  color: selectedPrincipal === p.principal ? "var(--brand)" : "var(--text-muted)",
                   fontWeight: selectedPrincipal === p.principal ? 600 : 400,
                 }}
               >
@@ -122,7 +123,7 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               type="checkbox"
               checked={useLogScale}
               onChange={(e) => setUseLogScale(e.target.checked)}
-              style={{ accentColor: "var(--accent)" }}
+              style={{ accentColor: "var(--brand)" }}
             />
             <span>Log Scale</span>
           </label>
@@ -149,7 +150,8 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
               contentStyle={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
-                borderRadius: "8px",
+                borderRadius: "10px",
+                boxShadow: "var(--shadow-lift)",
                 color: "var(--text-primary)",
                 fontSize: "0.75rem",
               }}
@@ -164,8 +166,8 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
                 key={p.principal}
                 dataKey={p.principal}
                 name={`${p.principal} (${p.role})`}
-                fill={principalColors[p.principal] || "var(--accent)"}
-                radius={[2, 2, 0, 0]}
+                fill={principalColors[p.principal] || "var(--brand)"}
+                radius={[5, 5, 0, 0]}
               />
             ))}
           </BarChart>
@@ -176,15 +178,15 @@ export function RlsRowCountChart({ principals, caveat }: RlsRowCountChartProps) 
       <div
         className="mt-4 text-xs leading-relaxed"
         style={{
-          border: "1px solid rgb(var(--accent-rgb) / 0.3)",
-          background: "rgb(var(--accent-rgb) / 0.08)",
+          border: "1px solid rgb(var(--brand-rgb) / 0.3)",
+          background: "rgb(var(--brand-rgb) / 0.08)",
           borderRadius: "8px",
           padding: "12px",
-          color: "rgb(var(--accent-pale-rgb))",
+          color: "rgb(var(--brand-pale-rgb))",
         }}
       >
-        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--accent-bright)" }}>
-          <span className="material-symbols-outlined text-[16px]">warning</span>
+        <div className="flex items-center gap-1.5 font-semibold" style={{ color: "var(--brand-bright)" }}>
+          <TriangleAlert aria-hidden className="size-4" />
           Methodological Identity Precaution
         </div>
         <p className="mt-1 text-[11.5px]" style={{ color: "var(--text-secondary)" }}>

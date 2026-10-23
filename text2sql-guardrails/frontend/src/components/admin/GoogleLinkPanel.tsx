@@ -1,13 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Check, KeyRound, Link2, Loader2, Unlink } from "lucide-react";
+import { toast } from "sonner";
+import { Panel } from "../kit";
 import { ApiError, getAuthProviders, getUsers, setUserEmail } from "../../api/client";
 import type { AdminUser } from "../../types/api";
 
-const field: React.CSSProperties = {
-  background: "var(--bg-void)",
-  border: "1px solid var(--border-hairline)",
-  borderRadius: "8px",
-  color: "var(--text-primary)",
-};
+const fieldCls = "h-8 min-w-0 flex-1 rounded-lg border border-input bg-background/60 px-2.5 font-mono text-xs text-foreground outline-none transition-[border-color,box-shadow] placeholder:italic placeholder:text-muted-foreground focus:border-[rgb(var(--brand-rgb)/0.5)] focus:shadow-[0_0_0_4px_rgb(var(--brand-rgb)/0.1)]";
 
 function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) => void }) {
   const [value, setValue] = useState(u.email ?? "");
@@ -25,6 +23,7 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
       setValue(users.find((x) => x.user_id === u.user_id)?.email ?? "");
       onSaved(users);
       setState("saved");
+      toast.success(value.trim() ? `Linked ${u.username}` : `Unlinked ${u.username}`);
       window.setTimeout(() => setState("idle"), 1600);
     } catch (x) {
       setState("idle");
@@ -33,7 +32,7 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
   };
 
   return (
-    <tr style={{ borderTop: "1px solid var(--border-subtle)" }}>
+    <tr className="border-t border-border transition-colors hover:bg-hover/60">
       <td className="py-3 pr-4">
         <span className="font-mono text-xs" style={{ color: u.is_active ? "var(--text-primary)" : "var(--text-muted)" }}>
           {u.username}
@@ -50,19 +49,16 @@ function UserRow({ u, onSaved }: { u: AdminUser; onSaved: (users: AdminUser[]) =
             placeholder="not linked"
             aria-label={`Google email for ${u.username}`}
             maxLength={254}
-            className="min-w-0 flex-1 px-2.5 py-1.5 font-mono text-xs placeholder:italic placeholder:text-[var(--text-ghost)]"
-            style={field}
+            className={fieldCls}
           />
           <button
             type="submit"
             disabled={!dirty || state === "saving"}
-            className="w-16 shrink-0 px-2 py-1.5 font-mono text-[11px] sm:w-20 sm:px-2.5 transition-colors disabled:opacity-40"
-            style={{
-              borderRadius: "8px",
-              border: "1px solid var(--border-hairline)",
-              color: state === "saved" ? "var(--success)" : "var(--text-secondary)",
-            }}
+            className={`press inline-flex h-8 w-16 shrink-0 items-center justify-center gap-1 rounded-lg border font-mono text-[11px] transition-colors disabled:opacity-40 sm:w-20 ${
+              state === "saved" ? "border-[rgb(var(--success-rgb)/0.4)] text-success" : "border-border text-soft hover:border-[rgb(var(--brand-rgb)/0.45)] hover:text-brand"
+            }`}
           >
+            {state === "saving" ? <Loader2 aria-hidden className="size-3 animate-spin" /> : state === "saved" ? <Check aria-hidden className="size-3" /> : !value.trim() && u.email ? <Unlink aria-hidden className="size-3" /> : <Link2 aria-hidden className="size-3" />}
             {state === "saving" ? "Saving…" : state === "saved" ? "Saved" : !value.trim() && u.email ? "Unlink" : "Link"}
           </button>
         </form>
@@ -85,23 +81,22 @@ export function GoogleLinkPanel() {
   }, []);
 
   return (
-    <section className="animate-rise" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px" }} aria-labelledby="google-title">
-      <header className="flex flex-wrap items-center justify-between gap-3 px-6 py-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>key</span>
-          <h3 id="google-title" className="font-mono text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-            Google sign-in
-          </h3>
-        </div>
-        {configured !== null && (
-          <span className="inline-flex items-center gap-2 font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            <span aria-hidden className="h-[7px] w-[7px] rounded-full" style={{ background: configured ? "var(--success)" : "var(--text-muted)" }} />
+    <Panel
+      icon={KeyRound}
+      title="Google sign-in"
+      id="google-title"
+      aria-labelledby="google-title"
+      bodyClassName="p-0"
+      meta={
+        configured !== null && (
+          <span className="inline-flex items-center gap-2 font-mono text-[11px] text-soft">
+            <span aria-hidden className="live-dot" style={{ "--dot": configured ? "var(--success)" : "var(--muted-foreground)" } as React.CSSProperties} />
             {configured ? "Enabled on the sign-in page" : "Off: GOOGLE_CLIENT_ID not set"}
           </span>
-        )}
-      </header>
-
-      <div className="space-y-5 p-6">
+        )
+      }
+    >
+      <div className="space-y-5 p-5 sm:p-6">
         <p className="max-w-prose text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
           A linked Google email signs in as that user, with their role and data access. Any other
           Google account gets a guest login that sees reference data only. Linking a guest's
@@ -123,6 +118,6 @@ export function GoogleLinkPanel() {
           </table>
         )}
       </div>
-    </section>
+    </Panel>
   );
 }

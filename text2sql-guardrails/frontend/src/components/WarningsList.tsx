@@ -1,36 +1,34 @@
+import { motion } from "motion/react";
+import { Info, TriangleAlert, OctagonAlert } from "lucide-react";
 import type { Warning, WarningLevel } from "../types/api";
+import { EASE } from "./kit";
 
-const LEVEL_STYLE: Record<WarningLevel, { borderColor: string; bg: string; text: string }> = {
-  info: { borderColor: "rgb(var(--ink-rgb) / 0.25)", bg: "rgb(var(--ink-rgb) / 0.025)", text: "var(--text-secondary)" },
-  warning: { borderColor: "rgb(var(--accent-bright-rgb) / 0.6)", bg: "rgb(var(--accent-bright-rgb) / 0.04)", text: "rgb(var(--accent-bright-rgb) / 0.85)" },
-  danger: { borderColor: "rgb(var(--danger-soft-rgb) / 0.7)", bg: "rgb(var(--danger-soft-rgb) / 0.05)", text: "rgb(var(--danger-soft-rgb) / 0.85)" },
+const LEVEL: Record<WarningLevel, { icon: typeof Info; cls: string }> = {
+  info: { icon: Info, cls: "border-border bg-muted/60 text-soft" },
+  warning: { icon: TriangleAlert, cls: "border-[color-mix(in_srgb,var(--warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--warning)_7%,transparent)] text-warning" },
+  danger: { icon: OctagonAlert, cls: "border-[rgb(var(--danger-rgb)/0.35)] bg-[rgb(var(--danger-rgb)/0.06)] text-danger-text" },
 };
 
 export function WarningsList({ warnings }: { warnings: Warning[] }) {
   if (warnings.length === 0) return null;
-
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {warnings.map((w, i) => {
-        const style = LEVEL_STYLE[w.level];
+        const { icon: Icon, cls } = LEVEL[w.level];
         return (
-          <div
+          <motion.div
             key={i}
-            style={{
-              animationDelay: `${i * 60}ms`,
-              borderLeft: `2px solid ${style.borderColor}`,
-              background: style.bg,
-              padding: "8px 12px",
-            }}
-            className="animate-rise"
+            className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-[13px] leading-relaxed ${cls}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: EASE, delay: i * 0.06 }}
           >
-            <p className="text-[13px] leading-relaxed" style={{ color: style.text }}>
+            <Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
+            <p>
               {w.message}
-              {w.source && (
-                <span className="ml-1.5 font-mono text-[11px] opacity-55">— {w.source}</span>
-              )}
+              {w.source && <span className="ml-1.5 font-mono text-[11px] opacity-70">— {w.source}</span>}
             </p>
-          </div>
+          </motion.div>
         );
       })}
     </div>

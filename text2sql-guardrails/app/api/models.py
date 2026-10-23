@@ -93,6 +93,9 @@ class ConfidenceSignal(BaseModel):
     detail: Optional[str] = Field(
         None, description="Short reason shown on hover, e.g. 'all 3 tables exist'."
     )
+    weight: Optional[float] = Field(
+        None, description="Share of the weighted mean (0..1); None when not measured."
+    )
 
 
 class Confidence(BaseModel):
@@ -101,6 +104,9 @@ class Confidence(BaseModel):
     label: str = Field(..., description="'High' / 'Medium' / 'Low'.")
     calibrated: bool = Field(
         True, description="True once the learned+isotonic model is wired in."
+    )
+    capped: bool = Field(
+        False, description="A check failed, so the score was capped at 40%."
     )
     signals: list[ConfidenceSignal]
 
@@ -146,11 +152,17 @@ class ResultTable(BaseModel):
     )
 
 
+class ClarificationOption(BaseModel):
+    label: str
+    description: str = ""
+    question: str = Field(..., description="Fully specified rewrite, re-submitted on click.")
+
+
 class Clarification(BaseModel):
     """Returned when the question is ambiguous. The UI renders the options as
-    buttons instead of results."""
+    choices (plus a free-text answer) instead of results."""
     reason: str
-    options: list[str] = Field(..., description="Interpretations to choose from.")
+    options: list[ClarificationOption] = Field(..., description="Interpretations to choose from.")
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +214,7 @@ class QueryResponse(BaseModel):
 
     # Present on CLARIFICATION_NEEDED only -- REFUSED conveys its reason via
     # status_reason alone, since there's nothing to clarify about a flat
-    # safety refusal. options is typically empty in practice.
+    # safety refusal. options is empty when the model offered none.
     clarification: Optional[Clarification] = None
 
     # Present on ERROR
@@ -256,6 +268,9 @@ class SchemaResponse(BaseModel):
 
 class HistoryItem(BaseModel):
     query_id: str
+    has_detail: bool = Field(
+        False, description="A full answer snapshot exists: GET /v1/history/{query_id}."
+    )
     question: str
     sql_preview: Optional[str] = Field(
         None,

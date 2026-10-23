@@ -23,12 +23,16 @@ export interface ConfidenceSignal {
   score: number;
   status: SignalStatus;
   detail?: string | null;
+  /** Share of the weighted mean (0..1); null when the check wasn't measured. */
+  weight?: number | null;
 }
 
 export interface Confidence {
   score: number;
   label: string;
   calibrated: boolean;
+  /** A check failed, so the score was capped at 40%. */
+  capped?: boolean;
   signals: ConfidenceSignal[];
 }
 
@@ -52,9 +56,16 @@ export interface ResultTable {
   truncated: boolean;
 }
 
+export interface ClarificationOption {
+  label: string;
+  description: string;
+  /** Fully specified rewrite of the question; submitted when chosen. */
+  question: string;
+}
+
 export interface Clarification {
   reason: string;
-  options: string[];
+  options: ClarificationOption[];
 }
 
 export interface QueryResponse {
@@ -132,6 +143,8 @@ export interface HistoryItem {
   row_count?: number | null;
   timestamp: string;
   user_feedback?: boolean | null;
+  /** A full answer snapshot exists: GET /v1/history/{query_id}. */
+  has_detail?: boolean;
 }
 
 export interface HistoryResponse {
@@ -233,6 +246,17 @@ export interface MeResponse {
   role: UserRole;
   student_id?: number | null;
   faculty_id?: number | null;
+  student?: StudentProfile | null;
+}
+
+/** The signed-in student's own record, printed on their result statement. */
+export interface StudentProfile {
+  name: string;
+  prn: string;
+  roll: string;
+  program: string;
+  department: string;
+  semester: number;
 }
 
 // ---------------------------------------------------------------------------

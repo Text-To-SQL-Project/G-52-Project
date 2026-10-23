@@ -1,53 +1,33 @@
+import { motion } from "motion/react";
+import { ShieldX } from "lucide-react";
 import type { GuardrailReport } from "../types/api";
+import { Callout, EASE } from "./kit";
 
 export function GuardrailBanner({ guardrail }: { guardrail: GuardrailReport }) {
   if (guardrail.passed) return null;
 
   return (
-    <div
-      className="animate-rise overflow-hidden"
-      style={{
-        borderLeft: "2px solid var(--danger)",
-        padding: "16px 20px",
-        background: "rgb(var(--danger-soft-rgb) / 0.04)",
-      }}
-    >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden
-          className="mt-0.5 inline-flex h-[17px] w-[17px] shrink-0 items-center justify-center"
-          style={{ background: "var(--danger)", borderRadius: "8px", color: "var(--on-danger)" }}
-        >
-          <span className="block h-[1.5px] w-[9px] rounded-full bg-current" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold" style={{ color: "var(--danger)" }}>Blocked by guardrails</h3>
-          <ul className="mt-2 space-y-1.5">
-            {guardrail.blocked_reasons.map((reason, i) => (
-              <li key={i} className="flex gap-2 text-sm leading-relaxed" style={{ color: "rgb(var(--danger-soft-rgb) / 0.8)" }}>
-                <span
-                  aria-hidden
-                  className="mt-[7px] block h-1 w-1 shrink-0 rounded-full"
-                  style={{ background: "rgb(var(--danger-soft-rgb) / 0.5)" }}
-                />
-                <span className="min-w-0">{reason}</span>
-              </li>
-            ))}
-          </ul>
-          {guardrail.checks_run.length > 0 && (
-            <p
-              className="mt-3 pt-2.5 text-[11px] leading-relaxed"
-              style={{
-                borderTop: "1px solid rgb(var(--danger-soft-rgb) / 0.1)",
-                color: "rgb(var(--danger-soft-rgb) / 0.45)",
-              }}
-            >
-              <span className="font-semibold uppercase tracking-[0.08em]">Checks run</span>{" "}
-              <span className="font-mono">{guardrail.checks_run.join(", ")}</span>
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
+    <Callout icon={ShieldX} tone="danger" title="Blocked by guardrails">
+      <ul className="mt-2 space-y-1.5">
+        {guardrail.blocked_reasons.map((reason, i) => (
+          <motion.li
+            key={i}
+            className="flex gap-2.5"
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, ease: EASE, delay: 0.15 + i * 0.06 }}
+          >
+            <span aria-hidden className="mt-[9px] block size-1 shrink-0 rounded-full bg-destructive" />
+            <span className="min-w-0 text-danger-text">{reason}</span>
+          </motion.li>
+        ))}
+      </ul>
+      {guardrail.checks_run.length > 0 && (
+        <p className="mt-3 border-t border-[rgb(var(--danger-rgb)/0.15)] pt-2.5 text-[11px] text-muted-foreground">
+          <span className="eyebrow mr-2 !text-[10px]">Checks run</span>
+          <span className="font-mono">{guardrail.checks_run.join(", ")}</span>
+        </p>
+      )}
+    </Callout>
   );
 }

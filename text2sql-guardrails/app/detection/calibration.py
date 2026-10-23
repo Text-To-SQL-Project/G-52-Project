@@ -34,7 +34,7 @@ def _load_calibrator():
     try:
         data = json.loads(CALIBRATOR_PATH.read_text())
         xs, ys = [float(v) for v in data["x"]], [float(v) for v in data["y"]]
-        return (xs, ys) if xs and len(xs) == len(ys) else None
+        return (xs, ys, data.get("provider")) if xs and len(xs) == len(ys) else None
     except Exception:
         return None
 
@@ -55,12 +55,22 @@ def is_available() -> bool:
     return _load_calibrator() is not None
 
 
-def calibrate(raw_score: float) -> tuple[float, bool]:
+def calibrate(raw_score: float, provider: str | None = None) -> tuple[float, bool]:
     """Returns (score_to_report, was_calibrated). was_calibrated=False means
     the caller should report the raw score with Confidence.calibrated=False,
-    exactly as before this module existed."""
+    exactly as before this module existed.
+
+    `provider` is the model provider that wrote the SQL. The curve maps one
+    provider's raw scores to that provider's measured accuracy, so applying
+    it to another provider's output is not calibration (eval/README.md:
+    "never reuse the Anthropic curve"). The Anthropic curve tops out at
+    0.775, so reusing it on Gemini capped every answer near 78% and made
+    "High" unreachable. None (eval tooling) keeps the old behaviour."""
     calibrator = _load_calibrator()
     if calibrator is None:
         return raw_score, False
-    calibrated = _interpolate(*calibrator, raw_score)
+    xs, ys, fit_provider = calibrator
+    if provider and fit_provider and provider != fit_provider:
+        return raw_score, False
+    calibrated = _interpolate(xs, ys, raw_score)
     return max(0.0, min(1.0, calibrated)), True

@@ -51,11 +51,42 @@ _ROW_SCOPED_INSTRUCTION = (
 )
 
 
+# Added ONLY for interactive app requests (clarify=True), for the same
+# byte-identical-eval reason as _ROW_SCOPED_INSTRUCTION. Two jobs: stop
+# declining questions that are answerable with a derivation (GPA from
+# letter grades was the live case), and when a choice really is needed,
+# return clickable options instead of a bare decline. The options are
+# shown to the user, so they must read as plain English, not schema.
+_CLARIFY_INSTRUCTION = (
+    "Prefer answering over declining. A vague question with one sensible "
+    "reading is ANSWERABLE: use that reading and state the assumption in "
+    "\"explanation\". A metric that is not stored as a column but can be "
+    "derived from the columns below is ANSWERABLE, using a standard "
+    "definition: GPA/CGPA is the average grade point of the letter grades "
+    "on the 10-point scale O=10, A+=9, A=8, B+=7, B=6, C=5, F=0 (never raw "
+    "marks divided by a constant); a percentage is marks obtained over max "
+    "marks. If no standard definition exists, ask. Several asks in one "
+    "question (e.g. an average AND a top 10) can be answered in one SELECT, "
+    "e.g. with a window function such as AVG(...) OVER (). Only when the "
+    "plausible readings would give materially different answers, or the "
+    "question cannot be answered as asked, set \"refusal\": true and "
+    "\"refusal_kind\": \"ambiguous\", and ALSO include "
+    "\"clarifying_question\": one short question to ask the user, and "
+    "\"options\": 2 to 4 objects {\"label\": \"<2-6 words>\", "
+    "\"description\": \"<one short sentence>\", \"question\": \"<the "
+    "user's full question rewritten so it is fully specified and needs no "
+    "further clarification>\"}, most likely reading first. Write "
+    "clarifying_question and options for a non-technical user: no table "
+    "names, column names, or SQL."
+)
+
+
 def build_system_prompt(
     schema: SchemaResponse,
     extra_instructions: str | None = None,
     row_scoped: bool = False,
     is_admin: bool = False,
+    clarify: bool = False,
 ) -> str:
     if is_admin:
         lines = [
@@ -115,6 +146,8 @@ def build_system_prompt(
     # fails if this is ever hoisted out of the conditional.
     if row_scoped:
         lines.append(f"- {_ROW_SCOPED_INSTRUCTION}")
+    if clarify:
+        lines.append(f"- {_CLARIFY_INSTRUCTION}")
     if extra_instructions:
         lines.append(f"- {extra_instructions}")
     lines += [

@@ -30,9 +30,15 @@ _COMPARE_SYSTEM = (
 )
 
 
-def check_back_translation(question: str, sql: str) -> ConfidenceSignal:
+def check_back_translation(question: str, sql: str, row_scoped: bool = False) -> ConfidenceSignal:
     """Never raises -- any LLM/API/parse failure degrades to a WARN signal
-    so it can't take down the request path."""
+    so it can't take down the request path.
+
+    `row_scoped`: the SQL runs under row-level security bound to the asking
+    user, so "my marks" is answered by SQL with no user filter at all -- the
+    database adds it. Unless told, the comparison reads that SQL as
+    "everyone's marks" and fails a correct answer (seen live: 0.30 for
+    "What are my marks in each subject?")."""
     if not settings.BACK_TRANSLATION_ENABLED:
         return ConfidenceSignal(
             key="back_translation_match",
@@ -60,7 +66,13 @@ def check_back_translation(question: str, sql: str) -> ConfidenceSignal:
         compare_user = (
             f"Question A: {question}\n"
             f"Question B: {back_translated}\n\n"
-            "How semantically equivalent are these two questions?"
+            + (
+                "Context: the SQL runs under row-level security that returns only the "
+                "asking user's own rows, so Question B is implicitly limited to that "
+                "user ('my ...'). Do not penalise a missing per-user filter.\n\n"
+                if row_scoped else ""
+            )
+            + "How semantically equivalent are these two questions?"
         )
         raw = complete(_COMPARE_SYSTEM, compare_user, cache_system=True, max_attempts=2)
         data = parse_llm_json(raw)

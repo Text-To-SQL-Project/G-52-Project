@@ -14,12 +14,16 @@ import base64
 import hashlib
 import hmac
 import json
+import queue
+import threading
+import re
 import logging
 import time
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 
 from app.api import client_messages
@@ -40,6 +44,7 @@ from app.api.admin_models import (
 )
 from app.api.models import (
     Clarification,
+    ClarificationOption,
     Confidence,
     ConfidenceSignal,
     ConfidenceTicket,
@@ -81,14 +86,16 @@ from app.generation.generator import generate_sql, is_noop_sql
 from app.generation.llm_client import use_provider, wait_for_background_room
 from app import llm_pool
 from app.http_guard import limit_query
+from app import trace as ptrace
 from app.users import Principal
 from app.history import (
     read_blocked_queries,
     read_history,
+    read_history_detail,
     update_history_confidence,
     write_history_row,
 )
-from app.schema.introspect import invalidate_schema_cache
+from app.schema.introspect import RESTRICTED_COLUMNS, invalidate_schema_cache
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
@@ -103,6 +110,47 @@ _REFUSED_CLIENT_MESSAGE = client_messages.REFUSED_CLIENT_MESSAGE
 _GENERATION_FAILED_CLIENT_MESSAGE = client_messages.GENERATION_FAILED_CLIENT_MESSAGE
 _GENERATION_ERROR_CLIENT_MESSAGE = client_messages.GENERATION_ERROR_CLIENT_MESSAGE
 _EXECUTION_ERROR_CLIENT_MESSAGE = client_messages.EXECUTION_ERROR_CLIENT_MESSAGE
+
+
+_RESTRICTED_NAMES = {c.lower() for cols in RESTRICTED_COLUMNS.values() for c in cols}
+
+
+def _mentions_restricted(text_: str) -> bool:
+    words = set(re.findall(r"[a-z0-9_]+", text_.lower()))
+    return bool(words & _RESTRICTED_NAMES)
+
+
+def _client_clarification(gen) -> Clarification:
+    """The model's clarifying question and options, made safe for a client.
+
+    Ordinary table/column words ("students", "grade") are fine here: the
+    same principal already sees them in the Schema Explorer. Restricted
+    columns are not -- they're withheld from non-admin prompts, so the
+    model shouldn't know them, but anything naming one is dropped anyway
+    rather than trusting that. Anything malformed falls back to the
+    generic message with no options (the UI still offers free text).
+    """
+    options: list[ClarificationOption] = []
+    for raw in (gen.options if isinstance(gen.options, list) else [])[:4]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            opt = ClarificationOption(
+                label=str(raw.get("label", "")).strip()[:80],
+                description=str(raw.get("description") or "").strip()[:240],
+                question=str(raw.get("question", "")).strip()[:2000],
+            )
+        except Exception:
+            continue
+        if opt.label and opt.question and not _mentions_restricted(
+            f"{opt.label} {opt.description} {opt.question}"
+        ):
+            options.append(opt)
+    question = gen.clarifying_question if isinstance(gen.clarifying_question, str) else ""
+    question = question.strip()[:300]
+    if not question or _mentions_restricted(question):
+        question = _CLARIFICATION_CLIENT_MESSAGE
+    return Clarification(reason=question, options=options)
 
 
 def _new_id() -> str:
@@ -148,20 +196,22 @@ def _read_ticket(ticket: str) -> dict | None:
 
 
 def _finish_back_translation(
-    question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool
+    question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool,
+    provider: str | None = None,
 ) -> Confidence:
     try:
         # Short wait only: this request is the user's, not background work.
         if not wait_for_background_room(max_wait_seconds=8):
             raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for new questions")
-        bt = check_back_translation(question, sql)  # never raises by contract
+        bt = check_back_translation(question, sql, row_scoped)  # never raises by contract
     except Exception as e:
         bt = ConfidenceSignal(
             key="back_translation_match", label="Back-translation Match", score=0.5,
             status=SignalStatus.WARN, detail=f"Back-translation check could not run: {e}",
         )
     return fuse_confidence(
-        [bt if s.key == "back_translation_match" else s for s in signals], row_scoped=row_scoped
+        [bt if s.key == "back_translation_match" else s for s in signals],
+        row_scoped=row_scoped, provider=provider,
     )
 
 
@@ -175,9 +225,10 @@ def redeem_confidence_ticket(
         raise HTTPException(status_code=404, detail="Unknown or expired query.")
     with use_provider(t.get("p")):
         final = _finish_back_translation(
-            t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"]
+            t["question"], t["sql"], [ConfidenceSignal(**s) for s in t["signals"]], t["rs"],
+            provider=t.get("p"),
         )
-    update_history_confidence(query_id, final.score)
+    update_history_confidence(query_id, final.model_dump(mode="json"))
     return ConfidenceUpdate(query_id=query_id, pending=False, confidence=final)
 
 
@@ -211,6 +262,12 @@ def run_query(
         now = time.perf_counter()
         timings[stage] = round((now - clock[0]) * 1000, 1)
         clock[0] = now
+        ptrace.stage(stage, timings[stage])
+
+    ptrace.log(
+        f"query {query_id} · role={principal.role} user_id={principal.user_id} · provider={provider}",
+        question=req.question,
+    )
 
     # 1-2. schema retrieval + generation.
     if req.sql_override:
@@ -222,6 +279,7 @@ def run_query(
         tables_used: list[str] = []
         columns_used: list[str] = []
     else:
+        ptrace.log("generating SQL: live schema + few-shot prompt → LLM")
         try:
             # Same flag result_sanity uses, from the principal only. An
             # admin is not row-scoped, and is_admin allows DDL/DML operations.
@@ -230,6 +288,7 @@ def run_query(
                     req.question,
                     row_scoped=not principal.is_admin,
                     is_admin=principal.is_admin,
+                    clarify=True,
                     timeout=settings.APP_LLM_TIMEOUT_SECONDS,
                     max_attempts=settings.APP_LLM_MAX_ATTEMPTS,
                     # A duplicate request only burns quota under the single
@@ -282,7 +341,7 @@ def run_query(
                     question=req.question,
                     timestamp=timestamp,
                     guardrail=GuardrailReport(passed=True, checks_run=[]),
-                    clarification=Clarification(reason=_CLARIFICATION_CLIENT_MESSAGE, options=[]),
+                    clarification=_client_clarification(gen),
                 )
             logger.info("REFUSED (unsafe) for question=%r reason=%r", req.question, reason)
             write_history_row(
@@ -299,6 +358,7 @@ def run_query(
                 guardrail=GuardrailReport(passed=True, checks_run=[]),
             )
 
+        ptrace.log("LLM returned SQL", sql=gen.sql, tables=gen.tables_used, explanation=gen.explanation)
         sql = gen.sql
         explanation = gen.explanation
         tables_used = gen.tables_used
@@ -392,6 +452,7 @@ def run_query(
 
         # Guardrails passed: use the (possibly LIMIT-injected) safe SQL downstream.
         safe_sql = result.safe_sql
+        ptrace.log("AST guardrail passed", checks=result.checks_run, injected_limit=result.injected_limit)
         guardrail_report = GuardrailReport(
             passed=True,
             blocked_reasons=[],
@@ -439,7 +500,7 @@ def run_query(
         bt_pending = settings.BACK_TRANSLATION_ENABLED
         back_translation_signal = (
             _BT_PENDING_SIGNAL if bt_pending
-            else check_back_translation(req.question, safe_sql)  # the disabled placeholder
+            else check_back_translation(req.question, sql)  # the disabled placeholder
         )
         signals = [
             ConfidenceSignal(
@@ -458,6 +519,7 @@ def run_query(
             ),
         ]
 
+    ptrace.log("pre-execution signals", **{x.key: f"{getattr(x.status, 'value', x.status)} {x.score:.2f}" for x in signals})
     lap("pre_checks")
 
     # 5. Execution
@@ -610,6 +672,7 @@ def run_query(
             )
 
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
+    ptrace.log(f"executed: {len(result_rows)} rows × {len(result_columns)} cols in {execution_time_ms} ms", columns=result_columns)
     lap("execution")
     if principal.is_admin and not is_select:
         invalidate_schema_cache()  # the statement may have been DDL
@@ -646,22 +709,23 @@ def run_query(
     # overall score (weighted mean + hard fail-override; see
     # app/detection/confidence.py). Not a calibrated probability -- see
     # Confidence.calibrated / fuse_confidence's own comment.
-    confidence = fuse_confidence(signals, row_scoped=row_scoped)
+    confidence = fuse_confidence(signals, row_scoped=row_scoped, provider=provider)
+    ptrace.log(
+        f"confidence {confidence.score:.2f} ({confidence.label}){' · back-translation deferred' if bt_pending else ''}",
+        **{x.key: f"{getattr(x.status, 'value', x.status)} {x.score:.2f}" for x in signals},
+    )
     ticket = None
     if bt_pending:
         ticket = _make_ticket({
             "q": query_id, "u": principal.user_id, "exp": int(time.time()) + _TICKET_TTL_SECONDS,
-            "question": req.question, "sql": safe_sql, "rs": row_scoped, "p": provider,
+            # The SQL as written, not safe_sql: the guardrail's injected row cap
+            # ("LIMIT 1000") is not the model's intent, and back-translating it
+            # read as "the first 1000 records", failing a correct answer.
+            "question": req.question, "sql": sql, "rs": row_scoped, "p": provider,
             "signals": [s.model_dump(mode="json") for s in signals],
         })
     lap("post_checks")
-    write_history_row(
-        query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question,
-        status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
-        confidence_score=confidence.score, row_count=len(result_rows),
-    )
-    return QueryResponse(
+    resp = QueryResponse(
         query_id=query_id,
         status=QueryStatus.SUCCESS,
         question=req.question,
@@ -683,6 +747,73 @@ def run_query(
         timings_ms=_finish_timings(timings, response, lap),
         guardrail=guardrail_report,
         warnings=[],
+    )
+    write_history_row(
+        query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+        question=req.question,
+        status=QueryStatus.SUCCESS, sql=safe_sql, status_reason=None,
+        confidence_score=confidence.score, row_count=len(result_rows),
+        detail=_history_snapshot(resp),
+    )
+    return resp
+
+
+# Rows kept in a history snapshot: enough to re-check an answer, small enough
+# that a large result set can't bloat the history table.
+_SNAPSHOT_ROWS = 200
+
+
+def _history_snapshot(resp: QueryResponse) -> dict:
+    """The answer as History re-opens it: capped rows, no single-use ticket."""
+    snap = resp.model_dump(mode="json", exclude={"confidence_ticket"})
+    res = snap.get("results")
+    if res and len(res["rows"]) > _SNAPSHOT_ROWS:
+        res["rows"] = res["rows"][:_SNAPSHOT_ROWS]
+        res["row_count"], res["truncated"] = _SNAPSHOT_ROWS, True
+    return snap
+
+
+@router.post("/query/stream", dependencies=[Depends(limit_query)])
+def run_query_stream(
+    req: QueryRequest,
+    principal: Principal = Depends(require_auth),
+    x_dev_trace_key: str | None = Header(default=None),
+) -> StreamingResponse:
+    """Same pipeline as POST /query, streamed as NDJSON while it runs:
+
+      {"t": "hello", "dev": bool}             first line
+      {"t": "stage", "stage": ..., "ms": ...}  as each stage finishes
+      {"t": "log", ...}                        developers only (app/trace.py)
+      {"t": "result", "data": QueryResponse}   last line (or {"t": "fatal"})
+
+    run_query itself is untouched: it runs in a worker thread with a trace
+    sink bound, and this generator relays whatever the sink receives.
+    """
+    dev = ptrace.dev_allowed(x_dev_trace_key)
+    events: queue.SimpleQueue = queue.SimpleQueue()
+
+    def work() -> None:
+        token = ptrace.bind(events.put, dev)
+        try:
+            resp = run_query(req, principal, None)
+            events.put({"t": "result", "data": resp.model_dump(mode="json")})
+        except Exception:
+            logger.exception("Streamed query crashed for question=%r", req.question)
+            events.put({"t": "fatal"})
+        finally:
+            ptrace.unbind(token)
+            events.put(None)
+
+    def relay():
+        yield json.dumps({"t": "hello", "dev": dev}) + "\n"
+        while (item := events.get()) is not None:
+            yield json.dumps(item, default=str) + "\n"
+
+    threading.Thread(target=work, daemon=True, name="query-stream").start()
+    return StreamingResponse(
+        relay(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -760,6 +891,22 @@ def get_history(
     except Exception as e:
         logger.error("Failed to read history for session_id=%r: %s", session_id, e)
         raise HTTPException(status_code=503, detail="History unavailable — could not reach the database.")
+
+
+@router.get("/history/{query_id}", response_model=QueryResponse)
+def get_history_detail(query_id: str, principal: Principal = Depends(require_auth)) -> QueryResponse:
+    """A past successful answer in full (SQL, confidence breakdown, up to
+    200 rows), from the snapshot stored when it ran -- not re-executed, so
+    it shows exactly what the user saw. Owner or admin only; one 404 for
+    unknown, not-yours and no-snapshot alike."""
+    try:
+        detail = read_history_detail(query_id, user_id=principal.user_id, is_admin=principal.is_admin)
+    except Exception as e:
+        logger.error("Failed to read history detail %r: %s", query_id, e)
+        raise HTTPException(status_code=503, detail="History unavailable — could not reach the database.")
+    if detail is None:
+        raise HTTPException(status_code=404, detail="No saved result for this query.")
+    return QueryResponse(**detail)
 
 
 @router.get("/admin/config", response_model=AdminConfigResponse)

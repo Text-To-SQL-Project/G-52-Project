@@ -31,10 +31,9 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       onClick={toggle}
       aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
       title={dark ? "Light theme" : "Dark theme"}
-      className={`group flex h-7 w-7 items-center justify-center transition-colors duration-200 hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] ${className}`}
-      style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", color: "var(--text-secondary)" }}
+      className={`press group grid size-8 place-items-center rounded-lg border border-border bg-card/70 text-soft backdrop-blur-sm hover:border-[rgb(var(--ink-rgb)/0.18)] hover:bg-hover hover:text-foreground ${className}`}
     >
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden className="transition-transform duration-500 group-active:scale-90">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden className="transition-transform duration-500 group-hover:rotate-[20deg] group-active:scale-90">
         <mask id={mask}>
           <rect width="24" height="24" fill="white" />
           {/* The "bite" that turns the sun's disc into a crescent. */}

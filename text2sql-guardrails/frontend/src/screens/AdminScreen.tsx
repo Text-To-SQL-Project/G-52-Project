@@ -1,110 +1,57 @@
-import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
-import { ModelPoolPanel } from "../components/admin/ModelPoolPanel";
-import { useTweened } from "../hooks/useTweened";
-import { GoogleLinkPanel } from "../components/admin/GoogleLinkPanel";
-import { gsap } from "gsap";
+import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 import {
-  ApiError,
-  getAdminConfig,
-  getAdminEvalMetrics,
-  getAdminRlsDemo,
-  getBlockedQueries,
-} from "../api/client";
+  BadgeCheck, Cpu, Flag, Gauge, LineChart, Scale, ShieldAlert, ShieldCheck, SlidersHorizontal,
+  Sparkles, Star, Target, TriangleAlert, type LucideIcon,
+} from "lucide-react";
+import { ModelPoolPanel } from "../components/admin/ModelPoolPanel";
+import { GoogleLinkPanel } from "../components/admin/GoogleLinkPanel";
+import { useTweened } from "../hooks/useTweened";
+import { ApiError, getAdminConfig, getAdminEvalMetrics, getAdminRlsDemo, getBlockedQueries } from "../api/client";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { LoadingStatus, SkeletonLine, SkeletonList } from "../components/Skeleton";
 import { ForbiddenPanel } from "../components/ForbiddenPanel";
 import { AurocChart } from "../components/admin/AurocChart";
 import { RlsRowCountChart } from "../components/admin/RlsRowCountChart";
 import { SafetyLayerBreakdown } from "../components/admin/SafetyLayerBreakdown";
-import type {
-  AdminConfigResponse,
-  BlockedQueryItem,
-  EvalMetricsResponse,
-  RlsDemoResponse,
-} from "../types/api";
-
-function SectionLabel({ children, icon }: { children: string; icon?: string }) {
-  return (
-    <div className="mb-3 flex items-center gap-2">
-      {icon && <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>{icon}</span>}
-      <h3 className="font-mono text-xs font-semibold tracking-wider uppercase" style={{ color: "var(--text-secondary)" }}>
-        {children}
-      </h3>
-    </div>
-  );
-}
-
-function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      className={className}
-      style={{
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "8px",
-        padding: "24px",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
+import { EASE, PageHeader, Panel, Reveal } from "../components/kit";
+import { Badge } from "@/components/ui/badge";
+import type { AdminConfigResponse, BlockedQueryItem, EvalMetricsResponse, RlsDemoResponse } from "../types/api";
 
 function CountUp({ value }: { value: string }) {
   const m = /^(\d+(?:\.(\d+))?)(.*)$/s.exec(value);
-  const n = useTweened(m ? parseFloat(m[1]) : 0, 1100, 0);
+  const n = useTweened(m ? parseFloat(m[1]) : 0, 1300, 0);
   if (!m) return <>{value}</>;
   return <>{n.toFixed(m[2]?.length ?? 0)}{m[3]}</>;
 }
 
-function StatTile({
-  label,
-  value,
-  hint,
-  icon,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  icon?: string;
-}) {
+function StatTile({ label, value, hint, icon: Icon, i }: { label: string; value: string; hint?: string; icon: LucideIcon; i: number }) {
   return (
-    <div
-      className="flex flex-col justify-between py-4 transition-colors duration-150"
-      style={{
-        borderBottom: "1px solid var(--border-subtle)",
-        paddingRight: "16px",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--ink-rgb) / 0.01)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    <motion.div
+      className="panel spotlight lift group flex min-h-[8.5rem] flex-col justify-between p-4 sm:p-5"
+      initial={{ opacity: 0, y: 14, filter: "blur(4px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{ duration: 0.6, ease: EASE, delay: 0.1 + i * 0.05 }}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="font-sans text-xs" style={{ color: "var(--text-muted)" }}>{label}</p>
-        {icon && (
-          <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)", opacity: 0.5 }}>{icon}</span>
-        )}
+        <p className="text-xs leading-snug text-muted-foreground">{label}</p>
+        <Icon aria-hidden className="size-4 shrink-0 text-brand opacity-60 transition-all duration-500 group-hover:rotate-[-8deg] group-hover:opacity-100" />
       </div>
-      <div className="mt-2">
-        <p
-          className="font-display font-bold tracking-tight text-[var(--text-primary)]"
-          style={{ fontSize: "1.75rem", letterSpacing: "-0.03em" }}
-        >
+      <div className="mt-4">
+        <p className="font-display text-[1.65rem] leading-none tabular-nums text-foreground break-words">
           <CountUp value={value} />
         </p>
-        {hint && <p className="mt-1 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{hint}</p>}
+        {hint && <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">{hint}</p>}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 function ConfigRow({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      className="flex items-center justify-between gap-4 py-2.5 text-xs"
-      style={{ borderBottom: "1px solid var(--border-subtle)" }}
-    >
-      <span style={{ color: "var(--text-secondary)" }}>{label}</span>
-      <span className="font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>{value}</span>
+    <div className="group flex items-center justify-between gap-4 border-b border-dashed border-border py-2.5 text-xs last:border-0">
+      <span className="text-soft transition-colors group-hover:text-foreground">{label}</span>
+      <span className="font-mono tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
@@ -113,7 +60,6 @@ function BlockedQueriesSection() {
   const [items, setItems] = useState<BlockedQueryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     getBlockedQueries()
@@ -127,22 +73,11 @@ function BlockedQueriesSection() {
       });
   }, []);
 
-  useEffect(() => {
-    if (items && items.length > 0 && listRef.current) {
-      gsap.fromTo(
-        listRef.current.children,
-        { opacity: 0, y: 10 },
-        { opacity: 1, y: 0, duration: 0.4, stagger: 0.04, ease: "expo.out" }
-      );
-    }
-  }, [items]);
-
   return (
-    <Panel>
-      <SectionLabel icon="shield">Recent Blocked Queries (AST Guardrail Log)</SectionLabel>
-      <p className="mb-4 max-w-prose font-sans text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-        Raw, unredacted SQL caught by safety guardrails — visible here to administrators only,
-        never in user query responses.
+    <Panel icon={ShieldAlert} tone="danger" title="Recent Blocked Queries (AST Guardrail Log)" meta={items && <Badge variant="danger">{items.length} logged</Badge>}>
+      <p className="mb-4 max-w-prose text-xs leading-relaxed text-muted-foreground">
+        Raw, unredacted SQL caught by safety guardrails — visible here to administrators only, never in user query
+        responses.
       </p>
 
       {forbidden && <ForbiddenPanel what="the blocked-query log" />}
@@ -153,52 +88,31 @@ function BlockedQueriesSection() {
           <SkeletonList count={3} lines={2} />
         </>
       )}
-      {items && items.length === 0 && (
-        <p className="animate-fade py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
-          No blocked queries recorded yet.
-        </p>
-      )}
+      {items && items.length === 0 && <p className="animate-fade py-8 text-center text-sm text-muted-foreground">No blocked queries recorded yet.</p>}
       {items && items.length > 0 && (
-        <div ref={listRef} className="space-y-0">
-          {items.map((item) => (
-            <div
+        <ol className="space-y-2.5">
+          {items.map((item, i) => (
+            <motion.li
               key={item.query_id}
-              className="py-4 transition-colors"
-              style={{ borderBottom: "1px solid var(--border-subtle)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgb(var(--danger-soft-rgb) / 0.02)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              className="group rounded-xl border border-border bg-background/40 p-4 transition-colors hover:border-[rgb(var(--danger-rgb)/0.35)] hover:bg-[rgb(var(--danger-rgb)/0.03)]"
+              initial={{ opacity: 0, x: -8 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, ease: EASE, delay: Math.min(i, 8) * 0.04 }}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="font-sans text-sm font-medium" style={{ color: "var(--text-primary)" }}>{item.question}</p>
-                <span
-                  className="font-mono text-[10px] font-semibold uppercase"
-                  style={{
-                    padding: "2px 8px",
-                    border: "1px solid rgb(var(--danger-soft-rgb) / 0.3)",
-                    background: "rgb(var(--danger-soft-rgb) / 0.06)",
-                    color: "var(--danger)",
-                    borderRadius: "8px",
-                  }}
-                >
-                  Blocked
-                </span>
+                <p className="text-sm font-medium text-foreground">{item.question}</p>
+                <Badge variant="danger">Blocked</Badge>
               </div>
-              <div className="mt-2.5">
-                <code
-                  className="sql-editor-card block truncate px-3 py-2 font-mono text-xs"
-                  style={{ color: "var(--danger)", opacity: 0.7 }}
-                >
-                  {item.sql ?? "(no SQL generated)"}
-                </code>
-              </div>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2 pt-2 font-mono text-[11px]" style={{ borderTop: "1px solid rgb(var(--danger-soft-rgb) / 0.08)", color: "var(--text-muted)" }}>
-                <span style={{ color: "rgb(var(--danger-soft-rgb) / 0.7)" }}>{item.blocked_reason}</span>
-                <span style={{ color: "var(--text-ghost)" }}>·</span>
+              <code className="code-surface mt-2.5 block truncate px-3 py-2 font-mono text-xs text-danger-text">{item.sql ?? "(no SQL generated)"}</code>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                <span className="text-danger-text">{item.blocked_reason}</span>
+                <span aria-hidden>·</span>
                 <span>{new Date(item.timestamp).toLocaleString()}</span>
               </div>
-            </div>
+            </motion.li>
           ))}
-        </div>
+        </ol>
       )}
     </Panel>
   );
@@ -227,37 +141,24 @@ export function AdminScreen() {
       });
   }, []);
 
-  if (forbidden) {
-    return (
-      <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 lg:px-10">
-        <ForbiddenPanel what="the Admin screen" />
-      </div>
-    );
-  }
+  const wrap = "mx-auto max-w-7xl px-4 pt-8 sm:px-8 lg:px-10 lg:pt-12";
 
-  if (error) {
-    return (
-      <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 lg:px-10">
-        <ErrorPanel message={error} />
-      </div>
-    );
-  }
+  if (forbidden) return <div className={wrap}><ForbiddenPanel what="the Admin screen" /></div>;
+  if (error) return <div className={wrap}><ErrorPanel message={error} /></div>;
 
   if (!config) {
     return (
-      <div className="mx-auto max-w-7xl space-y-6 px-5 py-10 sm:px-8 lg:px-10">
+      <div className={`${wrap} space-y-6`}>
         <LoadingStatus label="Loading admin configuration" />
         <div className="space-y-2">
-          <SkeletonLine w="w-56" h="h-4" />
-          <SkeletonLine w="w-32" h="h-3" />
+          <SkeletonLine w="w-56" h="h-8" />
+          <SkeletonLine w="w-80" h="h-3" />
         </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4" aria-hidden>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden>
           {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} style={{ borderBottom: "1px solid var(--border-subtle)", padding: "16px 0" }}>
+            <div key={i} className="panel p-5">
               <SkeletonLine w="w-3/4" h="h-3" />
-              <div className="mt-3">
-                <SkeletonLine w="w-1/2" h="h-6" />
-              </div>
+              <div className="mt-6"><SkeletonLine w="w-1/2" h="h-7" /></div>
             </div>
           ))}
         </div>
@@ -267,125 +168,99 @@ export function AdminScreen() {
   }
 
   const ev = config.eval_summary;
+  const stats: { label: string; value: string; icon: LucideIcon; hint?: string }[] = [
+    { label: "Execution Accuracy", value: ev.execution_accuracy.toFixed(3), icon: BadgeCheck },
+    { label: "Fused AUROC", value: ev.fused_auroc.toFixed(3), icon: LineChart },
+    { label: "Held-out ECE", value: ev.held_out_ece.toFixed(3), hint: "isotonic-calibrated", icon: SlidersHorizontal },
+    { label: "Guardrail Block Rate", value: ev.guardrail_block_rate, icon: ShieldCheck },
+    { label: "Destructive Queries Run", value: String(ev.destructive_queries_executed), icon: TriangleAlert },
+    { label: "Adversarial Flags", value: String(ev.adversarial_executed_flags), hint: "raw heuristic", icon: Flag },
+    { label: "Golden Set Size", value: String(ev.golden_set_size), icon: Star },
+    { label: "Unique Answerable", value: String(ev.unique_answerable_questions), icon: Target },
+  ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-5 py-10 sm:px-8 lg:px-10">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-4 pb-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        <div>
-          <h2
-            className="font-display font-bold tracking-tight text-[var(--text-primary)]"
-            style={{ fontSize: "clamp(1.25rem, 3vw, 1.75rem)", letterSpacing: "-0.03em" }}
-          >
-            {config.app_name} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>v{config.version}</span>
-          </h2>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            System health, safety layer metrics, and model configuration
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="pill-tag px-3 py-1 font-mono text-xs">
-            Model: {config.llm_model}
-          </span>
-          <span className="pill-tag px-3 py-1 font-mono text-xs">
-            Admin Console
-          </span>
-        </div>
-      </div>
+    <div className={`${wrap} space-y-8`}>
+      <PageHeader
+        index="§ 04"
+        eyebrow="Admin Console"
+        title={<>{config.app_name} <span className="font-normal text-muted-foreground">v{config.version}</span></>}
+        lede="System health, safety layer metrics, and model configuration."
+        actions={
+          <>
+            <Badge variant="brand" className="h-7 px-2.5"><Cpu className="size-3" /> Model: {config.llm_model}</Badge>
+            <Badge variant="muted" className="h-7 px-2.5"><Sparkles className="size-3" /> Admin Console</Badge>
+          </>
+        }
+      />
 
-      <ModelPoolPanel />
-
-      <GoogleLinkPanel />
-
-      {/* Eval stats — hairline-divided rows, not cards */}
-      <section className="animate-rise space-y-3">
-        <SectionLabel icon="analytics">Published Evaluation Benchmarks</SectionLabel>
-        <div className="grid grid-cols-2 gap-x-8 sm:grid-cols-4">
-          <StatTile label="Execution Accuracy" value={ev.execution_accuracy.toFixed(3)} icon="verified" />
-          <StatTile label="Fused AUROC" value={ev.fused_auroc.toFixed(3)} icon="show_chart" />
-          <StatTile label="Held-out ECE" value={ev.held_out_ece.toFixed(3)} hint="isotonic-calibrated" icon="tune" />
-          <StatTile label="Guardrail Block Rate" value={ev.guardrail_block_rate} icon="shield" />
+      <section className="space-y-3">
+        <p className="eyebrow flex items-center gap-2"><Gauge aria-hidden className="size-3.5 text-brand" /> Published Evaluation Benchmarks</p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {stats.map((s, i) => <StatTile key={s.label} {...s} i={i} />)}
         </div>
-        <div className="grid grid-cols-2 gap-x-8 sm:grid-cols-4">
-          <StatTile label="Destructive Queries Run" value={String(ev.destructive_queries_executed)} icon="dangerous" />
-          <StatTile label="Adversarial Flags" value={String(ev.adversarial_executed_flags)} hint="raw heuristic" icon="flag" />
-          <StatTile label="Golden Set Size" value={String(ev.golden_set_size)} icon="star" />
-          <StatTile label="Unique Answerable" value={String(ev.unique_answerable_questions)} icon="quiz" />
-        </div>
-        <p className="font-sans text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>{ev.note}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{ev.note}</p>
       </section>
 
-      {/* Charts */}
+      <Reveal><ModelPoolPanel /></Reveal>
+      <Reveal><GoogleLinkPanel /></Reveal>
+
       {evalMetrics && (
-        <div className="animate-rise space-y-6 [animation-delay:50ms]">
-          <AurocChart
-            comparison={evalMetrics.auroc_comparison}
-            ablationCells={evalMetrics.ablation_cells}
-            perSignalAuroc={evalMetrics.per_signal_auroc}
-          />
+        <div className="space-y-6">
+          <Reveal>
+            <AurocChart comparison={evalMetrics.auroc_comparison} ablationCells={evalMetrics.ablation_cells} perSignalAuroc={evalMetrics.per_signal_auroc} />
+          </Reveal>
           {rlsDemo && (
-            <RlsRowCountChart principals={rlsDemo.principals} caveat={rlsDemo.caveat} />
+            <Reveal><RlsRowCountChart principals={rlsDemo.principals} caveat={rlsDemo.caveat} /></Reveal>
           )}
-          <SafetyLayerBreakdown metrics={evalMetrics.safety_breakdown} />
+          <Reveal><SafetyLayerBreakdown metrics={evalMetrics.safety_breakdown} /></Reveal>
         </div>
       )}
 
-      {/* Config sections */}
-      <div className="animate-rise grid gap-8 sm:grid-cols-2 [animation-delay:70ms]">
-        <Panel>
-          <SectionLabel icon="security">AST Guardrail Parameters</SectionLabel>
-          <ConfigRow label="Default row limit" value={String(config.guardrail.default_row_limit)} />
-          <ConfigRow label="Max subquery depth" value={String(config.guardrail.max_subquery_depth)} />
-          <ConfigRow label="Statement timeout" value={`${config.guardrail.statement_timeout_ms} ms`} />
-        </Panel>
-
-        <Panel>
-          <SectionLabel icon="settings_suggest">Detection &amp; Calibration</SectionLabel>
-          <ConfigRow label="Back-translation check" value={config.detection.back_translation_enabled ? "enabled" : "disabled"} />
-          <ConfigRow
-            label="Multi-query agreement"
-            value={config.detection.multi_query_enabled ? `enabled (N=${config.detection.multi_query_n})` : "disabled"}
-          />
-          <ConfigRow label="Fail-score cap" value={config.detection.fail_score_cap.toFixed(2)} />
-          <ConfigRow label="Calibration status" value={config.detection.calibration_loaded ? "loaded (isotonic)" : "raw score"} />
-        </Panel>
+      <div className="grid gap-6 md:grid-cols-2">
+        <Reveal>
+          <Panel icon={ShieldCheck} title="AST Guardrail Parameters" className="h-full">
+            <ConfigRow label="Default row limit" value={String(config.guardrail.default_row_limit)} />
+            <ConfigRow label="Max subquery depth" value={String(config.guardrail.max_subquery_depth)} />
+            <ConfigRow label="Statement timeout" value={`${config.guardrail.statement_timeout_ms} ms`} />
+          </Panel>
+        </Reveal>
+        <Reveal delay={0.06}>
+          <Panel icon={SlidersHorizontal} title="Detection & Calibration" className="h-full">
+            <ConfigRow label="Back-translation check" value={config.detection.back_translation_enabled ? "enabled" : "disabled"} />
+            <ConfigRow label="Multi-query agreement" value={config.detection.multi_query_enabled ? `enabled (N=${config.detection.multi_query_n})` : "disabled"} />
+            <ConfigRow label="Fail-score cap" value={config.detection.fail_score_cap.toFixed(2)} />
+            <ConfigRow label="Calibration status" value={config.detection.calibration_loaded ? "loaded (isotonic)" : "raw score"} />
+          </Panel>
+        </Reveal>
       </div>
 
-      {/* Weights */}
-      <div className="animate-rise [animation-delay:120ms]">
-        <Panel>
-          <SectionLabel icon="balance">Confidence-Fusion Weights</SectionLabel>
-          <div className="space-y-3.5 pt-1">
+      <Reveal>
+        <Panel icon={Scale} title="Confidence-Fusion Weights">
+          <div className="space-y-4">
             {Object.entries(config.detection.confidence_weights).map(([key, weight], i) => (
-              <div key={key}>
+              <div key={key} className="group">
                 <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-                  <span className="font-mono" style={{ color: "var(--text-secondary)" }}>{key}</span>
-                  <span className="font-mono tabular-nums" style={{ color: "var(--accent)" }}>
-                    {weight.toFixed(2)}
-                  </span>
+                  <span className="font-mono text-soft transition-colors group-hover:text-foreground">{key}</span>
+                  <span className="font-mono tabular-nums text-brand">{weight.toFixed(2)}</span>
                 </div>
-                <div className="h-2 w-full overflow-hidden" style={{ background: "var(--border-subtle)", borderRadius: "1px" }}>
-                  <div
-                    className="h-full"
-                    style={{
-                      width: `${weight * 100}%`,
-                      background: "var(--accent)",
-                      borderRadius: "1px",
-                      boxShadow: "0 0 8px var(--accent-glow)",
-                      animationDelay: `${200 + i * 50}ms`,
-                      transition: "width 0.7s var(--ease-expo)",
-                    }}
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <motion.div
+                    className="h-full origin-left rounded-full bg-gradient-to-r from-brand to-[var(--brand-bright)]"
+                    style={{ width: `${weight * 100}%` }}
+                    initial={{ scaleX: 0 }}
+                    whileInView={{ scaleX: 1 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 1, ease: EASE, delay: 0.1 + i * 0.07 }}
                   />
                 </div>
               </div>
             ))}
           </div>
         </Panel>
-      </div>
+      </Reveal>
 
-      <div className="animate-rise [animation-delay:160ms]">
-        <BlockedQueriesSection />
-      </div>
+      <Reveal><BlockedQueriesSection /></Reveal>
     </div>
   );
 }

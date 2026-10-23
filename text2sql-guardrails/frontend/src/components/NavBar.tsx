@@ -1,23 +1,34 @@
-import { ThemeToggle } from "./ThemeToggle";
-import { useRef, useEffect } from "react";
-import { gsap } from "gsap";
+import { useState } from "react";
+import { motion, AnimatePresence, useScroll, useMotionValueEvent } from "motion/react";
+import { Database, History, LogOut, Network, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
 import { clearToken } from "../hooks/useAuthToken";
 import type { MeResponse, UserRole } from "../types/api";
+import { ThemeToggle } from "./ThemeToggle";
+import { EASE, LogoMark, Wordmark } from "./kit";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 export type Screen = "workspace" | "history" | "schema" | "admin";
 
 interface Tab {
   key: Screen;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   visibleTo?: UserRole[];
 }
 
 const TABS: Tab[] = [
-  { key: "workspace", label: "Workspace", icon: "terminal" },
-  { key: "history", label: "History", icon: "history" },
-  { key: "schema", label: "Schema Explorer", icon: "schema", visibleTo: ["admin"] },
-  { key: "admin", label: "Admin", icon: "admin_panel_settings", visibleTo: ["admin"] },
+  { key: "workspace", label: "Workspace", icon: SquareTerminal },
+  { key: "history", label: "History", icon: History },
+  { key: "schema", label: "Schema Explorer", icon: Network, visibleTo: ["admin"] },
+  { key: "admin", label: "Admin", icon: ShieldCheck, visibleTo: ["admin"] },
 ];
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -36,184 +47,154 @@ interface Props {
 
 export function NavBar({ active, onChange, me, meLoading }: Props) {
   const tabs = TABS.filter((t) => !t.visibleTo || (me && t.visibleTo.includes(me.role)));
-  const indicatorRef = useRef<HTMLDivElement>(null);
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState<Screen | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const { scrollY } = useScroll();
+  useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 8));
 
-  // Animated underline indicator
-  useEffect(() => {
-    const container = tabsContainerRef.current;
-    const indicator = indicatorRef.current;
-    if (!container || !indicator) return;
+  // A progress line runs under the bar on every screen change.
+  const [routeTick, setRouteTick] = useState(0);
+  const [prev, setPrev] = useState(active);
+  if (prev !== active) {
+    setPrev(active);
+    setRouteTick((n) => n + 1);
+  }
 
-    const activeButton = container.querySelector(`[data-tab="${active}"]`) as HTMLElement;
-    if (!activeButton) return;
-
-    gsap.to(indicator, {
-      x: activeButton.offsetLeft,
-      width: activeButton.offsetWidth,
-      duration: 0.4,
-      ease: "expo.out",
-    });
-  }, [active]);
+  const initials = me?.username.slice(0, 2).toUpperCase() ?? "··";
 
   return (
     <header
-      className="sticky top-0 z-30"
-      style={{
-        background: "rgb(var(--void-rgb) / 0.85)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderBottom: "1px solid var(--border-subtle)",
-      }}
+      className={cn(
+        "sticky top-0 z-40 transition-[background-color,border-color,box-shadow] duration-500",
+        scrolled
+          ? "border-b border-border bg-[rgb(var(--void-rgb)/0.78)] shadow-[0_10px_30px_-20px_rgb(0_0_0/0.5)] backdrop-blur-xl backdrop-saturate-150"
+          : "border-b border-transparent bg-transparent",
+      )}
     >
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between px-5 py-3 sm:px-8 lg:px-10">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 lg:px-10">
         {/* Brand */}
-        <div className="flex min-w-0 items-center gap-3">
-          <div
-            className="flex h-8 w-8 items-center justify-center"
-            style={{
-              border: "1px solid var(--border-accent)",
-              background: "var(--accent-dim)",
-              borderRadius: "8px",
-            }}
-          >
-            <span className="material-symbols-outlined text-[18px]" style={{ color: "var(--accent)" }}>
-              terminal
-            </span>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <h1 className="font-display text-lg text-[var(--text-primary)]">
-              SQL.AI <span className="serif-accent">Guardrails</span>
-            </h1>
-            <span
-              className="pill-tag hidden px-2 py-0.5 font-mono text-[10px] sm:inline-block"
-              style={{ borderRadius: "8px" }}
-            >
-              college_erp
-            </span>
-          </div>
-        </div>
+        <motion.div
+          className="flex min-w-0 items-center gap-2.5"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.7, ease: EASE }}
+        >
+          <LogoMark className="size-8" />
+          <Wordmark className="hidden lg:inline" />
+          <span className="hidden items-center gap-1 rounded-md border border-border bg-card/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground xl:inline-flex">
+            <Database aria-hidden className="size-3" />
+            college_erp
+          </span>
+        </motion.div>
 
-        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-          {/* Tab navigation */}
-          <nav
-            ref={tabsContainerRef}
-            className="relative flex items-center gap-0.5"
-            style={{
-              borderBottom: "1px solid var(--border-subtle)",
-              paddingBottom: "1px",
-            }}
-          >
-            {/* Animated underline indicator */}
-            <div
-              ref={indicatorRef}
-              className="absolute bottom-0 left-0 h-[2px]"
-              style={{
-                background: "var(--accent)",
-                boxShadow: "0 0 8px var(--accent-glow)",
-                borderRadius: "1px",
-                width: 0,
-              }}
-            />
-
-            {tabs.map((tab) => {
-              const isActive = active === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  data-tab={tab.key}
-                  onClick={() => onChange(tab.key)}
-                  aria-current={isActive ? "page" : undefined}
-                  aria-label={tab.label}
-                  title={tab.label}
-                  className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium sm:px-3.5 transition-colors duration-200 focus-visible:outline-none"
-                  style={{
-                    color: isActive ? "var(--accent)" : "var(--text-secondary)",
-                    background: "transparent",
-                    border: "none",
-                    fontFamily: "var(--font-sans)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)";
-                  }}
-                >
-                  <span aria-hidden className="material-symbols-outlined text-[15px]">{tab.icon}</span>
-                  {/* Icons only on phones; the button keeps its name via aria-label. */}
-                  <span className="hidden md:inline">{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Hairline divider */}
-          <div className="hidden sm:block" style={{ width: "1px", height: "24px", background: "var(--border-subtle)" }} />
-
-          {/* User badge */}
-          <div className="flex items-center gap-2.5">
-            {me ? (
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex h-7 w-7 items-center justify-center"
-                  style={{
-                    border: "1px solid var(--border-hairline)",
-                    background: "rgb(var(--ink-rgb) / 0.03)",
-                    borderRadius: "8px",
-                  }}
-                >
-                  <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--accent)" }}>
-                    person
-                  </span>
-                </div>
-                <div className="hidden flex-col text-left leading-tight sm:flex">
-                  <span className="truncate text-xs font-semibold text-[var(--text-primary)]/90">
-                    {me.username}
-                  </span>
-                  <span
-                    className="font-mono text-[10px] uppercase tracking-wider"
-                    style={{ color: "var(--accent)" }}
+        {/* Tabs: a sliding pill marks the active screen, a ghost pill follows hover. */}
+        <nav
+          aria-label="Screens"
+          className="relative flex items-center gap-0.5 rounded-xl border border-border bg-card/60 p-1 shadow-[var(--shadow-lift)] backdrop-blur-md"
+          onMouseLeave={() => setHovered(null)}
+        >
+          {tabs.map((tab) => {
+            const isActive = active === tab.key;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.key}
+                data-tab={tab.key}
+                onClick={() => onChange(tab.key)}
+                onMouseEnter={() => setHovered(tab.key)}
+                onFocus={() => setHovered(tab.key)}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={tab.label}
+                title={tab.label}
+                className={cn(
+                  "press relative flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium outline-none sm:px-3",
+                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {hovered === tab.key && !isActive && (
+                  <motion.span
+                    layoutId="nav-hover"
+                    className="absolute inset-0 rounded-lg bg-hover"
+                    transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  />
+                )}
+                {isActive && (
+                  <motion.span
+                    layoutId="nav-active"
+                    className="absolute inset-0 rounded-lg border border-border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.15),0_0_0_1px_rgb(var(--brand-rgb)/0.0)]"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   >
-                    {ROLE_LABEL[me.role]}
+                    <span className="absolute inset-x-3 -bottom-px h-px bg-gradient-to-r from-transparent via-brand to-transparent" />
+                  </motion.span>
+                )}
+                <Icon aria-hidden className={cn("relative size-4 transition-colors", isActive && "text-brand")} strokeWidth={2} />
+                {/* Icons only on phones; the button keeps its name via aria-label. */}
+                <span className="relative hidden md:inline">{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Account */}
+        <motion.div
+          className="flex items-center gap-2"
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.7, ease: EASE }}
+        >
+          <ThemeToggle />
+          {me ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label="Account menu"
+                className="press group flex items-center gap-2 rounded-lg border border-border bg-card/70 py-1 pr-2.5 pl-1 outline-none hover:border-[rgb(var(--ink-rgb)/0.18)] hover:bg-hover focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              >
+                <span className="relative grid size-6 place-items-center rounded-md bg-foreground font-mono text-[10px] font-semibold text-background">
+                  {initials}
+                  <span className="live-dot absolute -right-0.5 -bottom-0.5 !size-[7px] ring-2 ring-card" />
+                </span>
+                <span className="hidden flex-col text-left leading-tight sm:flex">
+                  <span className="max-w-[9rem] truncate text-xs font-semibold text-foreground">{me.username}</span>
+                  <span className="font-mono text-[10px] text-brand">{ROLE_LABEL[me.role]}</span>
+                </span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={8} className="w-56 rounded-xl">
+                <DropdownMenuLabel className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold">{me.username}</span>
+                  <span className="font-mono text-[11px] font-normal text-muted-foreground">
+                    {ROLE_LABEL[me.role]} · row-level scoped
                   </span>
-                </div>
-              </div>
-            ) : (
-              <span className={`text-xs ${meLoading ? "animate-pulse" : ""}`} style={{ color: "var(--text-muted)" }}>
-                {meLoading ? "Loading…" : "guest"}
-              </span>
-            )}
-
-            <ThemeToggle />
-
-            <button
-              onClick={clearToken}
-              className="flex items-center gap-1 px-2.5 py-1 font-sans text-xs transition duration-200 focus-visible:outline-none"
-              title="Log out"
-              style={{
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border-subtle)",
-                background: "transparent",
-                borderRadius: "8px",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "rgb(var(--danger-soft-rgb) / 0.3)";
-                e.currentTarget.style.color = "rgb(var(--danger-soft-rgb))";
-                e.currentTarget.style.background = "rgb(var(--danger-soft-rgb) / 0.06)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border-subtle)";
-                e.currentTarget.style.color = "var(--text-secondary)";
-                e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <span className="material-symbols-outlined text-[14px]">logout</span>
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </div>
-        </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={clearToken}
+                  className="text-danger-text focus:bg-[rgb(var(--danger-rgb)/0.08)] focus:text-danger-text"
+                >
+                  <LogOut className="text-current" />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className={cn("font-mono text-xs text-muted-foreground", meLoading && "animate-pulse")}>
+              {meLoading ? "Loading…" : "guest"}
+            </span>
+          )}
+        </motion.div>
       </div>
+
+      <AnimatePresence>
+        {routeTick > 0 && (
+          <motion.span
+            key={routeTick}
+            aria-hidden
+            className="route-line absolute inset-x-0 -bottom-px h-[2px]"
+            initial={{ scaleX: 0, opacity: 1 }}
+            animate={{ scaleX: 1, opacity: [1, 1, 0] }}
+            transition={{ duration: 0.8, ease: EASE, opacity: { times: [0, 0.7, 1], duration: 0.8 } }}
+          />
+        )}
+      </AnimatePresence>
     </header>
   );
 }

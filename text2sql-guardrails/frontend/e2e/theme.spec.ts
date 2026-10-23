@@ -55,7 +55,9 @@ for (const theme of ['dark', 'light'] as const) {
 
     test('signed-in screens', async ({ page }) => {
       await page.addInitScript((t) => localStorage.setItem('text2sql_auth_token', t), token!)
-      await page.route('**/v1/query', (r) => r.request().method() === 'POST' ? r.fulfill({ json: ANSWER }) : r.fallback())
+      await page.route('**/v1/query/stream', (r) => r.request().method() === 'POST' ? r.fulfill({ status: 200, contentType: 'application/x-ndjson', body: `${JSON.stringify({ t: 'hello', dev: false })}
+${JSON.stringify({ t: 'result', data: ANSWER })}
+` }) : r.fallback())
       await page.goto('/')
       const q = page.locator('#question')
       await expect(q).toBeVisible({ timeout: 30_000 })
