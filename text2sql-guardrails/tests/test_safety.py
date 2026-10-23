@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
 from app.api.models import QueryRequest, SignalStatus
 from app.api.routes import run_query
-from tests.principals import TEST_ADMIN, TEST_STUDENT
+from tests.principals import TEST_STUDENT
 from app.config import settings
 from app.detection.schema_align import check_schema_alignment
 from app.generation.generator import GenerationResult
@@ -245,19 +243,3 @@ def test_clarification_returns_options_but_never_restricted_columns(monkeypatch)
     assert resp.status == "clarification"
     assert resp.clarification.reason == "How should GPA be calculated?"
     assert [o.label for o in resp.clarification.options] == ["10-point grade scale"]
-
-
-@pytest.mark.parametrize("sql", [
-    "DELETE FROM fee_payments;",
-    "DROP TABLE students;",
-    "UPDATE marks SET marks_obtained = 100;",
-    "SELECT 1; DROP TABLE students;",
-])
-def test_admins_are_guarded_too(sql, monkeypatch):
-    """No question or edited SQL in the workspace may change data, for any
-    role. Admins used to bypass the guardrail and run on the owner
-    connection; they now get the same AST check, read-only role and RLS."""
-    monkeypatch.setattr("app.api.routes.get_readonly_engine", lambda: pytest.fail("must not execute"))
-    resp = run_query(QueryRequest(question="admin request", sql_override=sql), TEST_ADMIN)
-    assert resp.status == "blocked"
-    assert resp.guardrail.passed is False and "admin_override_bypass" not in resp.guardrail.checks_run

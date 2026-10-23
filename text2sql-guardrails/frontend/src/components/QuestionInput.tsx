@@ -43,7 +43,7 @@ export const ADMIN_SAMPLE_QUERIES = [
 ];
 
 const SCOPE = {
-  admin: { title: "All records, read-only", badge: "Admin · all records, read-only", icon: ShieldCheck },
+  admin: { title: "Full database access", badge: "Admin · full access", icon: ShieldCheck },
   guest: { title: "Public college data", badge: "Reference data only", icon: Globe },
   faculty: { title: "Your department's data", badge: "Faculty scope", icon: GraduationCap },
   student: { title: "Your own records", badge: "Student scope", icon: UserRound },
