@@ -59,21 +59,41 @@ function Count({ n }: { n: number }) {
   return <>{Math.round(useTweened(n, 900, 0))}</>;
 }
 
-export function HistoryScreen({ student }: { student?: StudentProfile | null }) {
+export function HistoryScreen({ student, onBack }: { student?: StudentProfile | null; onBack?: () => void }) {
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const [detail, setDetail] = useState<QueryResponse | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
 
-  const openDetail = (id: string) => {
+  // The open result is a browser-history entry above the list, so Back
+  // (button, browser or gesture) returns to History; a reload reopens it.
+  const openDetail = (id: string, push = true) => {
     setOpening(id);
     getHistoryDetail(id)
-      .then((r) => { setDetail(r); window.scrollTo({ top: 0 }); })
+      .then((r) => {
+        if (push) window.history.pushState({ ...window.history.state, detail: id, fromList: true }, "");
+        setDetail(r);
+        window.scrollTo({ top: 0 });
+      })
       .catch((e) => toast.error("Couldn't open this result", { description: e instanceof ApiError ? e.message : undefined }))
       .finally(() => setOpening(null));
   };
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+
+  const closeDetail = () => {
+    const state = window.history.state;
+    if (state?.fromList) window.history.back(); // popstate below clears `detail`
+    else { window.history.replaceState({ ...state, detail: undefined }, ""); setDetail(null); }
+  };
+
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => { if (!e.state?.detail) setDetail(null); };
+    window.addEventListener("popstate", onPop);
+    const reopen = window.history.state?.detail;
+    if (reopen) openDetail(reopen, false);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once on mount
 
   useEffect(() => {
     getHistory(getSessionId())
@@ -105,7 +125,7 @@ export function HistoryScreen({ student }: { student?: StudentProfile | null }) 
   if (detail) {
     return (
       <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-8 lg:px-10 lg:pt-12">
-        <HistoryDetail resp={detail} student={student} onBack={() => setDetail(null)} />
+        <HistoryDetail resp={detail} student={student} onBack={closeDetail} />
       </div>
     );
   }
@@ -113,6 +133,7 @@ export function HistoryScreen({ student }: { student?: StudentProfile | null }) 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 pt-8 sm:px-8 lg:pt-12">
       <PageHeader
+        onBack={onBack}
         index="§ 02"
         eyebrow="History"
         title={<>Query execution history<span className="mark-brand">.</span></>}

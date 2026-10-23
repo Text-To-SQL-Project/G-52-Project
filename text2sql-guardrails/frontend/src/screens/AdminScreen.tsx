@@ -118,7 +118,7 @@ function BlockedQueriesSection() {
   );
 }
 
-export function AdminScreen() {
+export function AdminScreen({ onBack }: { onBack?: () => void }) {
   const [config, setConfig] = useState<AdminConfigResponse | null>(null);
   const [evalMetrics, setEvalMetrics] = useState<EvalMetricsResponse | null>(null);
   const [rlsDemo, setRlsDemo] = useState<RlsDemoResponse | null>(null);
@@ -182,6 +182,7 @@ export function AdminScreen() {
   return (
     <div className={`${wrap} space-y-8`}>
       <PageHeader
+        onBack={onBack}
         index="§ 04"
         eyebrow="Admin Console"
         title={<>{config.app_name} <span className="font-normal text-muted-foreground">v{config.version}</span></>}

@@ -39,3 +39,53 @@ test('a past answer re-opens with its SQL, confidence and rows', async ({ page }
   await page.getByRole('button', { name: /back to history/i }).click()
   await expect(page.getByText('Older blocked one')).toBeVisible()
 })
+
+test('Back returns to the workspace from a page, and to History from an open result', async ({ page }) => {
+  test.skip(!token, 'set E2E_ADMIN_TOKEN')
+  await page.addInitScript((t) => { localStorage.setItem('text2sql_auth_token', t); sessionStorage.setItem('preloader_seen', '1') }, token!)
+  await page.route('**/v1/history?**', (r) => r.fulfill({ json: { items: [ITEM], total: 1 } }))
+  await page.route('**/v1/history/q_hist', (r) => r.fulfill({ json: SNAPSHOT }))
+  const workspace = page.locator('#question')
+  const historyTitle = page.getByRole('heading', { name: /query execution history/i })
+  await page.goto('/')
+  await workspace.waitFor({ timeout: 30_000 })
+
+  // Page → browser Back → workspace, even after hopping between pages.
+  await page.getByRole('button', { name: /^history$/i }).click()
+  await expect(historyTitle).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: /schema explorer/i }).click()
+  await expect(page.getByRole('heading', { name: /the college, as tables/i })).toBeVisible({ timeout: 20_000 })
+  await page.goBack()
+  await expect(workspace).toBeVisible()
+
+  // Page → "Back to workspace" button → workspace.
+  await page.getByRole('button', { name: /^history$/i }).click()
+  await expect(historyTitle).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: /back to workspace/i }).click()
+  await expect(workspace).toBeVisible()
+
+  // Open result → browser Back → History list; button does the same.
+  await page.getByRole('button', { name: /^history$/i }).click()
+  await page.getByRole('button', { name: /view full result/i }).click({ timeout: 20_000 })
+  await expect(page.getByText('Civil Engineering')).toBeVisible()
+  await page.goBack()
+  await expect(historyTitle).toBeVisible()
+  await page.getByRole('button', { name: /view full result/i }).click()
+  await page.getByRole('button', { name: /back to history/i }).click()
+  await expect(historyTitle).toBeVisible()
+
+  // Switching pages from an open result: Back still lands on the workspace.
+  await page.getByRole('button', { name: /view full result/i }).click()
+  await expect(page.getByText('Civil Engineering')).toBeVisible()
+  await page.getByRole('button', { name: /^admin$/i }).click()
+  await expect(page.getByText(/AI key pool/i).first()).toBeVisible({ timeout: 20_000 })
+  await page.goBack()
+  await expect(workspace).toBeVisible()
+  await page.getByRole('button', { name: /^history$/i }).click()
+
+  // A reload keeps the page; Back from there still reaches the workspace.
+  await page.reload()
+  await expect(historyTitle).toBeVisible({ timeout: 30_000 })
+  await page.goBack()
+  await expect(workspace).toBeVisible()
+})

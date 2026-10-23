@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { motion, type Variants } from "motion/react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowLeft, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Shared easing for everything that moves: fast out, long settle. */
@@ -118,7 +118,9 @@ export function PageHeader({
   title,
   lede,
   actions,
+  onBack,
 }: {
+  onBack?: () => void;
   index: string;
   eyebrow: string;
   title: ReactNode;
@@ -127,6 +129,11 @@ export function PageHeader({
 }) {
   return (
     <header className="relative pb-6">
+      {onBack && (
+        <button type="button" onClick={onBack} className="press mb-4 inline-flex min-h-8 items-center gap-1.5 text-sm text-soft hover:text-foreground">
+          <ArrowLeft className="size-4" /> Back to workspace
+        </button>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0">
           <motion.p

@@ -111,7 +111,7 @@ function TableRow({ table, index }: { table: TableInfo; index: number }) {
   );
 }
 
-export function SchemaScreen() {
+export function SchemaScreen({ onBack }: { onBack?: () => void }) {
   const [schema, setSchema] = useState<SchemaResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -133,6 +133,7 @@ export function SchemaScreen() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 pt-8 sm:px-8 lg:px-10 lg:pt-12">
       <PageHeader
+        onBack={onBack}
         index="§ 03"
         eyebrow="Schema Explorer"
         title={<>The college, as tables<span className="mark-brand">.</span></>}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion, type Variants } from "motion/react";
 import { ApiError, getMe } from "./api/client";
 import { LiveBackground } from "./components/LiveBackground";
@@ -39,7 +39,11 @@ const keepAliveVariants: Variants = {
 };
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("workspace");
+  // Pages other than the workspace sit one browser-history entry above it
+  // (history.state.screen), so Back returns to the workspace and a reload
+  // keeps the page. Switching between pages replaces that entry, so Back
+  // never walks through every page visited.
+  const [screen, setScreen] = useState<Screen>(() => (window.history.state?.screen as Screen) ?? "workspace");
   const [token, setTokenState] = useState<string | null>(() => getToken());
   const [me, setMe] = useState<MeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(false);
@@ -47,14 +51,20 @@ export default function App() {
   const [loginView, setLoginView] = useState(onLoginPath);
 
   useEffect(() => {
-    const onPop = () => setLoginView(onLoginPath());
+    const onPop = (e: PopStateEvent) => {
+      setLoginView(onLoginPath());
+      const next = pending.current;
+      pending.current = null;
+      if (next) applyScreen(next);
+      else setScreen((e.state?.screen as Screen) ?? "workspace");
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   // Signed in: the app lives at "/", whatever page you signed in from.
   useEffect(() => {
-    if (token && window.location.pathname !== "/") window.history.replaceState(null, "", "/");
+    if (token && window.location.pathname !== "/") window.history.replaceState(window.history.state, "", "/");
   }, [token]);
 
   const goTo = (login: boolean) => {
@@ -116,14 +126,36 @@ export default function App() {
       ? "workspace"
       : screen;
 
+  /** Moves to `next`, keeping history as [workspace] or [workspace, page]. */
+  const applyScreen = useCallback((next: Screen) => {
+    const state = window.history.state;
+    if (next === "workspace") {
+      // Pop our entry when we pushed it; otherwise (opened by reload) just clear it.
+      if (state?.fromApp) window.history.back();
+      else window.history.replaceState(null, "");
+    } else if (state?.screen) {
+      window.history.replaceState({ screen: next, fromApp: state.fromApp }, "");
+    } else {
+      window.history.pushState({ screen: next, fromApp: true }, "");
+    }
+    setScreen(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // An open history result is one more entry on top; step off it first, then
+  // apply the switch when the browser reports the pop (see onPop).
+  const pending = useRef<Screen | null>(null);
   const handleScreenChange = useCallback(
     (next: Screen) => {
-      if (next === currentScreen) return;
-      setScreen(next);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (next === currentScreen && !window.history.state?.detail) return;
+      if (window.history.state?.fromList) {
+        pending.current = next;
+        window.history.back();
+      } else applyScreen(next);
     },
-    [currentScreen],
+    [currentScreen, applyScreen],
   );
+  const toWorkspace = useCallback(() => handleScreenChange("workspace"), [handleScreenChange]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -164,9 +196,9 @@ export default function App() {
                 {currentScreen !== "workspace" && (
                   <motion.div key={currentScreen} variants={screenVariants} initial="initial" animate="enter" exit="exit">
                     <Suspense fallback={null}>
-                      {currentScreen === "history" && <HistoryScreen student={me?.student} />}
-                      {currentScreen === "schema" && isAdmin && <SchemaScreen />}
-                      {currentScreen === "admin" && <AdminScreen />}
+                      {currentScreen === "history" && <HistoryScreen student={me?.student} onBack={toWorkspace} />}
+                      {currentScreen === "schema" && isAdmin && <SchemaScreen onBack={toWorkspace} />}
+                      {currentScreen === "admin" && <AdminScreen onBack={toWorkspace} />}
                     </Suspense>
                   </motion.div>
                 )}
