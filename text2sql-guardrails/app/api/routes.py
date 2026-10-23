@@ -79,8 +79,6 @@ from app.detection.confidence import FAIL_SCORE_CAP, WEIGHTS, fuse_confidence
 from app.detection.multi_query import check_multi_query_agreement
 from app.detection.result_sanity import check_result_sanity
 from app.detection.schema_align import check_schema_alignment
-import sqlglot
-from sqlglot import exp
 
 from app.generation.generator import generate_sql, is_noop_sql
 from app.generation.llm_client import use_provider, wait_for_background_room
@@ -95,7 +93,7 @@ from app.history import (
     update_history_confidence,
     write_history_row,
 )
-from app.schema.introspect import RESTRICTED_COLUMNS, invalidate_schema_cache
+from app.schema.introspect import RESTRICTED_COLUMNS
 from app.safety.guardrails import check_guardrails
 
 router = APIRouter(prefix="/v1", tags=["text2sql"])
@@ -287,7 +285,6 @@ def run_query(
                 gen = generate_sql(
                     req.question,
                     row_scoped=not principal.is_admin,
-                    is_admin=principal.is_admin,
                     clarify=True,
                     timeout=settings.APP_LLM_TIMEOUT_SECONDS,
                     max_attempts=settings.APP_LLM_MAX_ATTEMPTS,
@@ -315,7 +312,7 @@ def run_query(
                 error_message=_GENERATION_ERROR_CLIENT_MESSAGE,
             )
 
-        if gen.refusal and not (principal.is_admin and gen.sql):
+        if gen.refusal:
             # The model reported its own refusal via the structured
             # `refusal` field -- short-circuit here. Never call the
             # guardrail or the executor for a refusal: there is no real
@@ -393,317 +390,228 @@ def run_query(
 
     lap("generation")
 
-    # 3. app.safety.guardrails -- real AST checks, may BLOCK here.
-    if principal.is_admin:
-        # Admin bypasses AST guardrails for full administrative operations (DDL/DML/etc.)
-        safe_sql = sql
-        guardrail_report = GuardrailReport(
-            passed=True,
-            blocked_reasons=[],
-            injected_limit=None,
-            checks_run=["admin_override_bypass"],
+    # 3. app.safety.guardrails -- real AST checks, may BLOCK here. Everyone,
+    # admins included: no question typed into the workspace may change data.
+    result = check_guardrails(sql)
+    if not result.passed:
+        # blocked_reasons/checks_run describe the STATEMENT (e.g. "blocked
+        # statement: Delete", a subquery-depth number) -- generic across any
+        # database, safe to show as-is. `sql` and `tables_used`/
+        # `columns_used` are NOT: the blocked SQL and the table list gen.py
+        # extracted from it are schema disclosure the same way a
+        # clarification reason is, so they're logged server-side only and
+        # omitted from the client response (the frontend never rendered
+        # them here anyway -- SqlPanel is success-only -- but they were
+        # still sitting in the raw response body, inspectable via
+        # DevTools/curl regardless of what the UI chose to render).
+        logger.info(
+            "BLOCKED for question=%r sql=%r tables_used=%r reasons=%r",
+            req.question, sql, tables_used, result.blocked_reasons,
         )
-    else:
-        result = check_guardrails(sql)
-        if not result.passed:
-            # blocked_reasons/checks_run describe the STATEMENT (e.g. "blocked
-            # statement: Delete", a subquery-depth number) -- generic across any
-            # database, safe to show as-is. `sql` and `tables_used`/
-            # `columns_used` are NOT: the blocked SQL and the table list gen.py
-            # extracted from it are schema disclosure the same way a
-            # clarification reason is, so they're logged server-side only and
-            # omitted from the client response (the frontend never rendered
-            # them here anyway -- SqlPanel is success-only -- but they were
-            # still sitting in the raw response body, inspectable via
-            # DevTools/curl regardless of what the UI chose to render).
-            logger.info(
-                "BLOCKED for question=%r sql=%r tables_used=%r reasons=%r",
-                req.question, sql, tables_used, result.blocked_reasons,
-            )
-            blocked_reason_text = "; ".join(result.blocked_reasons) or "Blocked by guardrails."
-            write_history_row(
-                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question,
-                status=QueryStatus.BLOCKED, sql=sql, status_reason=blocked_reason_text,
-            )
-            return QueryResponse(
-                query_id=query_id,
-                status=QueryStatus.BLOCKED,
-                status_reason=blocked_reason_text,
-                question=req.question,
-                timestamp=timestamp,
-                results=None,
-                confidence=None,
-                execution_time_ms=None,
-                guardrail=GuardrailReport(
-                    passed=False,
-                    blocked_reasons=result.blocked_reasons,
-                    injected_limit=None,
-                    checks_run=result.checks_run,
-                ),
-                warnings=[
-                    Warning(
-                        level=WarningLevel.DANGER,
-                        message="Destructive or unsafe operation blocked before execution.",
-                        source="guardrails",
-                    )
-                ],
-            )
-
-        # Guardrails passed: use the (possibly LIMIT-injected) safe SQL downstream.
-        safe_sql = result.safe_sql
-        ptrace.log("AST guardrail passed", checks=result.checks_run, injected_limit=result.injected_limit)
-        guardrail_report = GuardrailReport(
-            passed=True,
-            blocked_reasons=[],
-            injected_limit=result.injected_limit,
-            checks_run=result.checks_run,
+        blocked_reason_text = "; ".join(result.blocked_reasons) or "Blocked by guardrails."
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question,
+            status=QueryStatus.BLOCKED, sql=sql, status_reason=blocked_reason_text,
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.BLOCKED,
+            status_reason=blocked_reason_text,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=GuardrailReport(
+                passed=False,
+                blocked_reasons=result.blocked_reasons,
+                injected_limit=None,
+                checks_run=result.checks_run,
+            ),
+            warnings=[
+                Warning(
+                    level=WarningLevel.DANGER,
+                    message="Destructive or unsafe operation blocked before execution.",
+                    source="guardrails",
+                )
+            ],
         )
 
-    # Check statement type
-    stmt = None
-    try:
-        stmt = sqlglot.parse_one(safe_sql, dialect="postgres")
-    except Exception:
-        pass
-    is_select = isinstance(stmt, exp.Select) if stmt else False
+    # Guardrails passed: use the (possibly LIMIT-injected) safe SQL downstream.
+    safe_sql = result.safe_sql
+    ptrace.log("AST guardrail passed", checks=result.checks_run, injected_limit=result.injected_limit)
+    guardrail_report = GuardrailReport(
+        passed=True,
+        blocked_reasons=[],
+        injected_limit=result.injected_limit,
+        checks_run=result.checks_run,
+    )
+
     lap("guardrails")
     bt_pending = False
 
     # 4. app.detection (pre) -- schema alignment + back-translation
-    if principal.is_admin and not is_select:
-        # Pre-populate confidence signals for admin DDL/DML operations
-        signals = [
-            ConfidenceSignal(
-                key="sql_validity", label="SQL Validity", score=1.0,
-                status=SignalStatus.PASS, detail="Admin statement parsed; guardrails bypassed.",
-            ),
-            ConfidenceSignal(
-                key="schema_alignment", label="Schema Alignment", score=1.0,
-                status=SignalStatus.PASS, detail="Admin DDL/DML operation.",
-            ),
-            ConfidenceSignal(
-                key="back_translation", label="Back-translation", score=1.0,
-                status=SignalStatus.PASS, detail="Admin operation.",
-            ),
-            ConfidenceSignal(
-                key="result_sanity", label="Result Sanity", score=1.0,
-                status=SignalStatus.PASS, detail="pending execution",
-            ),
-            ConfidenceSignal(
-                key="multi_query_agreement", label="Multi-query Agreement",
-                score=1.0, status=SignalStatus.PASS, detail="pending execution",
-            ),
-        ]
-    else:
-        alignment_signal = check_schema_alignment(safe_sql)
-        bt_pending = settings.BACK_TRANSLATION_ENABLED
-        back_translation_signal = (
-            _BT_PENDING_SIGNAL if bt_pending
-            else check_back_translation(req.question, sql)  # the disabled placeholder
-        )
-        signals = [
-            ConfidenceSignal(
-                key="sql_validity", label="SQL Validity", score=1.0,
-                status=SignalStatus.PASS, detail="Parses via sqlglot; passed guardrail AST checks.",
-            ),
-            alignment_signal,
-            back_translation_signal,
-            ConfidenceSignal(
-                key="result_sanity", label="Result Sanity", score=0.5,
-                status=SignalStatus.WARN, detail="pending execution",
-            ),
-            ConfidenceSignal(
-                key="multi_query_agreement", label="Multi-query Agreement",
-                score=0.5, status=SignalStatus.WARN, detail="pending execution",
-            ),
-        ]
+    alignment_signal = check_schema_alignment(safe_sql)
+    bt_pending = settings.BACK_TRANSLATION_ENABLED
+    back_translation_signal = (
+        _BT_PENDING_SIGNAL if bt_pending
+        else check_back_translation(req.question, sql)  # the disabled placeholder
+    )
+    signals = [
+        ConfidenceSignal(
+            key="sql_validity", label="SQL Validity", score=1.0,
+            status=SignalStatus.PASS, detail="Parses via sqlglot; passed guardrail AST checks.",
+        ),
+        alignment_signal,
+        back_translation_signal,
+        ConfidenceSignal(
+            key="result_sanity", label="Result Sanity", score=0.5,
+            status=SignalStatus.WARN, detail="pending execution",
+        ),
+        ConfidenceSignal(
+            key="multi_query_agreement", label="Multi-query Agreement",
+            score=0.5, status=SignalStatus.WARN, detail="pending execution",
+        ),
+    ]
 
     ptrace.log("pre-execution signals", **{x.key: f"{getattr(x.status, 'value', x.status)} {x.score:.2f}" for x in signals})
     lap("pre_checks")
 
     # 5. Execution
     start = time.perf_counter()
-    if principal.is_admin:
-        # Admin executes via privileged superuser engine with full DDL/DML permissions
-        privileged_engine = get_engine()
-        try:
-            with privileged_engine.begin() as conn:
-                cursor = conn.execute(text(safe_sql))
-                if cursor.returns_rows:
-                    result_columns = list(cursor.keys())
-                    result_rows = [list(row) for row in cursor.fetchall()]
-                else:
-                    result_columns = ["operation", "status", "rows_affected"]
-                    rows_aff = cursor.rowcount if cursor.rowcount >= 0 else "N/A"
-                    result_rows = [["Admin SQL", "Executed successfully", rows_aff]]
-        except Exception as e:
-            logger.error("Admin execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
-            write_history_row(
-                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
-                status_reason=f"Execution failed: {e}",
+    # Everyone (admins included) executes via the readonly engine + RLS session
+    # binding. The admin RLS policy admits every row; writes are impossible.
+    engine = get_readonly_engine()
+    privileged_engine = get_engine()
+    scope_violation: str | None = None
+    binding: tuple[int, object] | None = None
+    try:
+        with engine.begin() as conn:
+            pid, backend_start = read_backend_identity(conn)
+            binding = (pid, backend_start)
+            bind_session(
+                privileged_engine,
+                pid=pid,
+                backend_start=backend_start,
+                principal=principal,
             )
-            return QueryResponse(
-                query_id=query_id,
-                status=QueryStatus.ERROR,
-                status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
-                question=req.question,
-                timestamp=timestamp,
-                results=None,
-                confidence=None,
-                execution_time_ms=None,
-                guardrail=guardrail_report,
-                warnings=[],
-                error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+
+            expected_scope = apply_scope(conn, principal)
+            # Transaction-local (is_local=true): dies with this
+            # transaction, never leaks to the next pooled checkout.
+            conn.execute(
+                text("SELECT set_config('statement_timeout', :ms, true)"),
+                {"ms": str(settings.STATEMENT_TIMEOUT_MS)},
             )
-    else:
-        # Non-admin (student, faculty): execute strictly via readonly engine + RLS session binding
-        engine = get_readonly_engine()
-        privileged_engine = get_engine()
-        scope_violation: str | None = None
-        binding: tuple[int, object] | None = None
-        try:
-            with engine.begin() as conn:
-                pid, backend_start = read_backend_identity(conn)
-                binding = (pid, backend_start)
-                bind_session(
-                    privileged_engine,
-                    pid=pid,
-                    backend_start=backend_start,
-                    principal=principal,
+
+            cursor = conn.execute(text(safe_sql))
+            result_columns = list(cursor.keys())
+            result_rows = [list(row) for row in cursor.fetchall()]
+
+            try:
+                assert_scope_intact(conn, expected_scope)
+            except ScopeTamperingError as tamper:
+                scope_violation = str(tamper)
+            else:
+                row_violations = check_rows_match_principal(
+                    result_columns, result_rows, principal
                 )
+                if row_violations:
+                    scope_violation = "; ".join(row_violations)
 
-                expected_scope = apply_scope(conn, principal)
-                # Transaction-local (is_local=true): dies with this
-                # transaction, never leaks to the next pooled checkout.
-                conn.execute(
-                    text("SELECT set_config('statement_timeout', :ms, true)"),
-                    {"ms": str(settings.STATEMENT_TIMEOUT_MS)},
-                )
+            if scope_violation is not None:
+                result_columns, result_rows = [], []
+    except SessionBindingError as e:
+        logger.error(
+            "SESSION BINDING FAILED -- request refused. user_id=%s question=%r: %s",
+            principal.user_id, req.question, e,
+        )
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
+            status_reason=f"Session binding failed: {e}",
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+        )
+    except Exception as e:
+        logger.error("Execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
+            status_reason=f"Execution failed: {e}",
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+        )
+    finally:
+        if binding is not None:
+            release_session(privileged_engine, pid=binding[0], backend_start=binding[1])
 
-                cursor = conn.execute(text(safe_sql))
-                result_columns = list(cursor.keys())
-                result_rows = [list(row) for row in cursor.fetchall()]
-
-                try:
-                    assert_scope_intact(conn, expected_scope)
-                except ScopeTamperingError as tamper:
-                    scope_violation = str(tamper)
-                else:
-                    row_violations = check_rows_match_principal(
-                        result_columns, result_rows, principal
-                    )
-                    if row_violations:
-                        scope_violation = "; ".join(row_violations)
-
-                if scope_violation is not None:
-                    result_columns, result_rows = [], []
-        except SessionBindingError as e:
-            logger.error(
-                "SESSION BINDING FAILED -- request refused. user_id=%s question=%r: %s",
-                principal.user_id, req.question, e,
-            )
-            write_history_row(
-                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
-                status_reason=f"Session binding failed: {e}",
-            )
-            return QueryResponse(
-                query_id=query_id,
-                status=QueryStatus.ERROR,
-                status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
-                question=req.question,
-                timestamp=timestamp,
-                results=None,
-                confidence=None,
-                execution_time_ms=None,
-                guardrail=guardrail_report,
-                warnings=[],
-                error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
-            )
-        except Exception as e:
-            logger.error("Execution failed for question=%r sql=%r: %s", req.question, safe_sql, e)
-            write_history_row(
-                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
-                status_reason=f"Execution failed: {e}",
-            )
-            return QueryResponse(
-                query_id=query_id,
-                status=QueryStatus.ERROR,
-                status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
-                question=req.question,
-                timestamp=timestamp,
-                results=None,
-                confidence=None,
-                execution_time_ms=None,
-                guardrail=guardrail_report,
-                warnings=[],
-                error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
-            )
-        finally:
-            if binding is not None:
-                release_session(privileged_engine, pid=binding[0], backend_start=binding[1])
-
-        if scope_violation is not None:
-            logger.error(
-                "SCOPE VIOLATION -- results discarded. user_id=%s role=%s "
-                "question=%r sql=%r detail=%s",
-                principal.user_id, principal.role, req.question, safe_sql, scope_violation,
-            )
-            write_history_row(
-                query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
-                question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
-                status_reason=f"Scope violation: {scope_violation}",
-            )
-            return QueryResponse(
-                query_id=query_id,
-                status=QueryStatus.ERROR,
-                status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
-                question=req.question,
-                timestamp=timestamp,
-                results=None,
-                confidence=None,
-                execution_time_ms=None,
-                guardrail=guardrail_report,
-                warnings=[],
-                error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
-            )
+    if scope_violation is not None:
+        logger.error(
+            "SCOPE VIOLATION -- results discarded. user_id=%s role=%s "
+            "question=%r sql=%r detail=%s",
+            principal.user_id, principal.role, req.question, safe_sql, scope_violation,
+        )
+        write_history_row(
+            query_id=query_id, session_id=req.session_id, user_id=principal.user_id,
+            question=req.question, status=QueryStatus.ERROR, sql=safe_sql,
+            status_reason=f"Scope violation: {scope_violation}",
+        )
+        return QueryResponse(
+            query_id=query_id,
+            status=QueryStatus.ERROR,
+            status_reason=_EXECUTION_ERROR_CLIENT_MESSAGE,
+            question=req.question,
+            timestamp=timestamp,
+            results=None,
+            confidence=None,
+            execution_time_ms=None,
+            guardrail=guardrail_report,
+            warnings=[],
+            error_message=_EXECUTION_ERROR_CLIENT_MESSAGE,
+        )
 
     execution_time_ms = round((time.perf_counter() - start) * 1000, 2)
     ptrace.log(f"executed: {len(result_rows)} rows × {len(result_columns)} cols in {execution_time_ms} ms", columns=result_columns)
     lap("execution")
-    if principal.is_admin and not is_select:
-        invalidate_schema_cache()  # the statement may have been DDL
 
     # 6. app.detection (post) -- result sanity + multi-query agreement
     row_scoped = not principal.is_admin
-    if principal.is_admin and not is_select:
-        signals = [
-            s if s.key not in ("result_sanity", "multi_query_agreement")
-            else ConfidenceSignal(
-                key=s.key,
-                label="Result Sanity" if s.key == "result_sanity" else "Multi-query Agreement",
-                score=1.0,
-                status=SignalStatus.PASS,
-                detail="Admin statement executed successfully.",
-            )
-            for s in signals
-        ]
-    else:
-        result_sanity_signal = check_result_sanity(
-            safe_sql, result_columns, result_rows, req.question, row_scoped=row_scoped
-        )
-        multi_query_signal = check_multi_query_agreement(
-            req.question, safe_sql, result_rows, principal=principal
-        )
-        signals = [
-            result_sanity_signal if s.key == "result_sanity"
-            else multi_query_signal if s.key == "multi_query_agreement"
-            else s
-            for s in signals
-        ]
+    result_sanity_signal = check_result_sanity(
+        safe_sql, result_columns, result_rows, req.question, row_scoped=row_scoped
+    )
+    multi_query_signal = check_multi_query_agreement(
+        req.question, safe_sql, result_rows, principal=principal
+    )
+    signals = [
+        result_sanity_signal if s.key == "result_sanity"
+        else multi_query_signal if s.key == "multi_query_agreement"
+        else s
+        for s in signals
+    ]
 
     # 7. app.detection.confidence -- fuse the five real signals into one
     # overall score (weighted mean + hard fail-override; see

@@ -95,7 +95,7 @@ const FAQ = [
 const ROLES: { r: string; icon: LucideIcon; d: string }[] = [
   { r: "Student", icon: GraduationCap, d: "Asks about their own marks, attendance, fees and placements. Everyone else's rows are invisible at the database level." },
   { r: "Faculty", icon: Presentation, d: "Sees the sections and subjects they teach: class attendance, marks distributions, who needs attention." },
-  { r: "Admin", icon: ShieldCheck, d: "Full access, schema explorer, and the audit trail of every blocked query and every guardrail decision." },
+  { r: "Admin", icon: ShieldCheck, d: "Reads every record (still read-only, still guarded), plus the schema explorer and the audit trail of every blocked query." },
   { r: "Guest", icon: Globe, d: "Anyone with a Google account. Explores public reference data (departments, programs, subjects, library, placements) with no personal rows." },
 ];
 
