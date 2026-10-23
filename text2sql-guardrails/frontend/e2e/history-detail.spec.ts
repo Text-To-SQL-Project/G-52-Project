@@ -29,7 +29,8 @@ test('a past answer re-opens with its SQL, confidence and rows', async ({ page }
 
   await page.goto('/')
   await page.getByRole('button', { name: /history/i }).first().click()
-  await expect(page.getByRole('button', { name: /view full result/i })).toHaveCount(1) // only answers with a snapshot
+  // First paint of the lazily loaded History screen can be slow under parallel load.
+  await expect(page.getByRole('button', { name: /view full result/i })).toHaveCount(1, { timeout: 20_000 }) // only answers with a snapshot
   await page.getByRole('button', { name: /view full result/i }).click()
 
   await expect(page.getByText('Civil Engineering')).toBeVisible()

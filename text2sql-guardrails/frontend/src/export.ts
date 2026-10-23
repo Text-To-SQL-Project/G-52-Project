@@ -4,7 +4,16 @@ import type { ResultTable, StudentProfile } from "./types/api";
 
 type Cell = unknown;
 
+/** A rendered chart: PNG bytes for Word and downloads, data URL for print. */
+export interface ChartImage {
+  png: Uint8Array;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
 export interface ExportDoc {
+  image?: ChartImage; // chart drawn above the table
   title: string;
   subtitle?: string;
   fields?: [string, string][]; // label/value pairs above the table
@@ -62,6 +71,7 @@ function html(d: ExportDoc): string {
 </style></head><body>
 <header><div class="brand">SQL.AI Guardrails · College ERP</div><h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}</header>
 ${fields ? `<dl>${fields}</dl>` : ""}
+${d.image ? `<img src="${d.image.dataUrl}" alt="Chart" style="display:block;width:100%;margin:0 0 18px">` : ""}
 <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
 ${d.footer ? `<footer>${esc(d.footer)}</footer>` : ""}
 </body></html>`;
@@ -93,14 +103,14 @@ const crc32 = (b: Uint8Array) => {
 };
 
 /** Minimal zip (stored, no compression): enough for Word to open. */
-function zip(files: Record<string, string>): Blob {
+function zip(files: Record<string, string | Uint8Array>): Blob {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   const central: Uint8Array[] = [];
   let offset = 0;
   for (const [name, content] of Object.entries(files)) {
     const n = enc.encode(name);
-    const data = enc.encode(content);
+    const data = typeof content === "string" ? enc.encode(content) : content;
     const crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));
     [[0, 0x04034b50, 4], [4, 20, 2], [14, crc, 4], [18, data.length, 4], [22, data.length, 4], [26, n.length, 2]]
@@ -127,6 +137,13 @@ const run = (t: string, o: { bold?: boolean; size?: number; color?: string; seri
 const para = (runs: string, after = 120) => `<w:p><w:pPr><w:spacing w:after="${after}"/></w:pPr>${runs}</w:p>`;
 const tcell = (t: string, bold = false) => `<w:tc><w:p>${run(t, { bold, size: 18 })}</w:p></w:tc>`;
 
+/** Inline picture filling the text width (A4 minus margins, in EMU). */
+function picture(img: ChartImage): string {
+  const cx = 6_400_000;
+  const cy = Math.round((cx * img.height) / img.width);
+  return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="1" name="Chart"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="chart.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdChart"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+
 export function exportDocx(d: ExportDoc) {
   const border = (s: string) => `<w:${s} w:val="single" w:sz="4" w:color="D8D2C6"/>`;
   const table = `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${["top", "bottom", "insideH"].map(border).join("")}</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr>
@@ -138,18 +155,85 @@ ${d.rows.map((r) => `<w:tr>${r.map((c) => tcell(cellText(c))).join("")}</w:tr>`)
     d.subtitle ? para(run(d.subtitle, { size: 20, color: "45464B" }), 240) : "",
     ...(d.fields ?? []).map(([k, v]) => para(run(`${k}: `, { size: 20, color: "63625C" }) + run(v, { size: 20, bold: true }), 40)),
     d.fields?.length ? para("", 120) : "",
+    d.image ? para(picture(d.image), 200) : "",
     table,
     d.footer ? para("", 120) + para(run(d.footer, { size: 16, color: "63625C" })) : "",
   ].join("");
   download(
     zip({
-      "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+      "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
       "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
-      "word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="900" w:bottom="1000" w:left="900"/></w:sectPr></w:body></w:document>`,
+      "word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="900" w:bottom="1000" w:left="900"/></w:sectPr></w:body></w:document>`,
+      ...(d.image
+        ? {
+            "word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart.png"/></Relationships>`,
+            "word/media/chart.png": d.image.png,
+          }
+        : {}),
     }),
     `${d.title.toLowerCase().replace(/\W+/g, "_")}_${stamp()}.docx`,
   );
 }
+
+// ── Chart → image ────────────────────────────────────────────────────────
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Renders an on-screen recharts SVG to a 2x PNG on white. Theme CSS
+ * variables don't survive serialisation, so every colour is resolved here;
+ * text and grid always use print colours, so a dark-theme chart still reads
+ * on paper. The legend (HTML in recharts) is redrawn under the plot. */
+export async function chartImage(svg: SVGSVGElement): Promise<ChartImage> {
+  const { width, height: plotH } = svg.getBoundingClientRect();
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const from = svg.querySelectorAll("*");
+  clone.querySelectorAll("*").forEach((el, i) => {
+    const src = from[i];
+    const cs = getComputedStyle(src);
+    if (el.tagName === "text" || el.tagName === "tspan") {
+      el.setAttribute("fill", "#45464b");
+      el.setAttribute("font-family", "Inter, Arial, sans-serif");
+      el.setAttribute("font-size", cs.fontSize);
+    } else {
+      el.setAttribute("fill", cs.fill);
+      const lines = src.closest(".recharts-cartesian-grid, .recharts-cartesian-axis");
+      el.setAttribute("stroke", cs.stroke === "none" ? "none" : lines ? "#d8d2c6" : cs.stroke);
+    }
+  });
+
+  const legend = [...(svg.closest(".recharts-wrapper")?.querySelectorAll(".recharts-legend-item") ?? [])].map((item) => ({
+    label: item.textContent?.trim() ?? "",
+    color: getComputedStyle(item.querySelector("path, rect") ?? item).fill,
+  }));
+  // recharts already reserves the legend's space inside the SVG; draw it there.
+  const height = plotH;
+  const ly = plotH - 22;
+  let x = 16;
+  for (const { label, color } of legend) {
+    const sw = document.createElementNS(SVG_NS, "rect");
+    Object.entries({ x, y: ly, width: 10, height: 10, rx: 2, fill: color }).forEach(([k, v]) => sw.setAttribute(k, String(v)));
+    const t = document.createElementNS(SVG_NS, "text");
+    Object.entries({ x: x + 15, y: ly + 9, fill: "#16181d", "font-size": 12, "font-family": "Inter, Arial, sans-serif" }).forEach(([k, v]) => t.setAttribute(k, String(v)));
+    t.textContent = label.replace(/_/g, " ");
+    clone.append(sw, t);
+    x += 30 + label.length * 7;
+  }
+  const bg = document.createElementNS(SVG_NS, "rect");
+  Object.entries({ width: "100%", height: "100%", fill: "#ffffff" }).forEach(([k, v]) => bg.setAttribute(k, v));
+  clone.prepend(bg);
+  Object.entries({ xmlns: SVG_NS, width, height, viewBox: `0 0 ${width} ${height}` }).forEach(([k, v]) => clone.setAttribute(k, String(v)));
+
+  const img = new Image();
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  await img.decode();
+  const canvas = Object.assign(document.createElement("canvas"), { width: width * 2, height: height * 2 });
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(2, 2);
+  ctx.drawImage(img, 0, 0, width, height);
+  const blob = await new Promise<Blob>((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error("PNG encode failed"))), "image/png"));
+  return { png: new Uint8Array(await blob.arrayBuffer()), dataUrl: canvas.toDataURL("image/png"), width, height };
+}
+
+export const downloadPng = (img: ChartImage) => download(new Blob([img.png as BlobPart], { type: "image/png" }), `chart_${stamp()}.png`);
 
 // ── What to export ───────────────────────────────────────────────────────
 /** Columns that make a result set look like a student's academic result. */

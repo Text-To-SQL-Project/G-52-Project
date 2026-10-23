@@ -1,10 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Award, Ban, BarChart3, Download, FileText, FileType, Info, SearchX, Sheet, Table2 } from "lucide-react";
+import { Award, Ban, BarChart3, Download, FileText, FileType, ImageDown, Info, SearchX, Sheet, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ResultTable, StudentProfile } from "../types/api";
 import type { ChartShape } from "./ResultChart";
-import { certificateDoc, exportCsv, exportDocx, isResultQuery, printPdf, resultsDoc } from "../export";
+import { certificateDoc, chartImage, downloadPng, exportCsv, exportDocx, isResultQuery, printPdf, resultsDoc } from "../export";
+import type { ChartImage } from "../export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +98,19 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
   const [view, setView] = useState<"table" | "chart">("table");
   const showChart = view === "chart" && shape !== null;
   const canCertify = !!student && !!results && isResultQuery(results.columns);
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  /** Renders the on-screen chart to an image, then hands it to `use`. */
+  const withChart = async (what: string, use: (img: ChartImage) => void) => {
+    const svg = chartRef.current?.querySelector<SVGSVGElement>(".recharts-wrapper > svg.recharts-surface");
+    if (!svg) return void toast.error("Chart isn't ready yet", { description: "Try again in a moment." });
+    try {
+      use(await chartImage(svg));
+      if (what) exported(what);
+    } catch {
+      toast.error("Couldn't export the chart");
+    }
+  };
 
   const exported = (what: string) =>
     toast.success(`${what} ready`, { description: `${results!.rows.length.toLocaleString()} rows · ${results!.columns.length} columns` });
@@ -147,6 +161,29 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
                   <DropdownMenuItem onSelect={() => { exportDocx(resultsDoc(results, question)); exported("Word document"); }}>
                     <FileType /> Word (.docx)
                   </DropdownMenuItem>
+                  {shape && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Export chart</DropdownMenuLabel>
+                      {showChart ? (
+                        <>
+                          <DropdownMenuItem onSelect={() => withChart("Chart image", downloadPng)}>
+                            <ImageDown /> PNG image
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => withChart("", (image) => printPdf({ ...resultsDoc(results, question), image }))}>
+                            <FileText /> Chart + table as PDF
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => withChart("Word document", (image) => exportDocx({ ...resultsDoc(results, question), image }))}>
+                            <FileType /> Chart + table as Word
+                          </DropdownMenuItem>
+                        </>
+                      ) : (
+                        <DropdownMenuItem onSelect={() => setView("chart")}>
+                          <BarChart3 /> Open the chart to export it
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
                   {canCertify && (
                     <>
                       <DropdownMenuSeparator />
@@ -171,9 +208,11 @@ export function ResultsTable({ results, executed, question, queryId, student }: 
       ) : results.rows.length === 0 ? (
         <Empty icon={SearchX} title="No matching records" body="The query executed successfully and matched 0 rows." />
       ) : showChart ? (
-        <Suspense fallback={<div className="h-[22rem]" />}>
-          <ResultChart results={results} shape={shape} />
-        </Suspense>
+        <div ref={chartRef}>
+          <Suspense fallback={<div className="h-[22rem]" />}>
+            <ResultChart results={results} shape={shape} />
+          </Suspense>
+        </div>
       ) : (
         <div className="max-h-[32rem] overflow-auto" data-lenis-prevent tabIndex={0} aria-label="Query results table">
           <table className="w-full border-collapse text-left text-sm">
