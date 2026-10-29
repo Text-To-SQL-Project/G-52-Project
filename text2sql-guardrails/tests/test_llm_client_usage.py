@@ -160,3 +160,88 @@ def test_resolved_model_none_when_nothing_available(monkeypatch):
     llm_client.complete("system", "user")
 
     assert llm_client.get_last_resolved_model() is None
+
+
+def _fake_client(seen, fail_models):
+    import openai
+
+    class _Client:
+        class chat:
+            class completions:
+                class with_raw_response:
+                    @staticmethod
+                    def create(**kw):
+                        seen.append(kw["model"])
+                        if kw["model"] in fail_models:
+                            raise openai.APITimeoutError(request=None)
+                        return _FakeRawResponse(_fake_chat_completion(kw["model"], 1, 1))
+
+    return _Client
+
+
+def test_interactive_retry_moves_to_next_app_model(monkeypatch):
+    seen = []
+    monkeypatch.setattr(llm_client, "_get_openai_compatible_client", lambda p: _fake_client(seen, {"a"}))
+    monkeypatch.setattr(llm_client.time, "sleep", lambda s: None)
+    monkeypatch.setattr(llm_client.settings, "LLM_RPM_LIMIT", 0)
+    monkeypatch.setattr(llm_client.settings, "LLM_MODEL", "primary")
+    monkeypatch.setattr(llm_client.settings, "APP_LLM_MODELS", ["a", "b"])
+
+    with llm_client.use_provider("gemini"):
+        assert llm_client.complete("s", "u", max_attempts=2) == "b"
+    assert seen == ["a", "b"]
+
+    # Eval (no provider override) never leaves LLM_MODEL.
+    seen.clear()
+    monkeypatch.setattr(llm_client.settings, "LLM_PROVIDER", "gemini")
+    llm_client.complete("s", "u", max_attempts=2)
+    assert seen == ["primary"]
+
+
+def test_hedge_race_moves_on_immediately_when_a_model_fails(monkeypatch):
+    seen = []
+    monkeypatch.setattr(llm_client, "_get_openai_compatible_client", lambda p: _fake_client(seen, {"a"}))
+    monkeypatch.setattr(llm_client.settings, "LLM_RPM_LIMIT", 0)
+    monkeypatch.setattr(llm_client.settings, "APP_LLM_MODELS", ["a", "b"])
+
+    start = llm_client.time.monotonic()
+    with llm_client.use_provider("gemini"):
+        # A long stagger: "b" may only start because "a" failed.
+        assert llm_client.complete("s", "u", timeout=5, hedge_after=4) == "b"
+    assert llm_client.time.monotonic() - start < 2
+
+
+def test_hedge_race_gives_up_at_the_deadline(monkeypatch):
+    import pytest
+
+    seen = []
+    monkeypatch.setattr(llm_client, "_get_openai_compatible_client", lambda p: _fake_client(seen, {"a", "b"}))
+    monkeypatch.setattr(llm_client.settings, "LLM_RPM_LIMIT", 0)
+    monkeypatch.setattr(llm_client.settings, "APP_LLM_MODELS", ["a", "b"])
+
+    start = llm_client.time.monotonic()
+    with llm_client.use_provider("gemini"), pytest.raises(Exception):
+        llm_client.complete("s", "u", timeout=2, hedge_after=0.5)
+    assert llm_client.time.monotonic() - start < 3
+
+
+def test_app_models_race_across_providers_and_skip_keyless_ones(monkeypatch):
+    seen = []
+    monkeypatch.setattr(llm_client, "_get_openai_compatible_client",
+                        lambda p: (seen.append(p), _fake_client([], set()))[1])
+    monkeypatch.setattr(llm_client.settings, "LLM_RPM_LIMIT", 0)
+    monkeypatch.setattr(llm_client.settings, "LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "gem-key")
+    monkeypatch.setattr(llm_client.settings, "APP_LLM_MODELS", ["groq:fast", "flash"])
+
+    monkeypatch.setattr(llm_client.settings, "GROQ_API_KEY", "")
+    assert llm_client._app_models() == [("gemini", "flash")]
+    with llm_client.use_provider("gemini"):
+        assert llm_client.complete("s", "u", max_attempts=1) == "flash"
+
+    monkeypatch.setattr(llm_client.settings, "GROQ_API_KEY", "groq-key")
+    assert llm_client._app_models() == [("groq", "fast"), ("gemini", "flash")]
+    assert llm_client._api_key("groq") == "groq-key"
+    with llm_client.use_provider("gemini"):
+        assert llm_client.complete("s", "u", max_attempts=1) == "fast"
+    assert seen == ["gemini", "groq"]

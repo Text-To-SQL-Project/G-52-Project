@@ -292,9 +292,11 @@ def run_query(
                     timeout=settings.APP_LLM_TIMEOUT_SECONDS,
                     max_attempts=settings.APP_LLM_MAX_ATTEMPTS,
                     # A duplicate request only burns quota under the single
-                    # env key's RPM cap; the pool spreads it across keys.
+                    # env key's RPM cap; the pool spreads it across keys,
+                    # and a fallback model has its own per-model quota.
                     hedge_after=(
                         None if settings.LLM_RPM_LIMIT and provider != "litellm"
+                        and len(settings.APP_LLM_MODELS) < 2
                         else settings.APP_LLM_HEDGE_SECONDS
                     ),
                 )

@@ -31,7 +31,7 @@ def test_hedge_returns_the_faster_leg():
         return len(calls)
 
     start = time.perf_counter()
-    assert _hedged(call, hedge_after=0.1) == 2
+    assert _hedged(lambda t: call(), stagger=0.1, budget=5) == 2
     assert time.perf_counter() - start < 0.6
 
 
@@ -46,8 +46,8 @@ def test_hedge_falls_through_a_failed_leg_and_skips_hedging_when_fast():
         time.sleep(0.3)
         return "leg 2"
 
-    assert _hedged(call, hedge_after=0.05) == "leg 2"
-    assert _hedged(lambda: "fast", hedge_after=5) == "fast"
+    assert _hedged(lambda t: call(), stagger=0.05, budget=5) == "leg 2"
+    assert _hedged(lambda t: "fast", stagger=5, budget=10) == "fast"
 
 
 def test_hedge_raises_when_both_legs_fail():
@@ -56,7 +56,7 @@ def test_hedge_raises_when_both_legs_fail():
         raise ValueError("down")
 
     with pytest.raises(ValueError):
-        _hedged(call, hedge_after=0.01)
+        _hedged(lambda t: call(), stagger=0.01, budget=1.5)
 
 
 # --- pending signal ----------------------------------------------------------

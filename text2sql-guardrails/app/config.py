@@ -38,6 +38,8 @@ class Settings:
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" | "gemini" | "groq"
     LLM_MODEL: str = os.getenv("LLM_MODEL", "claude-sonnet-5")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    # Optional second provider for the app's model race (see APP_LLM_MODELS).
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "1024"))
     # 0 = unlimited (the historical default -- keeps the Anthropic path's
     # timing, and therefore nothing about its behavior, unchanged). Set to
@@ -87,11 +89,18 @@ class Settings:
     # Latency budget for the interactive app (target: answer < 3 s). These
     # apply to /v1/query only; eval/ keeps LLM_TIMEOUT_SECONDS and the
     # default retry count so published runs stay reproducible.
-    APP_LLM_TIMEOUT_SECONDS: float = float(os.getenv("APP_LLM_TIMEOUT_SECONDS", "10"))
+    APP_LLM_TIMEOUT_SECONDS: float = float(os.getenv("APP_LLM_TIMEOUT_SECONDS", "9"))
     APP_LLM_MAX_ATTEMPTS: int = int(os.getenv("APP_LLM_MAX_ATTEMPTS", "2"))
     # Fire a duplicate generation request if the first is slower than this;
     # first answer wins. 0 disables (e.g. on a tight free-tier RPM quota).
     APP_LLM_HEDGE_SECONDS: float = float(os.getenv("APP_LLM_HEDGE_SECONDS", "2.5"))
+    # Models the app races, fastest-first (comma-separated; empty = LLM_MODEL
+    # only). A bare name uses LLM_PROVIDER; "groq:<model>" uses GROQ_API_KEY.
+    # A congested model usually stays congested; a sibling has its own
+    # capacity and quota.
+    APP_LLM_MODELS: list[str] = [
+        m.strip() for m in os.getenv("APP_LLM_MODELS", "").split(",") if m.strip()
+    ]
     # Structure-only schema reflection is cached this long (generation and
     # schema_align both need it on every question). Admin DDL clears it.
     SCHEMA_CACHE_SECONDS: int = int(os.getenv("SCHEMA_CACHE_SECONDS", "300"))

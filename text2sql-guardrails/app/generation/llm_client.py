@@ -25,12 +25,13 @@ silently a no-op there, not an error; see complete()'s docstring.
 from __future__ import annotations
 
 import contextvars
+import itertools
 import json
 import logging
 import random
 import threading
 import time
-from collections import deque
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from functools import lru_cache
@@ -82,6 +83,11 @@ _provider_override: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
+# Index into the model list (APP_LLM_MODELS on the app path) the first
+# attempt uses; _hedged sets it per leg so each leg starts on another model.
+_model_offset: contextvars.ContextVar[int] = contextvars.ContextVar("llm_model_offset", default=0)
+
+
 def effective_provider() -> str:
     return _provider_override.get() or settings.LLM_PROVIDER
 
@@ -93,6 +99,28 @@ def use_provider(provider: str | None):
         yield
     finally:
         _provider_override.reset(token)
+
+
+def _api_key(provider: str) -> str:
+    """GROQ_API_KEY lets Groq join the app's model race alongside the
+    LLM_PROVIDER key; any other provider only has a key if it IS LLM_PROVIDER."""
+    if provider == "groq" and settings.GROQ_API_KEY:
+        return settings.GROQ_API_KEY
+    return settings.LLM_API_KEY if provider == settings.LLM_PROVIDER else ""
+
+
+def _app_models() -> list[tuple[str, str]]:
+    """APP_LLM_MODELS as (provider, model). "groq:<model>" names another
+    OpenAI-compatible provider; a bare name means LLM_PROVIDER. Entries whose
+    provider has no key are skipped, so listing one before its key is set
+    is harmless."""
+    out = []
+    for entry in settings.APP_LLM_MODELS:
+        prefix, sep, rest = entry.partition(":")
+        provider, model = (prefix, rest) if sep and prefix in _PROVIDER_BASE_URLS else (settings.LLM_PROVIDER, entry)
+        if _api_key(provider):
+            out.append((provider, model))
+    return out
 
 
 @lru_cache(maxsize=None)
@@ -113,7 +141,7 @@ def _get_openai_compatible_client(provider: str) -> openai.OpenAI:
             f"{', '.join(repr(p) for p in _PROVIDER_BASE_URLS)}."
         )
     return openai.OpenAI(
-        api_key=settings.LLM_API_KEY,
+        api_key=_api_key(provider),
         base_url=base_url,
         timeout=settings.LLM_TIMEOUT_SECONDS,
         max_retries=0,
@@ -189,7 +217,10 @@ class _RpmThrottle:
             return len(self._call_times) < limit - reserve
 
 
-_throttle = _RpmThrottle()
+# Gemini's RPM quota is per model, so each model gets its own window;
+# _throttle (LLM_MODEL's) is the one background work reserves room in.
+_throttles: defaultdict[str, _RpmThrottle] = defaultdict(_RpmThrottle)
+_throttle = _throttles[settings.LLM_MODEL]
 
 
 def wait_for_background_room(max_wait_seconds: float = 60.0) -> bool:
@@ -218,7 +249,7 @@ def _log_rate_limit_headers(headers) -> None:
         logger.info("Rate-limit headers: %s", rl)
 
 
-def _with_backoff(fn, max_attempts: int | None = None):
+def _with_backoff(fn, max_attempts: int | None = None, throttle: bool = True):
     """Retries `fn` on a retryable error (see _is_retryable) up to
     `max_attempts` total attempts, defaulting to _MAX_RETRIES (5) -- so
     the default worst case is still exactly 5 HTTP requests per complete()
@@ -241,7 +272,9 @@ def _with_backoff(fn, max_attempts: int | None = None):
     request counts."""
     limit = _MAX_RETRIES if max_attempts is None else max_attempts
     for attempt in range(limit):
-        if effective_provider() != "litellm":  # the pool spreads load over many keys
+        # The pool spreads load over many keys; throttle=False callers
+        # throttle per model inside fn.
+        if throttle and effective_provider() != "litellm":
             _throttle.wait()
         start = time.monotonic()
         try:
@@ -392,10 +425,22 @@ def _complete_openai_compatible(
     system: str, user: str, max_attempts: int | None = None, timeout: float | None = None
 ) -> str:
     provider = effective_provider()
-    client = _get_openai_compatible_client(provider)
-    model = settings.LITELLM_MODEL_GROUP if provider == "litellm" else settings.LLM_MODEL
+    app_models = _app_models() if provider != "litellm" and _provider_override.get() else []
+    if provider == "litellm":
+        targets = [(provider, settings.LITELLM_MODEL_GROUP)]
+    elif app_models:
+        # Interactive path only (eval never sets the override): each retry
+        # or hedge leg goes to the next model instead of the one that failed.
+        targets = app_models
+    else:
+        targets = [(provider, settings.LLM_MODEL)]
+    attempts = itertools.count(_model_offset.get())
 
     def _call():
+        leg_provider, model = targets[next(attempts) % len(targets)]
+        if leg_provider != "litellm":
+            _throttles[model].wait()
+        client = _get_openai_compatible_client(leg_provider)
         raw = client.chat.completions.with_raw_response.create(
             model=model,
             max_tokens=settings.MAX_OUTPUT_TOKENS,
@@ -415,7 +460,7 @@ def _complete_openai_compatible(
         _last_resolved_model = _extract_resolved_model(raw, parsed)
         return parsed
 
-    response = _with_backoff(_call, max_attempts)
+    response = _with_backoff(_call, max_attempts, throttle=False)
 
     global _last_usage
     usage = getattr(response, "usage", None)
@@ -427,28 +472,40 @@ def _complete_openai_compatible(
     return response.choices[0].message.content or ""
 
 
-_hedge_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-hedge")
+_hedge_pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="llm-hedge")
 
 
-def _hedged(call, hedge_after: float):
-    """Tail-latency cut for the interactive path: if `call` hasn't returned
-    within `hedge_after` seconds, start an identical second request and
-    return whichever finishes first. The first SUCCESS wins; an error only
-    surfaces once both legs have failed. Costs one extra request on slow
-    calls only (measured: provider p50 ~1.6 s, tail up to ~6 s)."""
-    # Each leg runs in a copy of the caller's context so the provider
-    # override (a ContextVar) follows it into the worker thread.
-    first = _hedge_pool.submit(contextvars.copy_context().run, call)
-    done, _ = wait([first], timeout=hedge_after)
-    if done:
-        return first.result()
-    legs = {first, _hedge_pool.submit(contextvars.copy_context().run, call)}
-    while legs:
-        done, legs = wait(legs, return_when=FIRST_COMPLETED)
+def _hedged(leg, stagger: float, budget: float):
+    """Interactive path: race models under one hard deadline. Starts
+    leg(timeout) on the first model now, then another leg on the next model
+    every `stagger` seconds, or at once when a leg fails (a congested
+    Gemini model answers 503 in ~2 s, or queues for 20+ s). The first
+    SUCCESS wins; losers run out their timeout and are discarded. Raises
+    the last leg error, or TimeoutError once `budget` seconds have passed."""
+    end = time.monotonic() + budget
+    running: set = set()
+    next_offset = 0
+    last_error: BaseException | None = None
+    while True:
+        left = end - time.monotonic()
+        if left <= 1.0:  # too little time left for a new leg to answer
+            if not running:
+                raise last_error or TimeoutError(f"no LLM answer within {budget:.0f}s")
+        else:
+            # Each leg runs in a copy of the caller's context so the
+            # provider override (a ContextVar) follows it into the worker.
+            ctx = contextvars.copy_context()
+            ctx.run(_model_offset.set, next_offset)
+            running.add(_hedge_pool.submit(ctx.run, leg, left))
+            next_offset += 1
+        left = end - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"no LLM answer within {budget:.0f}s")
+        done, running = wait(running, timeout=min(stagger, left), return_when=FIRST_COMPLETED)
         for f in done:
             if f.exception() is None:
-                return f.result()  # the loser keeps running and is discarded
-    return first.result()  # both failed: re-raise the first leg's error
+                return f.result()
+            last_error = f.exception()
 
 
 def complete(
@@ -498,7 +555,8 @@ def complete(
     """
     if hedge_after:
         return _hedged(
-            lambda: complete(system, user, cache_system, max_attempts, timeout), hedge_after
+            lambda left: complete(system, user, cache_system, 1, left),
+            hedge_after, timeout or settings.LLM_TIMEOUT_SECONDS,
         )
     provider = effective_provider()
     if provider == "litellm" and settings.LLM_PROVIDER != "litellm":
