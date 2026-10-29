@@ -249,7 +249,9 @@ def _log_rate_limit_headers(headers) -> None:
         logger.info("Rate-limit headers: %s", rl)
 
 
-def _with_backoff(fn, max_attempts: int | None = None, throttle: bool = True):
+def _with_backoff(
+    fn, max_attempts: int | None = None, throttle: bool = True, retry_any: bool = False
+):
     """Retries `fn` on a retryable error (see _is_retryable) up to
     `max_attempts` total attempts, defaulting to _MAX_RETRIES (5) -- so
     the default worst case is still exactly 5 HTTP requests per complete()
@@ -286,7 +288,10 @@ def _with_backoff(fn, max_attempts: int | None = None, throttle: bool = True):
             return result
         except Exception as e:
             elapsed = time.monotonic() - start
-            if not _is_retryable(e):
+            # retry_any: the next attempt goes to a different model, where
+            # e.g. a 404 model_not_found or a bad key for one provider
+            # doesn't apply.
+            if not (retry_any or _is_retryable(e)):
                 logger.info(
                     "LLM call failed non-retryably (attempt %d/%d) after %.2fs: %s",
                     attempt + 1, limit, elapsed, e,
@@ -460,7 +465,7 @@ def _complete_openai_compatible(
         _last_resolved_model = _extract_resolved_model(raw, parsed)
         return parsed
 
-    response = _with_backoff(_call, max_attempts, throttle=False)
+    response = _with_backoff(_call, max_attempts, throttle=False, retry_any=len(targets) > 1)
 
     global _last_usage
     usage = getattr(response, "usage", None)

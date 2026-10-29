@@ -245,3 +245,32 @@ def test_app_models_race_across_providers_and_skip_keyless_ones(monkeypatch):
     with llm_client.use_provider("gemini"):
         assert llm_client.complete("s", "u", max_attempts=1) == "fast"
     assert seen == ["gemini", "groq"]
+
+
+def test_a_missing_model_falls_through_to_the_next_app_model(monkeypatch):
+    import openai
+
+    seen = []
+
+    class _Client:
+        class chat:
+            class completions:
+                class with_raw_response:
+                    @staticmethod
+                    def create(**kw):
+                        seen.append(kw["model"])
+                        if kw["model"] == "gone":
+                            raise openai.NotFoundError(
+                                "model_not_found", response=__import__("httpx").Response(
+                                    404, request=__import__("httpx").Request("POST", "http://x")), body=None)
+                        return _FakeRawResponse(_fake_chat_completion("ok", 1, 1))
+
+    monkeypatch.setattr(llm_client, "_get_openai_compatible_client", lambda p: _Client)
+    monkeypatch.setattr(llm_client.time, "sleep", lambda s: None)
+    monkeypatch.setattr(llm_client.settings, "LLM_RPM_LIMIT", 0)
+    monkeypatch.setattr(llm_client.settings, "APP_LLM_MODELS", ["gone", "flash"])
+
+    # Back-translation's shape: no hedge, two attempts.
+    with llm_client.use_provider("gemini"):
+        assert llm_client.complete("s", "u", max_attempts=2) == "ok"
+    assert seen == ["gone", "flash"]
