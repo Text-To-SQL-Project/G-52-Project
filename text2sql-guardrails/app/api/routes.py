@@ -195,6 +195,15 @@ def _read_ticket(ticket: str) -> dict | None:
         return None
 
 
+def _app_hedge_after(provider: str | None) -> float | None:
+    # A duplicate request only burns quota under the single env key's RPM
+    # cap; the pool spreads it across keys, and a second model in
+    # APP_LLM_MODELS has its own per-model quota.
+    if settings.LLM_RPM_LIMIT and provider != "litellm" and len(settings.APP_LLM_MODELS) < 2:
+        return None
+    return settings.APP_LLM_HEDGE_SECONDS
+
+
 def _finish_back_translation(
     question: str, sql: str, signals: list[ConfidenceSignal], row_scoped: bool,
     provider: str | None = None,
@@ -203,7 +212,12 @@ def _finish_back_translation(
         # Short wait only: this request is the user's, not background work.
         if not wait_for_background_room(max_wait_seconds=8):
             raise RuntimeError("skipped to keep LLM_RPM_LIMIT headroom for new questions")
-        bt = check_back_translation(question, sql, row_scoped)  # never raises by contract
+        # Raced and deadlined like generation: two unbounded calls on a
+        # congested provider outlived Vercel's 30 s function limit.
+        bt = check_back_translation(  # never raises by contract
+            question, sql, row_scoped,
+            timeout=settings.APP_LLM_TIMEOUT_SECONDS, hedge_after=_app_hedge_after(provider),
+        )
     except Exception as e:
         bt = ConfidenceSignal(
             key="back_translation_match", label="Back-translation Match", score=0.5,
@@ -291,14 +305,7 @@ def run_query(
                     clarify=True,
                     timeout=settings.APP_LLM_TIMEOUT_SECONDS,
                     max_attempts=settings.APP_LLM_MAX_ATTEMPTS,
-                    # A duplicate request only burns quota under the single
-                    # env key's RPM cap; the pool spreads it across keys,
-                    # and a fallback model has its own per-model quota.
-                    hedge_after=(
-                        None if settings.LLM_RPM_LIMIT and provider != "litellm"
-                        and len(settings.APP_LLM_MODELS) < 2
-                        else settings.APP_LLM_HEDGE_SECONDS
-                    ),
+                    hedge_after=_app_hedge_after(provider),
                 )
         except Exception as e:
             logger.error("SQL generation failed for question=%r: %s", req.question, e)

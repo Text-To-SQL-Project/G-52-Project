@@ -82,7 +82,8 @@ def _ticket(**over):
 def test_ticket_redeems_only_for_its_owner_and_query(monkeypatch):
     monkeypatch.setattr(routes.settings, "SECRET_KEY", "k" * 40)
     final_bt = _sig("back_translation_match", 0.2, SignalStatus.FAIL, "drifted")
-    monkeypatch.setattr(routes, "check_back_translation", lambda q, s: final_bt)
+    bt_calls = []
+    monkeypatch.setattr(routes, "check_back_translation", lambda *a, **kw: (bt_calls.append(kw), final_bt)[1])
     monkeypatch.setattr(routes, "wait_for_background_room", lambda **_: True)
     written = {}
     monkeypatch.setattr(routes, "update_history_confidence", lambda qid, s: written.update({qid: s}))
@@ -91,6 +92,8 @@ def test_ticket_redeems_only_for_its_owner_and_query(monkeypatch):
     assert update.pending is False
     assert update.confidence.score <= 0.40  # FAIL cap applied once the real signal lands
     assert written["q_test"]["score"] == update.confidence.score  # snapshot gets the full breakdown
+    # Bounded like generation, so it fits Vercel's 30 s function limit.
+    assert bt_calls[0]["timeout"] == routes.settings.APP_LLM_TIMEOUT_SECONDS
 
     good = _ticket()
     for qid, ticket, who in [

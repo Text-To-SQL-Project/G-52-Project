@@ -30,7 +30,10 @@ _COMPARE_SYSTEM = (
 )
 
 
-def check_back_translation(question: str, sql: str, row_scoped: bool = False) -> ConfidenceSignal:
+def check_back_translation(
+    question: str, sql: str, row_scoped: bool = False,
+    timeout: float | None = None, hedge_after: float | None = None,
+) -> ConfidenceSignal:
     """Never raises -- any LLM/API/parse failure degrades to a WARN signal
     so it can't take down the request path.
 
@@ -38,7 +41,10 @@ def check_back_translation(question: str, sql: str, row_scoped: bool = False) ->
     user, so "my marks" is answered by SQL with no user filter at all -- the
     database adds it. Unless told, the comparison reads that SQL as
     "everyone's marks" and fails a correct answer (seen live: 0.30 for
-    "What are my marks in each subject?")."""
+    "What are my marks in each subject?").
+
+    `timeout`/`hedge_after` bound each LLM call (see llm_client.complete);
+    the app passes its latency budget, eval passes neither."""
     if not settings.BACK_TRANSLATION_ENABLED:
         return ConfidenceSignal(
             key="back_translation_match",
@@ -60,7 +66,8 @@ def check_back_translation(question: str, sql: str, row_scoped: bool = False) ->
         # see complete()'s docstring. Generation, which cannot degrade,
         # keeps the full 5.
         back_translated = complete(
-            _BACK_TRANSLATE_SYSTEM, sql, cache_system=True, max_attempts=2
+            _BACK_TRANSLATE_SYSTEM, sql, cache_system=True, max_attempts=2,
+            timeout=timeout, hedge_after=hedge_after,
         ).strip()
 
         compare_user = (
@@ -74,7 +81,10 @@ def check_back_translation(question: str, sql: str, row_scoped: bool = False) ->
             )
             + "How semantically equivalent are these two questions?"
         )
-        raw = complete(_COMPARE_SYSTEM, compare_user, cache_system=True, max_attempts=2)
+        raw = complete(
+            _COMPARE_SYSTEM, compare_user, cache_system=True, max_attempts=2,
+            timeout=timeout, hedge_after=hedge_after,
+        )
         data = parse_llm_json(raw)
         score = max(0.0, min(1.0, float(data["score"])))
         reason = str(data.get("reason", "")).strip()
